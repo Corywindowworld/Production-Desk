@@ -55,6 +55,19 @@ HTTPS is needed for the existing Secure session cookie when testing sign-in loca
 
 The production Next.js build includes TypeScript checks. The PostgreSQL integration suite uses PGlite (an embedded PostgreSQL engine) and mocked object storage. It exercises database rollback, account activation, permissions, job transitions, payment methods, upload authorization and finalization, and installation reports. This does not replace real Supabase/Vercel staging validation. Historical SQLite tests are retained under `tests/legacy` for reference and are not the migration test suite.
 
+`tests/postgres.test.mjs` stubs out `db/raw.ts`, so it does not cover the postgres.js
+wiring that actually talks to Supabase's transaction pooler. `tests/driver.test.mjs`
+covers that layer — affected-row counts, `batch()` transaction rollback, `ON CONFLICT`
+against the rewritten schema-qualified table names, and the jsonb job queries. It needs a
+throwaway database and is skipped unless `TEST_DATABASE_URL` is set:
+
+```
+createdb driver_test
+TEST_DATABASE_URL=postgres://postgres@127.0.0.1:5432/driver_test npm run test:driver
+```
+
+It drops and recreates the `production` schema, so never point it at real data.
+
 Official references:
 - https://supabase.com/docs/guides/database/connecting-to-postgres
 - https://supabase.com/docs/guides/storage

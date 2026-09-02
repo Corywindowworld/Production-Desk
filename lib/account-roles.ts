@@ -1,0 +1,2 @@
+export const roleLabels:Record<string,string>={admin:'Administrator / Manager',production_assistant:'Production assistant',office:'Production assistant',supervisor:'Field supervisor',installer:'Installer'};
+export function canEditAccount(actor:{id:string;role:string},target:{id:string;role:string}|null,nextRole:string){if(actor.role!=='admin'||target?.id==='owner')return false;if(actor.id==='owner')return true;return nextRole!=='admin'&&target?.role!=='admin'&&target?.id!==actor.id}

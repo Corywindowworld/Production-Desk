@@ -1,0 +1,2 @@
+import {actor,apiError} from '@/lib/access';import {database} from '@/db/raw';import {installerJob} from '@/lib/installer-workflow';
+export async function GET(request:Request){try{const m=await actor(request);const r=await database().prepare("SELECT payload,version FROM jobs WHERE (payload::jsonb->>'installerId')=? ORDER BY (payload::jsonb->>'install')").bind(m.id).all();return Response.json({jobs:r.results.map((r:any)=>installerJob({...JSON.parse(r.payload),version:r.version}))},{headers:{'Cache-Control':'no-store'}})}catch(e){return apiError(e)}}

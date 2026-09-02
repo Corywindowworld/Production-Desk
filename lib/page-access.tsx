@@ -1,0 +1,3 @@
+import {headers} from 'next/headers';import {redirect} from 'next/navigation';import {actor,ApiError} from '@/lib/access';
+export async function pageMember(path:string){try{return await actor(new Request('https://app.local'+path,{headers:await headers()}))}catch(e){if(e instanceof ApiError&&e.status===401)redirect('/login?next='+encodeURIComponent(path));if(e instanceof ApiError&&e.status===428)redirect('/change-password');throw e}}
+export function AccessPending(){return <main className="workspace"><h1>Account access needed</h1><p>Ask an administrator to create or activate your account.</p><a href="/login">Sign in</a></main>}

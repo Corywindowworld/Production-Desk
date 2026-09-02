@@ -1,0 +1,1 @@
+declare module 'web-push' {const webpush:{generateRequestDetails:(subscription:any,payload:string,options:any)=>{endpoint:string;headers:Record<string,string>;body:any};generateVAPIDKeys:()=>{publicKey:string;privateKey:string}};export default webpush;}

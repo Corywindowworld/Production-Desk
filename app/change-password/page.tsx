@@ -1,0 +1,3 @@
+import {headers} from 'next/headers';import {redirect} from 'next/navigation';import {currentSession} from '@/lib/auth-session';import {ChangePasswordForm} from '@/components/auth-forms';
+export const dynamic='force-dynamic';export const metadata={title:'Change password · Production Desk'};
+export default async function Change(){const session=await currentSession(new Request('https://app.local/change-password',{headers:await headers()}));if(!session)redirect('/login');return <main className="auth-page"><section className="auth-card"><h1>{session.must_change?'Set your password':'Change password'}</h1><ChangePasswordForm email={session.email} mustChange={!!session.must_change}/></section></main>}

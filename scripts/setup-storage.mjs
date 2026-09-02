@@ -1,0 +1,10 @@
+import {createClient} from '@supabase/supabase-js';
+const {SUPABASE_URL,SUPABASE_SERVICE_ROLE_KEY}=process.env;
+if(!SUPABASE_URL||!SUPABASE_SERVICE_ROLE_KEY)throw new Error('Set Supabase server credentials');
+const c=createClient(SUPABASE_URL,SUPABASE_SERVICE_ROLE_KEY,{auth:{persistSession:false}});
+const bucket=process.env.SUPABASE_STORAGE_BUCKET||'job-files';
+const settings={public:false,fileSizeLimit:15*1024*1024};
+const existing=await c.storage.getBucket(bucket);
+const result=existing.data?await c.storage.updateBucket(bucket,settings):await c.storage.createBucket(bucket,settings);
+if(result.error)throw result.error;
+console.log('Private storage bucket configured: '+bucket);

@@ -1,0 +1,2 @@
+import {bucket} from './storage';
+export const env={get BUCKET(){return bucket},get APP_URL(){return process.env.APP_URL},get OWNER_LOGIN_EMAIL(){return process.env.OWNER_LOGIN_EMAIL},get OWNER_BOOTSTRAP_PASSWORD_HASH(){return process.env.OWNER_BOOTSTRAP_PASSWORD_HASH},get RESEND_API_KEY(){return process.env.RESEND_API_KEY},get ACCOUNT_EMAIL_FROM(){return process.env.ACCOUNT_EMAIL_FROM},get VAPID_PUBLIC_KEY(){return process.env.VAPID_PUBLIC_KEY},get VAPID_PRIVATE_KEY(){return process.env.VAPID_PRIVATE_KEY},get VAPID_SUBJECT(){return process.env.VAPID_SUBJECT}};

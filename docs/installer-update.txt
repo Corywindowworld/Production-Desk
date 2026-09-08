@@ -1,0 +1,46 @@
+INSTALLER DESK UPDATE
+
+Prepared for Production Desk. This package has not been deployed to your live site.
+
+What changes
+- Installer accounts open to today's assigned jobs.
+- Tomorrow and All assigned jobs tabs include job counts.
+- Job details include address/map link, phone, field supervisor, payment method,
+  notes and special instructions.
+- Existing Complete and Incomplete reports retain photo and paperwork uploads.
+- A quality score appears at the top. Below 3.60 is red; 3.60 and above is green.
+  An account without a score shows Not rated.
+- Assigned field supervisors set scores from My installers / Quality scores on
+  their Production Desk page. Installers cannot edit scores. An owner can score
+  installers assigned directly to the owner. Scores accept 0–100, two decimals;
+  the display does not assume an out-of-five scale.
+- Scores refresh every minute and when returning to the browser tab.
+
+Install in this order
+1. In Supabase SQL Editor, open and run only:
+   supabase/migrations/002_installer_quality.sql
+   This adds three columns; it does not replace jobs, accounts or passwords.
+   Do not rerun the original migration or private data import.
+2. Extract this ZIP. In GitHub Production-Desk, select your deployment branch:
+   claude/review-and-begin-29bnd5
+   Upload the app, components, lib, supabase, tests and docs folders at the
+   repository root. Preserve the folder names and replace matching files.
+   Do not upload the ZIP itself, and do not append the contents to existing files.
+3. Commit with a message such as Add installer daily schedule and quality scores.
+4. In Vercel, wait for THAT commit's deployment to show Ready. If it is Preview,
+   promote that deployment to Production, as with the previous updates.
+5. Sign in as a field supervisor, save an assigned installer's score, then sign
+   in as that installer. Confirm today's/tomorrow's jobs and score. Test uploads
+   using an appropriate test job because submitting a report changes job status.
+
+Use existing installer accounts. To create another, use Account administration,
+choose Installer, select its field supervisor, and assign jobs to that installer.
+The email/domain setup is paused; this package does not enable invitation email.
+
+Verification completed
+- Production Next.js build and TypeScript compilation passed.
+- PostgreSQL-compatible integration tests passed for authentication, role access,
+  signed uploads, complete reports, score persistence, audit logging, score input
+  validation and denied score changes by installers/unassigned supervisors.
+- Threshold checks: 3.59 red; 3.60 and 3.61 green; null unrated.
+- Live deployment, live account testing and browser visual review remain pending.

@@ -6,6 +6,7 @@ import {resolve} from 'node:path';
 import {createServer} from 'vite';
 import bcrypt from 'bcryptjs';
 const pg=new PGlite();await pg.exec(readFileSync('supabase/migrations/001_initial.sql','utf8'));
+await pg.exec(readFileSync('supabase/migrations/002_installer_quality.sql','utf8'));
 const wrap=client=>({query:async(sql,args)=>{const r=await client.query(sql,args);return {rows:r.rows,changes:r.affectedRows??r.rows.length}},transaction:fn=>client.transaction(tx=>fn(wrap(tx)))});
 const objects=new Map();let uploadSequence=0;
 const storage={async createSignedUploadUrl(path){return {data:{signedUrl:'https://storage.example/upload/'+path}}},async download(key){return objects.has(key)?{data:objects.get(key)}:{error:new Error('Not found')}},async upload(key,bytes){if(objects.has(key))return {error:new Error('Exists')};objects.set(key,new Blob([bytes]));return {data:{path:key}}},async remove(keys){keys.forEach(k=>objects.delete(k));return {data:[]}},async createSignedUrl(key){return {data:{signedUrl:'https://storage.example/read/'+key}}}};
@@ -16,6 +17,9 @@ const {createDatabase,compileQuery}=await vite.ssrLoadModule('/db/adapter.ts');c
 const load=p=>vite.ssrLoadModule('/app/api/'+p+'/route.ts');
 const login=await load('auth/login'),change=await load('auth/change-password'),team=await load('team'),jobs=await load('jobs'),installerJobs=await load('installer/jobs'),files=await load('attachments'),reports=await load('installer/reports'),me=await load('me'),reset=await load('team/reset-password');
 const {bucket}=await vite.ssrLoadModule('@/lib/storage');env.BUCKET=bucket;
+const quality=await load('installer/quality');
+const {qualityTone}=await vite.ssrLoadModule('/lib/installer-quality.ts');
+const {apiError,ApiError}=await vite.ssrLoadModule('/lib/access.ts');
 await vite.close();
 let ip=1;
 function req(path,body,cookie=''){return new Request('https://example.com/api/'+path,{method:body?'POST':'GET',headers:{'Content-Type':'application/json',origin:'https://example.com',cookie,'x-vercel-forwarded-for':'192.0.2.'+ip++},body:body?JSON.stringify(body):undefined})}
@@ -27,11 +31,42 @@ test('PostgreSQL transaction rollback and bound values',async()=>{
  await assert.rejects(db.batch([db.prepare("INSERT INTO members(id,email,name,role) VALUES ('rollback','x','x','admin')"),db.prepare("INSERT INTO members(id,email,name,role) VALUES ('rollback','y','y','admin')")]));
  assert.equal(await db.prepare("SELECT id FROM members WHERE id='rollback'").first(),null);
 });
+test('unexpected errors log only safe diagnostic codes and a matching reference',async()=>{
+ const messages=[],original=console.error;
+ console.error=(...args)=>messages.push(args);
+ try{
+  for(const code of ['28P01','SELF_SIGNED_CERT_IN_CHAIN','secret-value','toString']){
+   const error=Object.assign(new Error('postgres://user:secret-password@host/db'),{code,query:'secret-query',parameters:['private-email']});
+   const response=apiError(error),body=await response.json(),logged=messages.at(-1)[1];
+   assert.equal(response.status,500);
+   assert.ok(body.error.includes(logged.reference));
+   assert.equal(logged.code,['28P01','SELF_SIGNED_CERT_IN_CHAIN'].includes(code)?code:'UNCLASSIFIED');
+   assert.doesNotMatch(JSON.stringify([messages,body]),/secret-password|secret-query|private-email|secret-value/);
+  }
+  const count=messages.length,response=apiError(new ApiError(401,'Sign in with your email and password.'));
+  assert.equal(response.status,401);
+  assert.equal(messages.length,count);
+ }finally{console.error=original}
+});
 test('native PostgreSQL auth, role permissions, payment methods, signed uploads, reports',async()=>{
  const owner=await activate('owner@example.com','TemporaryOwner1!');
  assert.equal((await login.POST(req('auth/login',{email:'owner@example.com',password:'TemporaryOwner1!'}))).status,401);
  async function member(email,role,supervisorId=null){const r=await success(await team.POST(req('team',{email,name:email,role,supervisorId,active:true},owner)));const row=await db.prepare('SELECT id FROM members WHERE email=?').bind(email).first();return {id:row.id,cookie:await activate(email,r.temporaryPassword)}}
  const supervisor=await member('supervisor@example.com','supervisor'),otherSupervisor=await member('other-supervisor@example.com','supervisor'),installer=await member('installer@example.com','installer',supervisor.id),other=await member('other@example.com','installer',supervisor.id);
+ assert.equal(qualityTone(null),'unrated');assert.equal(qualityTone(3.59),'below');assert.equal(qualityTone(3.60),'good');assert.equal(qualityTone(3.61),'good');
+ const scoreRequest=(score,id=installer.id)=>({id,score});
+ const initial=await success(await quality.GET(req('installer/quality',null,installer.cookie)));
+ assert.equal(initial.installers.length,1);assert.equal(initial.installers[0].quality_score,null);
+ assert.equal((await quality.POST(req('installer/quality',scoreRequest(4),installer.cookie))).status,403);
+ assert.equal((await quality.POST(req('installer/quality',scoreRequest(4),otherSupervisor.cookie))).status,403);
+ for(const score of [-1,101,3.601,'4',null])assert.equal((await quality.POST(req('installer/quality',scoreRequest(score),supervisor.cookie))).status,400);
+ for(const score of [0,3.59,3.60,4.25]){
+  await success(await quality.POST(req('installer/quality',scoreRequest(score),supervisor.cookie)));
+  const actual=await success(await quality.GET(req('installer/quality',null,installer.cookie)));
+  assert.equal(actual.installers[0].quality_score,score);
+ }
+ assert.equal((await success(await quality.GET(req('installer/quality',null,otherSupervisor.cookie)))).installers.length,0);
+ assert.equal((await db.prepare("SELECT * FROM account_audit WHERE action LIKE 'Installer quality score%'").all()).results.length,4);
  const base={id:crypto.randomUUID(),number:'123',customer:'Test customer',address:'Test street',supervisor:'',crew:'',stage:'Received',installerId:installer.id,supervisorId:supervisor.id,eta:'',install:'2026-09-01',blocker:'',notes:'',version:0,history:[],attachments:[],paymentMethod:'PO'};
  let j=(await success(await jobs.POST(req('jobs',base,owner)))).job;
  assert.equal(j.paymentMethod,'PO');
@@ -61,6 +96,8 @@ test('native PostgreSQL auth, role permissions, payment methods, signed uploads,
  // Installer reassignment exercises PostgreSQL jsonb updates.
  await success(await team.POST(req('team',{id:installer.id,email:'installer@example.com',name:'Installer renamed',role:'installer',supervisorId:otherSupervisor.id,active:true},owner)));
  assert.equal(JSON.parse((await db.prepare('SELECT payload FROM jobs WHERE id=?').bind(j.id).first()).payload).supervisorId,otherSupervisor.id);
+ assert.equal((await quality.POST(req('installer/quality',scoreRequest(4),supervisor.cookie))).status,403);
+ await success(await quality.POST(req('installer/quality',scoreRequest(4),otherSupervisor.cookie)));
  assert.equal((await me.GET(req('me',null,installer.cookie))).status,401);
  const resetResult=await success(await reset.POST(req('team/reset-password',{id:installer.id},owner)));
  const resetCookie=await activate('installer@example.com',resetResult.temporaryPassword);

@@ -7,9 +7,10 @@ import {createServer} from 'vite';
 import bcrypt from 'bcryptjs';
 const pg=new PGlite();await pg.exec(readFileSync('supabase/migrations/001_initial.sql','utf8'));
 await pg.exec(readFileSync('supabase/migrations/002_installer_quality.sql','utf8'));
+await pg.exec(readFileSync('supabase/migrations/003_account_permissions.sql','utf8'));
 const wrap=client=>({query:async(sql,args)=>{const r=await client.query(sql,args);return {rows:r.rows,changes:r.affectedRows??r.rows.length}},transaction:fn=>client.transaction(tx=>fn(wrap(tx)))});
-const objects=new Map();let uploadSequence=0;
-const storage={async createSignedUploadUrl(path){return {data:{signedUrl:'https://storage.example/upload/'+path}}},async download(key){return objects.has(key)?{data:objects.get(key)}:{error:new Error('Not found')}},async upload(key,bytes){if(objects.has(key))return {error:new Error('Exists')};objects.set(key,new Blob([bytes]));return {data:{path:key}}},async remove(keys){keys.forEach(k=>objects.delete(k));return {data:[]}},async createSignedUrl(key){return {data:{signedUrl:'https://storage.example/read/'+key}}}};
+const objects=new Map();let uploadSequence=0,signingFailure=false;
+const storage={async createSignedUploadUrl(path){if(signingFailure)return {error:new Error('Bucket not found')};return {data:{signedUrl:'https://storage.example/upload/'+path}}},async download(key){return objects.has(key)?{data:objects.get(key)}:{error:new Error('Not found')}},async upload(key,bytes){if(objects.has(key))return {error:new Error('Exists')};objects.set(key,new Blob([bytes]));return {data:{path:key}}},async remove(keys){keys.forEach(k=>objects.delete(k));return {data:[]}},async createSignedUrl(key){return {data:{signedUrl:'https://storage.example/read/'+key}}}};
 const env={OWNER_LOGIN_EMAIL:'owner@example.com',OWNER_BOOTSTRAP_PASSWORD_HASH:await bcrypt.hash('TemporaryOwner1!',4)};
 globalThis.__migrationEnv=env;globalThis.__migrationStorage=storage;
 const vite=await createServer({configFile:false,resolve:{alias:{'@':resolve('.')}},plugins:[{name:'migration-test',enforce:'pre',resolveId(id){if(id==='@/db/raw'||/\/db\/raw(?:\.ts)?$/.test(id))return '\0db';if(id==='@/lib/server-env'||/\/lib\/server-env(?:\.ts)?$/.test(id))return '\0env';if(id==='@/lib/storage'||/\/lib\/storage(?:\.ts)?$/.test(id))return '\0storage'},load(id){if(id==='\0db')return 'export function database(){return globalThis.__migrationDb}';if(id==='\0env')return 'export const env=globalThis.__migrationEnv';if(id==='\0storage')return 'export const storage=()=>globalThis.__migrationStorage;export const bucket={async head(key){const r=await globalThis.__migrationDb.prepare("SELECT * FROM attachment_uploads WHERE key=? AND status=\'ready\'").bind(key).first();return r?{customMetadata:{jobId:r.job_id,kind:r.kind,uploadedBy:r.member_id,sha256:r.sha256},httpMetadata:{contentType:r.content_type}}:null}}'}}],server:{middlewareMode:true,hmr:false}});
@@ -17,7 +18,8 @@ const {createDatabase,compileQuery}=await vite.ssrLoadModule('/db/adapter.ts');c
 const load=p=>vite.ssrLoadModule('/app/api/'+p+'/route.ts');
 const login=await load('auth/login'),change=await load('auth/change-password'),team=await load('team'),jobs=await load('jobs'),installerJobs=await load('installer/jobs'),files=await load('attachments'),reports=await load('installer/reports'),me=await load('me'),reset=await load('team/reset-password');
 const {bucket}=await vite.ssrLoadModule('@/lib/storage');env.BUCKET=bucket;
-const quality=await load('installer/quality');
+const quality=await load('installer/quality'),removeMember=await load('team/delete'),storageSettings=await load('storage-settings');
+const {uploadAttachment}=await vite.ssrLoadModule('/lib/upload-client.ts');
 const {qualityTone}=await vite.ssrLoadModule('/lib/installer-quality.ts');
 const {apiError,ApiError}=await vite.ssrLoadModule('/lib/access.ts');
 await vite.close();
@@ -67,6 +69,36 @@ test('native PostgreSQL auth, role permissions, payment methods, signed uploads,
  }
  assert.equal((await success(await quality.GET(req('installer/quality',null,otherSupervisor.cookie)))).installers.length,0);
  assert.equal((await db.prepare("SELECT * FROM account_audit WHERE action LIKE 'Installer quality score%'").all()).results.length,4);
+
+ // Administrator access to all installers and explicit cross-supervisor permission.
+ await success(await quality.POST(req('installer/quality',scoreRequest(4.5),owner)));
+ assert.equal((await success(await quality.GET(req('installer/quality',null,owner)))).installers.length,2);
+ assert.equal((await team.POST(req('team',{id:otherSupervisor.id,email:'other-supervisor@example.com',name:'Other supervisor',role:'supervisor',supervisorId:null,active:true,canScoreAllInstallers:true},otherSupervisor.cookie))).status,403);
+ const changePermission=async allowed=>{
+  await success(await team.POST(req('team',{id:otherSupervisor.id,email:'other-supervisor@example.com',name:'Other supervisor',role:'supervisor',supervisorId:null,active:true,canScoreAllInstallers:allowed},owner)));
+  assert.equal((await me.GET(req('me',null,otherSupervisor.cookie))).status,401);
+  const response=await login.POST(req('auth/login',{email:'other-supervisor@example.com',password:'Permanent-other-supervisor@example.com1!'}));
+  await success(response);otherSupervisor.cookie=cookie(response);
+ };
+ await changePermission(true);
+ const globalScores=await success(await quality.GET(req('installer/quality',null,otherSupervisor.cookie)));
+ assert.equal(globalScores.canScoreAll,true);assert.equal(globalScores.installers.length,2);
+ await success(await quality.POST(req('installer/quality',scoreRequest(4.1),otherSupervisor.cookie)));
+ await changePermission(false);
+ assert.equal((await quality.POST(req('installer/quality',scoreRequest(4.2),otherSupervisor.cookie))).status,403);
+ assert.equal((await storageSettings.GET(req('storage-settings',null,installer.cookie))).status,403);
+ assert.equal((await storageSettings.POST(req('storage-settings',{},supervisor.cookie))).status,403);
+ // Owner and self-deletion protection, linked account protection, actual deletion.
+ assert.equal((await removeMember.POST(req('team/delete',{id:'owner'},owner))).status,403);
+ assert.equal((await removeMember.POST(req('team/delete',{id:supervisor.id},owner))).status,409);
+ assert.equal((await removeMember.POST(req('team/delete',{id:other.id},supervisor.cookie))).status,403);
+ await success(await removeMember.POST(req('team/delete',{id:other.id},owner)));
+ assert.equal(await db.prepare('SELECT id FROM members WHERE id=?').bind(other.id).first(),null);
+ assert.equal(await db.prepare('SELECT member_id FROM credentials WHERE member_id=?').bind(other.id).first(),null);
+ assert.equal((await me.GET(req('me',null,other.cookie))).status,401);
+ // Replace this unassigned installer for existing upload isolation tests below.
+ const replacement=await member('replacement@example.com','installer',supervisor.id);
+ other.id=replacement.id;other.cookie=replacement.cookie;
  const base={id:crypto.randomUUID(),number:'123',customer:'Test customer',address:'Test street',supervisor:'',crew:'',stage:'Received',installerId:installer.id,supervisorId:supervisor.id,eta:'',install:'2026-09-01',blocker:'',notes:'',version:0,history:[],attachments:[],paymentMethod:'PO'};
  let j=(await success(await jobs.POST(req('jobs',base,owner)))).job;
  assert.equal(j.paymentMethod,'PO');
@@ -75,6 +107,14 @@ test('native PostgreSQL auth, role permissions, payment methods, signed uploads,
  const list=await success(await jobs.GET(req('jobs',null,otherSupervisor.cookie)));assert.equal(list.jobs[0].id,j.id);assert.equal(list.jobs[0].canEdit,false);
  j=(await success(await jobs.POST(req('jobs',{...j,stage:'Production'},owner)))).job;
  const projection=await success(await installerJobs.GET(req('installer/jobs',null,installer.cookie)));assert.equal(projection.jobs[0].paymentMethod,'PO');assert.equal('amount' in projection.jobs[0],false);
+
+ assert.equal((await removeMember.POST(req('team/delete',{id:installer.id},owner))).status,409);
+ const beforeFailedUpload=(await db.prepare('SELECT * FROM attachment_uploads').all()).results.length;
+ signingFailure=true;
+ const failedUpload=await files.POST(req('attachments',{action:'begin',jobId:j.id,kind:'front',size:5,name:'x.jpg'},installer.cookie));
+ assert.equal(failedUpload.status,503);assert.match((await failedUpload.json()).error,/Account management/);
+ assert.equal((await db.prepare('SELECT * FROM attachment_uploads').all()).results.length,beforeFailedUpload);
+ signingFailure=false;
  assert.equal((await files.POST(req('attachments',{action:'begin',jobId:j.id,kind:'front',size:5,name:'x.jpg'},other.cookie))).status,403);
  assert.equal((await files.POST(req('attachments',{action:'begin',jobId:j.id,kind:'front',size:16*1024*1024,name:'x.jpg'},installer.cookie))).status,400);
  const evidence=[];
@@ -102,5 +142,29 @@ test('native PostgreSQL auth, role permissions, payment methods, signed uploads,
  const resetResult=await success(await reset.POST(req('team/reset-password',{id:installer.id},owner)));
  const resetCookie=await activate('installer@example.com',resetResult.temporaryPassword);
  assert.equal((await me.GET(req('me',null,resetCookie))).status,200);
+});
+
+test('browser upload uses a signed direct transfer and provides useful failure messages',async()=>{
+ const original=globalThis.fetch;
+ const attachment={key:'jobs/test/photos/test',kind:'photos',name:'test.jpg'};
+ try{
+  let requests=[];
+  globalThis.fetch=async(url,options)=>{
+   requests.push([url,options]);
+   if(url==='/api/attachments'){
+    const body=JSON.parse(options.body);
+    return Response.json(body.action==='begin'?{key:attachment.key,uploadUrl:'https://storage.example/signed'}:{attachment});
+   }
+   assert.equal(options.method,'PUT');assert.ok(options.body instanceof FormData);
+   assert.equal(options.body.get('').name,'test.jpg');
+   return new Response('',{status:200});
+  };
+  assert.deepEqual(await uploadAttachment('job','photos',new File([new Uint8Array([255,216,255])],'test.jpg',{type:'image/jpeg'})),attachment);
+  assert.equal(requests.length,3);
+  globalThis.fetch=async(url)=>url==='/api/attachments'?Response.json({key:attachment.key,uploadUrl:'https://storage.example/signed'}):Response.json({statusCode:'413'},{status:400});
+  await assert.rejects(uploadAttachment('job','photos',new File(['x'],'test.jpg')),/file size/);
+  globalThis.fetch=async(url)=>{if(url==='/api/attachments')return Response.json({key:attachment.key,uploadUrl:'https://storage.example/signed'});throw Error('Failed to fetch')};
+  await assert.rejects(uploadAttachment('job','photos',new File(['x'],'test.jpg')),/browser could not reach/);
+ }finally{globalThis.fetch=original}
 });
 test.after(async()=>{await pg.close()});

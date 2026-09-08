@@ -1,13 +1,13 @@
 import {currentSession} from '@/lib/auth-session';
 import { database } from '@/db/raw';
-export type Member={id:string;email:string;user_id?:string;name:string;role:'admin'|'office'|'production_assistant'|'supervisor'|'installer';supervisor_id?:string;can_edit_jobs?:number;active:number};
+export type Member={id:string;email:string;user_id?:string;name:string;role:'admin'|'office'|'production_assistant'|'supervisor'|'installer';supervisor_id?:string;can_edit_jobs?:number;can_score_all_installers?:number;active:number};
 export class ApiError extends Error {constructor(public status:number,message:string){super(message)}}
 export async function actor(request:Request):Promise<Member>{
  const session=await currentSession(request);
  if(!session)throw new ApiError(401,'Sign in with your email and password.');
  if(session.restricted||session.must_change)throw new ApiError(428,'Change your temporary password before accessing the app.');
- const {id,email,name,role,supervisor_id,can_edit_jobs,active}=session;
- return {id,email,name,role,supervisor_id,can_edit_jobs,active};
+ const {id,email,name,role,supervisor_id,can_edit_jobs,can_score_all_installers,active}=session;
+ return {id,email,name,role,supervisor_id,can_edit_jobs,can_score_all_installers,active};
 }
 export const isOwner=(m:Member)=>m.id==='owner';
 export const canManageAccounts=(m:Member)=>m.role==='admin';

@@ -8,6 +8,7 @@ import bcrypt from 'bcryptjs';
 const pg=new PGlite();await pg.exec(readFileSync('supabase/migrations/001_initial.sql','utf8'));
 await pg.exec(readFileSync('supabase/migrations/002_installer_quality.sql','utf8'));
 await pg.exec(readFileSync('supabase/migrations/003_account_permissions.sql','utf8'));
+await pg.exec(readFileSync('supabase/migrations/004_account_profiles.sql','utf8'));
 const wrap=client=>({query:async(sql,args)=>{const r=await client.query(sql,args);return {rows:r.rows,changes:r.affectedRows??r.rows.length}},transaction:fn=>client.transaction(tx=>fn(wrap(tx)))});
 const objects=new Map();let uploadSequence=0,signingFailure=false;
 const storage={async createSignedUploadUrl(path){if(signingFailure)return {error:new Error('Bucket not found')};return {data:{signedUrl:'https://storage.example/upload/'+path}}},async download(key){return objects.has(key)?{data:objects.get(key)}:{error:new Error('Not found')}},async upload(key,bytes){if(objects.has(key))return {error:new Error('Exists')};objects.set(key,new Blob([bytes]));return {data:{path:key}}},async remove(keys){keys.forEach(k=>objects.delete(k));return {data:[]}},async createSignedUrl(key){return {data:{signedUrl:'https://storage.example/read/'+key}}}};
@@ -20,7 +21,8 @@ const login=await load('auth/login'),change=await load('auth/change-password'),t
 const {bucket}=await vite.ssrLoadModule('@/lib/storage');env.BUCKET=bucket;
 const quality=await load('installer/quality'),removeMember=await load('team/delete'),storageSettings=await load('storage-settings');
 const {uploadAttachment}=await vite.ssrLoadModule('/lib/upload-client.ts');
-const {qualityTone}=await vite.ssrLoadModule('/lib/installer-quality.ts');
+const profile=await load('team/profile'),summary=await load('installer/quality/summary');
+const {qualityTone,qualityLabel}=await vite.ssrLoadModule('/lib/installer-quality.ts');
 const {apiError,ApiError}=await vite.ssrLoadModule('/lib/access.ts');
 await vite.close();
 let ip=1;
@@ -57,12 +59,13 @@ test('native PostgreSQL auth, role permissions, payment methods, signed uploads,
  const supervisor=await member('supervisor@example.com','supervisor'),otherSupervisor=await member('other-supervisor@example.com','supervisor'),installer=await member('installer@example.com','installer',supervisor.id),other=await member('other@example.com','installer',supervisor.id);
  assert.equal(qualityTone(null),'unrated');assert.equal(qualityTone(3.59),'below');assert.equal(qualityTone(3.60),'good');assert.equal(qualityTone(3.61),'good');
  const scoreRequest=(score,id=installer.id)=>({id,score});
+ for(const [score,label] of [[0,'Poor'],[3.59,'Poor'],[3.60,'Fair'],[3.69,'Fair'],[3.70,'Good'],[3.79,'Good'],[3.80,'Outstanding'],[4,'Outstanding'],[null,'Not rated']])assert.equal(qualityLabel(score),label);
  const initial=await success(await quality.GET(req('installer/quality',null,installer.cookie)));
  assert.equal(initial.installers.length,1);assert.equal(initial.installers[0].quality_score,null);
  assert.equal((await quality.POST(req('installer/quality',scoreRequest(4),installer.cookie))).status,403);
  assert.equal((await quality.POST(req('installer/quality',scoreRequest(4),otherSupervisor.cookie))).status,403);
- for(const score of [-1,101,3.601,'4',null])assert.equal((await quality.POST(req('installer/quality',scoreRequest(score),supervisor.cookie))).status,400);
- for(const score of [0,3.59,3.60,4.25]){
+ for(const score of [-1,4.01,101,3.601,'4',null])assert.equal((await quality.POST(req('installer/quality',scoreRequest(score),supervisor.cookie))).status,400);
+ for(const score of [0,3.59,3.60,3.80]){
   await success(await quality.POST(req('installer/quality',scoreRequest(score),supervisor.cookie)));
   const actual=await success(await quality.GET(req('installer/quality',null,installer.cookie)));
   assert.equal(actual.installers[0].quality_score,score);
@@ -70,8 +73,29 @@ test('native PostgreSQL auth, role permissions, payment methods, signed uploads,
  assert.equal((await success(await quality.GET(req('installer/quality',null,otherSupervisor.cookie)))).installers.length,0);
  assert.equal((await db.prepare("SELECT * FROM account_audit WHERE action LIKE 'Installer quality score%'").all()).results.length,4);
 
+ // Full profile persistence and strict permission isolation.
+ const information={id:installer.id,name:'Installer profile',phone:'555-0100',details:{jobTitle:'Lead installer',startDate:'2026-09-01',notes:'Training completed',additional:[{label:'Shirt size',value:'L'}]}};
+ assert.equal((await profile.GET(req('team/profile?id='+installer.id,null,supervisor.cookie))).status,403);
+ assert.equal((await profile.POST(req('team/profile',information,installer.cookie))).status,403);
+ await success(await profile.POST(req('team/profile',information,owner)));
+ const savedProfile=await success(await profile.GET(req('team/profile?id='+installer.id,null,owner)));
+ assert.equal(savedProfile.member.profile_details.additional[0].value,'L');
+ assert.equal(savedProfile.member.phone,'555-0100');
+ assert.equal((await profile.POST(req('team/profile',{...information,role:'admin'},owner))).status,400);
+ assert.equal((await profile.POST(req('team/profile',{...information,details:{startDate:'2026-02-30'}},owner))).status,400);
+ await success(await profile.POST(req('team/profile',{...information,id:'owner',name:'Cory Russell'},owner)));
+ const ownProfile=await success(await profile.GET(req('team/profile?id=owner',null,owner)));assert.equal(ownProfile.isSelf,true);assert.equal(ownProfile.canEdit,true);
+ // Overall average excludes unrated, invalid old values and inactive installers.
+ assert.equal((await summary.GET(req('installer/quality/summary',null,installer.cookie))).status,403);
+ let overview=await success(await summary.GET(req('installer/quality/summary',null,supervisor.cookie)));
+ assert.equal(overview.total,2);assert.equal(overview.rated,1);assert.equal(overview.average,3.80);
+ await db.prepare('UPDATE members SET quality_score=3.60 WHERE id=?').bind(other.id).run();
+ overview=await success(await summary.GET(req('installer/quality/summary',null,owner)));assert.equal(overview.average,3.70);
+ await db.prepare('UPDATE members SET quality_score=6 WHERE id=?').bind(other.id).run();
+ assert.equal((await success(await summary.GET(req('installer/quality/summary',null,owner)))).rated,1);
+ await db.prepare('UPDATE members SET quality_score=NULL WHERE id=?').bind(other.id).run();
  // Administrator access to all installers and explicit cross-supervisor permission.
- await success(await quality.POST(req('installer/quality',scoreRequest(4.5),owner)));
+ await success(await quality.POST(req('installer/quality',scoreRequest(4),owner)));
  assert.equal((await success(await quality.GET(req('installer/quality',null,owner)))).installers.length,2);
  assert.equal((await team.POST(req('team',{id:otherSupervisor.id,email:'other-supervisor@example.com',name:'Other supervisor',role:'supervisor',supervisorId:null,active:true,canScoreAllInstallers:true},otherSupervisor.cookie))).status,403);
  const changePermission=async allowed=>{
@@ -83,9 +107,9 @@ test('native PostgreSQL auth, role permissions, payment methods, signed uploads,
  await changePermission(true);
  const globalScores=await success(await quality.GET(req('installer/quality',null,otherSupervisor.cookie)));
  assert.equal(globalScores.canScoreAll,true);assert.equal(globalScores.installers.length,2);
- await success(await quality.POST(req('installer/quality',scoreRequest(4.1),otherSupervisor.cookie)));
+ await success(await quality.POST(req('installer/quality',scoreRequest(3.9),otherSupervisor.cookie)));
  await changePermission(false);
- assert.equal((await quality.POST(req('installer/quality',scoreRequest(4.2),otherSupervisor.cookie))).status,403);
+ assert.equal((await quality.POST(req('installer/quality',scoreRequest(3.8),otherSupervisor.cookie))).status,403);
  assert.equal((await storageSettings.GET(req('storage-settings',null,installer.cookie))).status,403);
  assert.equal((await storageSettings.POST(req('storage-settings',{},supervisor.cookie))).status,403);
  // Owner and self-deletion protection, linked account protection, actual deletion.

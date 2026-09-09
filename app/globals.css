@@ -263,3 +263,38 @@ html[data-theme=dark] .accounts-page .danger-action{color:#b22230!important}
 html[data-theme=dark] .auth-subtitle,html[data-theme=dark] .auth-form>p:not(.error){color:#40536b!important}
 .gators-theme-banner img,.theme-swatch img{object-fit:contain;flex-shrink:0;height:auto}
 .account-menu{position:relative;display:inline-flex;align-items:center}.account-menu>button{padding:8px;min-height:40px;background:transparent;color:inherit;border:0}.account-menu-popover{position:absolute;right:0;top:100%;z-index:50;background:white;color:#142033;border:1px solid #a5b5ca;border-radius:10px;padding:10px;box-shadow:0 8px 24px #0003;min-width:130px}.visit-issue{border:1px solid #e49ca4;border-left:4px solid #b42332;background:#fff0f1;padding:14px;margin:12px 0;color:#a11626!important;border-radius:8px}.visit-issue p,.visit-issue dt,.visit-issue dd{color:#a11626!important}html[data-theme=dark] .visit-issue p{color:#a11626!important}
+
+html[data-theme=fsu]{--background:#faf6f2;--foreground:#142033;--primary:#782f40;--primary-foreground:#fff;--ring:#ceb888;--border:#cbd5e1}
+html[data-theme=fsu] :is(.gators-theme-banner,.desk-header){background:#782f40!important;color:white;border-bottom:3px solid #ceb888!important}
+html[data-theme=fsu] :is(.desk-header .brand-title,.desk-header .brand-title b,.desk-header .brand-title small,.desk-nav a){color:white!important}
+html[data-theme=fsu] :is(.primary-action,.account-tabs button[aria-pressed=true],.installer-day-tabs button[aria-pressed=true],.guild-tabs a[aria-current=page]){background:#782f40!important;color:white!important}
+html[data-theme=fsu] :is(.guild-summary,.metric,.profile-section){border-top:3px solid #ceb888}
+.theme-preview-fsu .theme-swatch{background:#782f40}.theme-preview-fsu .theme-swatch i{background:#ceb888}.theme-preview-fsu .theme-swatch i:nth-last-child(2){background:white}
+
+html[data-theme=mexico]{--background:#f3faf6;--foreground:#142033;--primary:#006847;--primary-foreground:#fff;--ring:#ce1126;--border:#cbd5e1}
+html[data-theme=mexico] :is(.gators-theme-banner,.desk-header){background:#006847!important;color:white;border-bottom:3px solid #ce1126!important}
+html[data-theme=mexico] :is(.desk-header .brand-title,.desk-header .brand-title b,.desk-header .brand-title small,.desk-nav a){color:white!important}
+html[data-theme=mexico] :is(.primary-action,.account-tabs button[aria-pressed=true],.installer-day-tabs button[aria-pressed=true],.guild-tabs a[aria-current=page]){background:#006847!important;color:white!important}
+html[data-theme=mexico] :is(.guild-summary,.metric,.profile-section){border-top:3px solid #ce1126}
+.theme-preview-mexico .theme-swatch{background:#006847}.theme-preview-mexico .theme-swatch i{background:#ce1126}.theme-preview-mexico .theme-swatch i:nth-last-child(2){background:white}
+
+html[data-theme=brazil]{--background:#f4faf1;--foreground:#142033;--primary:#006b3f;--primary-foreground:#fff;--ring:#ffdf00;--border:#cbd5e1}
+html[data-theme=brazil] :is(.gators-theme-banner,.desk-header){background:#006b3f!important;color:white;border-bottom:3px solid #ffdf00!important}
+html[data-theme=brazil] :is(.desk-header .brand-title,.desk-header .brand-title b,.desk-header .brand-title small,.desk-nav a){color:white!important}
+html[data-theme=brazil] :is(.primary-action,.account-tabs button[aria-pressed=true],.installer-day-tabs button[aria-pressed=true],.guild-tabs a[aria-current=page]){background:#006b3f!important;color:white!important}
+html[data-theme=brazil] :is(.guild-summary,.metric,.profile-section){border-top:3px solid #ffdf00}
+.theme-preview-brazil .theme-swatch{background:#006b3f}.theme-preview-brazil .theme-swatch i{background:#ffdf00}.theme-preview-brazil .theme-swatch i:nth-last-child(2){background:white}
+
+html[data-theme=cuba]{--background:#f4f7ff;--foreground:#142033;--primary:#002a8f;--primary-foreground:#fff;--ring:#cf142b;--border:#cbd5e1}
+html[data-theme=cuba] :is(.gators-theme-banner,.desk-header){background:#002a8f!important;color:white;border-bottom:3px solid #cf142b!important}
+html[data-theme=cuba] :is(.desk-header .brand-title,.desk-header .brand-title b,.desk-header .brand-title small,.desk-nav a){color:white!important}
+html[data-theme=cuba] :is(.primary-action,.account-tabs button[aria-pressed=true],.installer-day-tabs button[aria-pressed=true],.guild-tabs a[aria-current=page]){background:#002a8f!important;color:white!important}
+html[data-theme=cuba] :is(.guild-summary,.metric,.profile-section){border-top:3px solid #cf142b}
+.theme-preview-cuba .theme-swatch{background:#002a8f}.theme-preview-cuba .theme-swatch i{background:#cf142b}.theme-preview-cuba .theme-swatch i:nth-last-child(2){background:white}
+
+html[data-theme=usa]{--background:#f5f7fc;--foreground:#142033;--primary:#002868;--primary-foreground:#fff;--ring:#bf0a30;--border:#cbd5e1}
+html[data-theme=usa] :is(.gators-theme-banner,.desk-header){background:#002868!important;color:white;border-bottom:3px solid #bf0a30!important}
+html[data-theme=usa] :is(.desk-header .brand-title,.desk-header .brand-title b,.desk-header .brand-title small,.desk-nav a){color:white!important}
+html[data-theme=usa] :is(.primary-action,.account-tabs button[aria-pressed=true],.installer-day-tabs button[aria-pressed=true],.guild-tabs a[aria-current=page]){background:#002868!important;color:white!important}
+html[data-theme=usa] :is(.guild-summary,.metric,.profile-section){border-top:3px solid #bf0a30}
+.theme-preview-usa .theme-swatch{background:#002868}.theme-preview-usa .theme-swatch i{background:#bf0a30}.theme-preview-usa .theme-swatch i:nth-last-child(2){background:white}

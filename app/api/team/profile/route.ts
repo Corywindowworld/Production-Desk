@@ -3,16 +3,16 @@ import {database} from '@/db/raw';
 import {canEditAccount} from '@/lib/account-roles';
 import {profileInput} from '@/lib/account-profile';
 export async function GET(request:Request){try{
- const m=await actor(request);if(m.role!=='admin')throw new ApiError(403,'Administrator access required.');
- const id=new URL(request.url).searchParams.get('id')||m.id;
+ const m=await actor(request);
+ const id=new URL(request.url).searchParams.get('id')||m.id;if(m.role!=='admin'&&id!==m.id)throw new ApiError(403,'You can only view your own profile.');
  const target:any=await database().prepare('SELECT id,name,email,role,phone,active,supervisor_id,installer_code,can_edit_jobs,can_score_all_installers,quality_score,profile_details FROM members WHERE id=?').bind(id).first();
  if(!target)throw new ApiError(404,'Account not found.');
  return Response.json({member:target,canEdit:m.id===target.id||canEditAccount(m,target,target.role),isSelf:m.id===target.id,canManage:canEditAccount(m,target,target.role)},{headers:{'Cache-Control':'no-store'}});
  }catch(e){return apiError(e)}}
 export async function POST(request:Request){try{
- sameOrigin(request);const m=await actor(request);if(m.role!=='admin')throw new ApiError(403,'Administrator access required.');
+ sameOrigin(request);const m=await actor(request);
  const input=profileInput.safeParse(await request.json());if(!input.success)throw new ApiError(400,'Check profile fields, dates and additional information.');
- const d=input.data,db=database(),target:any=await db.prepare('SELECT id,name,role FROM members WHERE id=?').bind(d.id).first();
+ const d=input.data;if(m.role!=='admin'&&d.id!==m.id)throw new ApiError(403,'You can only edit your own profile.');const db=database(),target:any=await db.prepare('SELECT id,name,role FROM members WHERE id=?').bind(d.id).first();
  if(!target)throw new ApiError(404,'Account not found.');
  if(m.id!==target.id&&!canEditAccount(m,target,target.role))throw new ApiError(403,'You cannot edit this profile.');
  const at=new Date().toISOString(),statements=[db.prepare('UPDATE members SET name=?,phone=?,profile_details=?::jsonb WHERE id=?').bind(d.name,d.phone,JSON.stringify(d.details),d.id)];

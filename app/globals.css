@@ -298,3 +298,8 @@ html[data-theme=usa] :is(.desk-header .brand-title,.desk-header .brand-title b,.
 html[data-theme=usa] :is(.primary-action,.account-tabs button[aria-pressed=true],.installer-day-tabs button[aria-pressed=true],.guild-tabs a[aria-current=page]){background:#002868!important;color:white!important}
 html[data-theme=usa] :is(.guild-summary,.metric,.profile-section){border-top:3px solid #bf0a30}
 .theme-preview-usa .theme-swatch{background:#002868}.theme-preview-usa .theme-swatch i{background:#bf0a30}.theme-preview-usa .theme-swatch i:nth-last-child(2){background:white}
+/* White fields and readable details on the dark canvas. */
+html[data-theme=dark] :is(.job-facts>div,.job-detail-notes,.saved-visit,.visit-form,.visit-check,.report-history,.report-uploads,.attachments,.job-readonly,.scheduled-visit-jobs>button,[data-slot=select-content],[data-slot=select-trigger],[data-slot=dialog-content],[data-slot=popover-content]){background:#fff!important;color:#142033!important;--foreground:#142033;--muted-foreground:#40536b;--popover:#fff;--popover-foreground:#142033;color-scheme:light;border-color:#a5b5ca!important}
+html[data-theme=dark] :is(.job-facts,.job-detail-notes,.saved-visit,.visit-form,.attachments,.job-readonly,.scheduled-visit-jobs,[data-slot=dialog-content]) :is(p,dt,dd,label,h2,h3,small,legend){color:#142033!important}
+html[data-theme=dark] .visit-issue :is(p,dt,dd){color:#a11626!important}
+html[data-theme=mexico] .gators-theme-banner{background:#fff!important;color:#006847!important;border-bottom-color:#ce1126!important}

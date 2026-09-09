@@ -5,9 +5,9 @@ export async function GET(request:Request){try{
  const m=await actor(request),db=database();
  if(!['installer','supervisor','admin'].includes(m.role))throw new ApiError(403,'Installer or field supervisor access required.');
  const canScoreAll=m.role==='admin'||(m.role==='supervisor'&&m.can_score_all_installers===1);
- const statement=db.prepare("SELECT id,name,quality_score,quality_updated_at FROM members WHERE role='installer' AND active=1"+(canScoreAll?'':m.role==='installer'?' AND id=?':' AND supervisor_id=?')+' ORDER BY name');
- const rows=await (canScoreAll?statement:statement.bind(m.id)).all();
- return Response.json({canScoreAll,installers:rows.results.map((row:any)=>({...row,quality_score:row.quality_score===null?null:Number(row.quality_score)}))},{headers:{'Cache-Control':'no-store'}});
+ const statement=db.prepare("SELECT id,name,supervisor_id,quality_score,quality_updated_at FROM members WHERE role='installer' AND active=1"+(m.role==='installer'?' AND id=?':'')+' ORDER BY name');
+ const rows=await (m.role==='installer'?statement.bind(m.id):statement).all();
+ return Response.json({canScoreAll,installers:rows.results.map((row:any)=>({...row,canEdit:canScoreAll||(m.role==='supervisor'&&row.supervisor_id===m.id),quality_score:row.quality_score===null?null:Number(row.quality_score)}))},{headers:{'Cache-Control':'no-store'}});
  }catch(e){return apiError(e)}}
 export async function POST(request:Request){try{
  sameOrigin(request);const m=await actor(request);

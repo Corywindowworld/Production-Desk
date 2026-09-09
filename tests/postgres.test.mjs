@@ -72,7 +72,7 @@ test('native PostgreSQL auth, role permissions, payment methods, signed uploads,
   const actual=await success(await quality.GET(req('installer/quality',null,installer.cookie)));
   assert.equal(actual.installers[0].quality_score,score);
  }
- assert.equal((await success(await quality.GET(req('installer/quality',null,otherSupervisor.cookie)))).installers.length,0);
+ assert.equal((await success(await quality.GET(req('installer/quality',null,otherSupervisor.cookie)))).installers.length,2);
  assert.equal((await db.prepare("SELECT * FROM account_audit WHERE action LIKE 'Installer quality score%'").all()).results.length,4);
 
  // Theme preferences belong to the signed-in account only.
@@ -89,7 +89,9 @@ test('native PostgreSQL auth, role permissions, payment methods, signed uploads,
  // Full profile persistence and strict permission isolation.
  const information={id:installer.id,name:'Installer profile',phone:'555-0100',details:{jobTitle:'Lead installer',startDate:'2026-09-01',notes:'Training completed',additional:[{label:'Shirt size',value:'L'}]}};
  assert.equal((await profile.GET(req('team/profile?id='+installer.id,null,supervisor.cookie))).status,403);
- assert.equal((await profile.POST(req('team/profile',information,installer.cookie))).status,403);
+ await success(await profile.POST(req('team/profile',information,installer.cookie)));
+ assert.equal((await profile.POST(req('team/profile',{...information,id:'owner'},installer.cookie))).status,403);
+ assert.equal((await profile.GET(req('team/profile?id=owner',null,installer.cookie))).status,403);
  await success(await profile.POST(req('team/profile',information,owner)));
  const savedProfile=await success(await profile.GET(req('team/profile?id='+installer.id,null,owner)));
  assert.equal(savedProfile.member.profile_details.additional[0].value,'L');
@@ -139,9 +141,17 @@ test('native PostgreSQL auth, role permissions, payment methods, signed uploads,
  const base={id:crypto.randomUUID(),number:'123',customer:'Test customer',address:'Test street',supervisor:'',crew:'',stage:'Received',installerId:installer.id,supervisorId:supervisor.id,eta:'',install:'2026-09-01',blocker:'',notes:'',version:0,history:[],attachments:[],paymentMethod:'PO'};
  let j=(await success(await jobs.POST(req('jobs',base,owner)))).job;
  assert.equal(j.paymentMethod,'PO');
+ const second=(await success(await jobs.POST(req('jobs',{...base,id:crypto.randomUUID(),number:'124',installPeriod:'PM',stopNumber:2},owner)))).job;
+ assert.equal(second.stopNumber,2);assert.equal(second.installPeriod,'PM');
+ assert.equal((await success(await installerJobs.GET(req('installer/jobs',null,installer.cookie)))).jobs.length,2);
+ const alertCount=(await db.prepare('SELECT * FROM notifications').all()).results.length;
+ j=(await success(await jobs.POST(req('jobs',{...j,notes:'Changed notes'},owner)))).job;
+ assert.equal((await db.prepare('SELECT * FROM notifications').all()).results.length,alertCount);
+ assert.equal((await jobs.POST(req('jobs',{...j,stopNumber:0},owner))).status,400);
+
  assert.equal((await jobs.POST(req('jobs',{...j,paymentMethod:'Cash'},owner))).status,400);
  assert.equal((await jobs.POST(req('jobs',{...j,notes:'Unauthorized'},supervisor.cookie))).status,403);
- const list=await success(await jobs.GET(req('jobs',null,otherSupervisor.cookie)));assert.equal(list.jobs[0].id,j.id);assert.equal(list.jobs[0].canEdit,false);
+ const list=await success(await jobs.GET(req('jobs',null,otherSupervisor.cookie)));assert.ok(list.jobs.some(x=>x.id===j.id));assert.equal(list.jobs[0].canEdit,false);
  j=(await success(await jobs.POST(req('jobs',{...j,stage:'Production'},owner)))).job;
  const projection=await success(await installerJobs.GET(req('installer/jobs',null,installer.cookie)));assert.equal(projection.jobs[0].paymentMethod,'PO');assert.equal('amount' in projection.jobs[0],false);
 
@@ -169,7 +179,7 @@ test('native PostgreSQL auth, role permissions, payment methods, signed uploads,
  assert.equal((await reports.POST(req('installer/reports',{...report,attachments:evidence.slice(1)},installer.cookie))).status,400);
  await success(await reports.POST(req('installer/reports',report,installer.cookie)));
  const saved=await db.prepare('SELECT payload FROM jobs WHERE id=?').bind(j.id).first();assert.equal(JSON.parse(saved.payload).stage,'Closed');assert.equal(JSON.parse(saved.payload).paymentMethod,'PO');
- assert.equal((await db.prepare('SELECT * FROM notifications').all()).results.length,1);
+ assert.equal((await db.prepare('SELECT * FROM notifications').all()).results.length,3);
  // Installer reassignment exercises PostgreSQL jsonb updates.
  await success(await team.POST(req('team',{id:installer.id,email:'installer@example.com',name:'Installer renamed',role:'installer',supervisorId:otherSupervisor.id,active:true},owner)));
  assert.equal(JSON.parse((await db.prepare('SELECT payload FROM jobs WHERE id=?').bind(j.id).first()).payload).supervisorId,otherSupervisor.id);

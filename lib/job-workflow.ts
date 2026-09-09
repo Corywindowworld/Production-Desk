@@ -55,7 +55,7 @@ export const jobSchema = z.object({
   id: z.string().uuid(), number: z.string().trim().min(1).max(80),
   customer: z.string().trim().min(1).max(160), address: z.string().max(300), phone: z.string().trim().max(100).default(''), specialNotes: z.string().max(4000).default(''),
   installerId: z.string().uuid().nullable().default(null), supervisorId: z.union([z.string().uuid(),z.literal('owner')]).nullable().default(null), supervisor: z.string().max(100), crew: z.string().max(100), stage: z.enum(stages),
-  eta: date, install: date, received: date.default(''), installed: date.default(''), amount: z.number().finite().min(0).max(999999999.99).multipleOf(0.01).nullable().default(null), blocker: z.string().trim().max(1000),
+  eta: date, install: date, installPeriod:z.enum(['AM','PM']).nullable().optional(), stopNumber:z.number().int().min(1).max(99).nullable().optional(), received: date.default(''), installed: date.default(''), amount: z.number().finite().min(0).max(999999999.99).multipleOf(0.01).nullable().default(null), blocker: z.string().trim().max(1000),
   paymentMethod: z.enum(paymentMethods).nullable().optional(),
   notes: z.string().max(4000), version: z.number().int().min(0),
   attachments: z.array(z.object({key:z.string().max(250), name:z.string().max(255), kind:z.enum(['completion','incomplete','reorder','photos','front','rear','left','right','issue'])})).max(100).default([]),

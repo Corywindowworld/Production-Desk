@@ -9,6 +9,7 @@ const pg=new PGlite();await pg.exec(readFileSync('supabase/migrations/001_initia
 await pg.exec(readFileSync('supabase/migrations/002_installer_quality.sql','utf8'));
 await pg.exec(readFileSync('supabase/migrations/003_account_permissions.sql','utf8'));
 await pg.exec(readFileSync('supabase/migrations/004_account_profiles.sql','utf8'));
+await pg.exec(readFileSync('supabase/migrations/005_account_theme.sql','utf8'));
 const wrap=client=>({query:async(sql,args)=>{const r=await client.query(sql,args);return {rows:r.rows,changes:r.affectedRows??r.rows.length}},transaction:fn=>client.transaction(tx=>fn(wrap(tx)))});
 const objects=new Map();let uploadSequence=0,signingFailure=false;
 const storage={async createSignedUploadUrl(path){if(signingFailure)return {error:new Error('Bucket not found')};return {data:{signedUrl:'https://storage.example/upload/'+path}}},async download(key){return objects.has(key)?{data:objects.get(key)}:{error:new Error('Not found')}},async upload(key,bytes){if(objects.has(key))return {error:new Error('Exists')};objects.set(key,new Blob([bytes]));return {data:{path:key}}},async remove(keys){keys.forEach(k=>objects.delete(k));return {data:[]}},async createSignedUrl(key){return {data:{signedUrl:'https://storage.example/read/'+key}}}};
@@ -21,6 +22,7 @@ const login=await load('auth/login'),change=await load('auth/change-password'),t
 const {bucket}=await vite.ssrLoadModule('@/lib/storage');env.BUCKET=bucket;
 const quality=await load('installer/quality'),removeMember=await load('team/delete'),storageSettings=await load('storage-settings');
 const {uploadAttachment}=await vite.ssrLoadModule('/lib/upload-client.ts');
+const preferences=await load('preferences');
 const profile=await load('team/profile'),summary=await load('installer/quality/summary');
 const {qualityTone,qualityLabel}=await vite.ssrLoadModule('/lib/installer-quality.ts');
 const {apiError,ApiError}=await vite.ssrLoadModule('/lib/access.ts');
@@ -73,6 +75,17 @@ test('native PostgreSQL auth, role permissions, payment methods, signed uploads,
  assert.equal((await success(await quality.GET(req('installer/quality',null,otherSupervisor.cookie)))).installers.length,0);
  assert.equal((await db.prepare("SELECT * FROM account_audit WHERE action LIKE 'Installer quality score%'").all()).results.length,4);
 
+ // Theme preferences belong to the signed-in account only.
+ assert.equal((await success(await preferences.GET(req('preferences',null,owner)))).theme,'light');
+ await success(await preferences.POST(req('preferences',{theme:'dark'},owner)));
+ assert.equal((await success(await preferences.GET(req('preferences',null,owner)))).theme,'dark');
+ assert.equal((await success(await preferences.GET(req('preferences',null,installer.cookie)))).theme,'light');
+ await success(await preferences.POST(req('preferences',{theme:'gators'},installer.cookie)));
+ assert.equal((await success(await preferences.GET(req('preferences',null,installer.cookie)))).theme,'gators');
+ assert.equal((await preferences.POST(req('preferences',{theme:'light',id:'owner'},installer.cookie))).status,400);
+ assert.equal((await preferences.POST(req('preferences',{theme:'unknown'},owner))).status,400);
+ assert.equal((await preferences.GET(req('preferences',null))).status,401);
+ assert.equal((await success(await preferences.GET(req('preferences',null,owner)))).theme,'dark');
  // Full profile persistence and strict permission isolation.
  const information={id:installer.id,name:'Installer profile',phone:'555-0100',details:{jobTitle:'Lead installer',startDate:'2026-09-01',notes:'Training completed',additional:[{label:'Shirt size',value:'L'}]}};
  assert.equal((await profile.GET(req('team/profile?id='+installer.id,null,supervisor.cookie))).status,403);

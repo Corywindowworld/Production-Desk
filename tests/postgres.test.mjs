@@ -10,6 +10,7 @@ await pg.exec(readFileSync('supabase/migrations/002_installer_quality.sql','utf8
 await pg.exec(readFileSync('supabase/migrations/003_account_permissions.sql','utf8'));
 await pg.exec(readFileSync('supabase/migrations/004_account_profiles.sql','utf8'));
 await pg.exec(readFileSync('supabase/migrations/005_account_theme.sql','utf8'));
+await pg.exec(readFileSync('supabase/migrations/007_customer_records.sql','utf8'));
 const wrap=client=>({query:async(sql,args)=>{const r=await client.query(sql,args);return {rows:r.rows,changes:r.affectedRows??r.rows.length}},transaction:fn=>client.transaction(tx=>fn(wrap(tx)))});
 const objects=new Map();let uploadSequence=0,signingFailure=false;
 const storage={async createSignedUploadUrl(path){if(signingFailure)return {error:new Error('Bucket not found')};return {data:{signedUrl:'https://storage.example/upload/'+path}}},async download(key){return objects.has(key)?{data:objects.get(key)}:{error:new Error('Not found')}},async upload(key,bytes){if(objects.has(key))return {error:new Error('Exists')};objects.set(key,new Blob([bytes]));return {data:{path:key}}},async remove(keys){keys.forEach(k=>objects.delete(k));return {data:[]}},async createSignedUrl(key){return {data:{signedUrl:'https://storage.example/read/'+key}}}};
@@ -26,6 +27,7 @@ const preferences=await load('preferences');
 const profile=await load('team/profile'),summary=await load('installer/quality/summary');
 const {qualityTone,qualityLabel}=await vite.ssrLoadModule('/lib/installer-quality.ts');
 const {apiError,ApiError}=await vite.ssrLoadModule('/lib/access.ts');
+const customers=await load('customer-records');
 await vite.close();
 let ip=1;
 function req(path,body,cookie=''){return new Request('https://example.com/api/'+path,{method:body?'POST':'GET',headers:{'Content-Type':'application/json',origin:'https://example.com',cookie,'x-vercel-forwarded-for':'192.0.2.'+ip++},body:body?JSON.stringify(body):undefined})}
@@ -141,6 +143,17 @@ test('native PostgreSQL auth, role permissions, payment methods, signed uploads,
  const base={id:crypto.randomUUID(),number:'123',customer:'Test customer',address:'Test street',supervisor:'',crew:'',stage:'Received',installerId:installer.id,supervisorId:supervisor.id,eta:'',install:'2026-09-01',blocker:'',notes:'',version:0,history:[],attachments:[],paymentMethod:'PO'};
  let j=(await success(await jobs.POST(req('jobs',base,owner)))).job;
  assert.equal(j.paymentMethod,'PO');
+ const initialCustomer=await success(await customers.GET(req('customer-records?jobId='+j.id,null,owner)));
+ assert.equal(initialCustomer.version,0);
+ assert.equal((await customers.GET(req('customer-records?jobId='+j.id,null,installer.cookie))).status,403);
+ const customerInput={jobId:j.id,version:0,record:{...initialCustomer.record,saleDate:'2026-08-01',warehouseBay:'B12'}};
+ assert.equal((await customers.POST(req('customer-records',customerInput,otherSupervisor.cookie))).status,403);
+ await success(await customers.POST(req('customer-records',customerInput,owner)));
+ assert.equal((await customers.POST(req('customer-records',customerInput,owner))).status,409);
+ await success(await customers.POST(req('customer-records',{jobId:j.id,version:1,note:'Called customer to confirm date',kind:'Contact'},owner)));
+ const savedCustomer=await success(await customers.GET(req('customer-records?jobId='+j.id,null,owner)));
+ assert.equal(savedCustomer.record.warehouseBay,'B12');assert.equal(savedCustomer.events.length,2);
+ 
  const second=(await success(await jobs.POST(req('jobs',{...base,id:crypto.randomUUID(),number:'124',installPeriod:'PM',stopNumber:2},owner)))).job;
  assert.equal(second.stopNumber,2);assert.equal(second.installPeriod,'PM');
  assert.equal((await success(await installerJobs.GET(req('installer/jobs',null,installer.cookie)))).jobs.length,2);

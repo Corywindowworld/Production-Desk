@@ -303,3 +303,16 @@ html[data-theme=dark] :is(.job-facts>div,.job-detail-notes,.saved-visit,.visit-f
 html[data-theme=dark] :is(.job-facts,.job-detail-notes,.saved-visit,.visit-form,.attachments,.job-readonly,.scheduled-visit-jobs,[data-slot=dialog-content]) :is(p,dt,dd,label,h2,h3,small,legend){color:#142033!important}
 html[data-theme=dark] .visit-issue :is(p,dt,dd){color:#a11626!important}
 html[data-theme=mexico] .gators-theme-banner{background:#fff!important;color:#006847!important;border-bottom-color:#ce1126!important}
+
+/* Customer and project records */
+.customer-database>h1{font-size:32px;font-weight:750;letter-spacing:-.7px;margin:24px 0 12px}
+.customer-database>.quality-search{margin:24px 0;max-width:620px}
+.customer-database .account-tabs{flex-wrap:wrap}
+.customer-database .managed-account{display:block;line-height:1.6;transition:box-shadow .15s,border-color .15s}
+.customer-database .managed-account:hover{border-color:#0757db;box-shadow:0 5px 20px #19385618}
+.customer-database .managed-account h2{font-size:19px;font-weight:700;margin-bottom:8px}
+.customer-database fieldset{min-width:0;border:0;padding:0;margin:0}
+.customer-database .guild-summary p{margin-top:6px}
+.customer-database a:focus-visible,.customer-database button:focus-visible{outline:3px solid #468aff;outline-offset:3px}
+.customer-database article p{margin-top:8px}
+@media(max-width:700px){.customer-database .account-form-grid,.customer-database .account-cards{grid-template-columns:1fr}.customer-database .guild-summary{display:block}.customer-database .guild-summary>a{display:block;margin-top:16px}}

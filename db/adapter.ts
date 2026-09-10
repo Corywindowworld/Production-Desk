@@ -1,6 +1,6 @@
 // Preserve the small prepared-query interface while using PostgreSQL transactions.
 export type Driver={query:(sql:string,params:unknown[])=>Promise<{rows:any[];changes:number}>;transaction:<T>(fn:(tx:Driver)=>Promise<T>)=>Promise<T>};
-const tables=new Set(['jobs','members','credentials','sessions','login_limits','account_audit','installer_reports','notifications','push_subscriptions','job_visits','attachment_uploads']);
+const tables=new Set(['jobs','members','credentials','sessions','login_limits','account_audit','installer_reports','notifications','push_subscriptions','job_visits','attachment_uploads','customer_records','customer_events']);
 export function compileQuery(sql:string){
  let index=0;
  // SQL string literals are left untouched; query values are always separate parameters.

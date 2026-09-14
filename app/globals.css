@@ -316,3 +316,22 @@ html[data-theme=mexico] .gators-theme-banner{background:#fff!important;color:#00
 .customer-database a:focus-visible,.customer-database button:focus-visible{outline:3px solid #468aff;outline-offset:3px}
 .customer-database article p{margin-top:8px}
 @media(max-width:700px){.customer-database .account-form-grid,.customer-database .account-cards{grid-template-columns:1fr}.customer-database .guild-summary{display:block}.customer-database .guild-summary>a{display:block;margin-top:16px}}
+
+.dashboard-button{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:10px 16px;border:1px solid #bccce0;border-radius:10px;background:white;color:#18314f!important;font-size:14px;font-weight:600;text-decoration:none}
+.customer-edit-actions{margin:18px 0}.customer-database fieldset:disabled input,.customer-database fieldset:disabled select{opacity:1;color:#18314f;background:#f5f7fa;border-color:transparent;cursor:default}
+.address-autocomplete{position:relative;min-width:0}.address-autocomplete>input{width:100%;min-height:44px;border:1px solid #bccce0;border-radius:8px;padding:10px 12px;background:white;color:#142033}.address-autocomplete ul{list-style:none;margin:4px 0 0;padding:5px;background:white;color:#142033;border:1px solid #bccce0;border-radius:10px;box-shadow:0 8px 24px #0002;position:absolute;z-index:60;left:0;right:0}.address-autocomplete li[role=option]{padding:12px;cursor:pointer;font-size:14px;line-height:1.4}.address-autocomplete li[role=option]:hover,.address-autocomplete li[aria-selected=true]{background:#eaf2ff}.address-autocomplete .maps-credit{padding:6px 12px;text-align:right;font-size:12px;color:#53647a}.address-autocomplete small{display:block;margin-top:8px;line-height:1.4}
+/* White content surfaces on the dark dashboard, including nested controls. */
+html[data-theme=dark] :is(.page-heading,.aged-total-bar,#pipeline,.lane,.job-card,.calendar-grid,.calendar-toolbar,.calendar-navigation,.calendar-date,.aged-totals>div,.board-controls,.board-title,.filters){background:#fff!important;color:#142033!important;--background:#fff;--card:#fff;--card-foreground:#142033;--foreground:#142033;--muted:#edf2f8;--muted-foreground:#40536b;--input:#a5b5ca;--border:#a5b5ca;color-scheme:light;border-color:#a5b5ca!important}
+html[data-theme=dark] :is(.page-heading,.aged-total-bar){padding:24px;border:1px solid #a5b5ca;border-radius:16px;box-shadow:0 5px 20px #0003}
+html[data-theme=dark] :is(.page-heading,.aged-total-bar) :is(h1,p,span,strong,svg){color:#142033!important}
+html[data-theme=dark] :is(.calendar-section,#pipeline,.aged-overview) :is(input,select,[data-slot=tabs-list],[data-slot=tabs-trigger],button:not(.primary-action)){background:#fff!important;color:#142033!important;border-color:#a5b5ca!important}
+html[data-theme=dark] :is(.calendar-section,#pipeline) [data-state=active]{background:#0757db!important;color:white!important}
+html[data-theme=dark] :is(.lane,.job-card,.calendar-job,.calendar-date,.aged-totals>div,.board-title,.filters) :is(h2,h3,h4,p,span,strong,small,time){color:#142033!important}
+html[data-theme=dark] :is(input,textarea,select){background:#fff!important;color:#142033!important;border-color:#a5b5ca!important;color-scheme:light}
+html[data-theme=dark] :is(input,textarea)::placeholder{color:#596b80!important;opacity:1}
+html[data-theme=dark] :is(.address-autocomplete ul,.address-autocomplete li,.dashboard-button){background:#fff;color:#142033!important}
+html[data-theme=dark] .address-autocomplete li[aria-selected=true]{background:#eaf2ff}
+html[data-theme=dark] body :is(input:not([type=checkbox]),textarea,select,.accounts-page button,.account-editor button,.quality-row button,.installer-day-tabs button){background:#fff!important;color:#142033!important;border-color:#a5b5ca!important;color-scheme:light}
+html[data-theme=dark] body :is(.accounts-page,.account-editor) .primary-action,html[data-theme=dark] body :is(.account-tabs,.installer-day-tabs) button[aria-pressed=true]{background:#0757db!important;color:#fff!important}
+html[data-theme=dark] body :is(.account-permissions,.quality-legend>span,.storage-panel [role=status]){background:#fff!important;color:#142033!important;border-color:#a5b5ca!important}
+html[data-theme=dark] body :is(.account-permissions,.quality-legend,.storage-panel [role=status]) :is(p,small,label,strong){color:#142033!important}

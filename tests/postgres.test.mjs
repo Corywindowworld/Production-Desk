@@ -27,7 +27,7 @@ const preferences=await load('preferences');
 const profile=await load('team/profile'),summary=await load('installer/quality/summary');
 const {qualityTone,qualityLabel}=await vite.ssrLoadModule('/lib/installer-quality.ts');
 const {apiError,ApiError}=await vite.ssrLoadModule('/lib/access.ts');
-const customers=await load('customer-records');
+const customers=await load('customer-records'),notifications=await load('notifications'),addressSearch=await load('address-search');
 await vite.close();
 let ip=1;
 function req(path,body,cookie=''){return new Request('https://example.com/api/'+path,{method:body?'POST':'GET',headers:{'Content-Type':'application/json',origin:'https://example.com',cookie,'x-vercel-forwarded-for':'192.0.2.'+ip++},body:body?JSON.stringify(body):undefined})}
@@ -193,6 +193,22 @@ test('native PostgreSQL auth, role permissions, payment methods, signed uploads,
  await success(await reports.POST(req('installer/reports',report,installer.cookie)));
  const saved=await db.prepare('SELECT payload FROM jobs WHERE id=?').bind(j.id).first();assert.equal(JSON.parse(saved.payload).stage,'Closed');assert.equal(JSON.parse(saved.payload).paymentMethod,'PO');
  assert.equal((await db.prepare('SELECT * FROM notifications').all()).results.length,3);
+ const recentAlerts=await success(await notifications.GET(req('notifications',null,owner)));
+ assert.equal(recentAlerts.notifications.length,3);
+ const firstAlert=recentAlerts.notifications[0];
+ await success(await notifications.POST(req('notifications',{id:firstAlert.id,action:'read'},owner)));
+ assert.equal((await success(await notifications.GET(req('notifications',null,owner)))).notifications.length,2);
+ const oldAlert=recentAlerts.notifications[1];
+ await db.prepare('UPDATE notifications SET created=? WHERE id=?').bind(new Date(Date.now()-25*3600000).toISOString(),oldAlert.id).run();
+ assert.equal((await success(await notifications.GET(req('notifications',null,owner)))).notifications.length,1);
+ assert.equal((await addressSearch.GET(req('address-search?q=1234',null,installer.cookie))).status,403);
+ const oldKey=process.env.GOOGLE_PLACES_API_KEY;delete process.env.GOOGLE_PLACES_API_KEY;
+ assert.equal((await addressSearch.GET(req('address-search?q=1234',null,owner))).status,503);
+ const realFetch=globalThis.fetch;process.env.GOOGLE_PLACES_API_KEY='test-key';
+ try{globalThis.fetch=async()=>Response.json({suggestions:[{placePrediction:{text:{text:'123 Main St, Tampa, FL, USA'}}}]});
+ assert.deepEqual((await success(await addressSearch.GET(req('address-search?q=1234',null,owner)))).suggestions,['123 Main St, Tampa, FL, USA']);
+ }finally{globalThis.fetch=realFetch;if(oldKey)process.env.GOOGLE_PLACES_API_KEY=oldKey;else delete process.env.GOOGLE_PLACES_API_KEY;}
+
  // Installer reassignment exercises PostgreSQL jsonb updates.
  await success(await team.POST(req('team',{id:installer.id,email:'installer@example.com',name:'Installer renamed',role:'installer',supervisorId:otherSupervisor.id,active:true},owner)));
  assert.equal(JSON.parse((await db.prepare('SELECT payload FROM jobs WHERE id=?').bind(j.id).first()).payload).supervisorId,otherSupervisor.id);

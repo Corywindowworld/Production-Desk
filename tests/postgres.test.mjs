@@ -146,13 +146,13 @@ test('native PostgreSQL auth, role permissions, payment methods, signed uploads,
  const initialCustomer=await success(await customers.GET(req('customer-records?jobId='+j.id,null,owner)));
  assert.equal(initialCustomer.version,0);
  assert.equal((await customers.GET(req('customer-records?jobId='+j.id,null,installer.cookie))).status,403);
- const customerInput={jobId:j.id,version:0,record:{...initialCustomer.record,saleDate:'2026-08-01',warehouseBay:'B12',additionalWork:[{id:crypto.randomUUID(),workType:'Service',description:'Replace screen',materials:'Screen',accessNotes:'Call before arrival',date:'2026-09-20',period:'AM',assignedTo:'Crew 1',status:'Scheduled'}]}};
+ const customerInput={jobId:j.id,version:0,record:{...initialCustomer.record,saleDate:'2026-08-01',warehouseBay:'B12',legacyJobId:'00305267',region:'TPA',callbackScheduledDate:'2026-09-21',balanceDue:'0.00',additionalWork:[{id:crypto.randomUUID(),workType:'Service',description:'Replace screen',materials:'Screen',accessNotes:'Call before arrival',date:'2026-09-20',period:'AM',assignedTo:'Crew 1',status:'Scheduled'}]}};
  assert.equal((await customers.POST(req('customer-records',customerInput,otherSupervisor.cookie))).status,403);
  await success(await customers.POST(req('customer-records',customerInput,owner)));
  assert.equal((await customers.POST(req('customer-records',customerInput,owner))).status,409);
  await success(await customers.POST(req('customer-records',{jobId:j.id,version:1,note:'Called customer to confirm date',kind:'Contact'},owner)));
  const savedCustomer=await success(await customers.GET(req('customer-records?jobId='+j.id,null,owner)));
- assert.equal(savedCustomer.record.warehouseBay,'B12');assert.equal(savedCustomer.record.additionalWork[0].description,'Replace screen');assert.equal(savedCustomer.record.additionalWork[0].period,'AM');assert.equal(savedCustomer.events.length,2);
+ assert.equal(savedCustomer.record.warehouseBay,'B12');assert.equal(savedCustomer.record.legacyJobId,'00305267');assert.equal(savedCustomer.record.callbackScheduledDate,'2026-09-21');assert.equal(savedCustomer.record.additionalWork[0].description,'Replace screen');assert.equal(savedCustomer.record.additionalWork[0].period,'AM');assert.equal(savedCustomer.events.length,2);
  
  const second=(await success(await jobs.POST(req('jobs',{...base,id:crypto.randomUUID(),number:'124',installPeriod:'PM',stopNumber:2},owner)))).job;
  assert.equal(second.stopNumber,2);assert.equal(second.installPeriod,'PM');

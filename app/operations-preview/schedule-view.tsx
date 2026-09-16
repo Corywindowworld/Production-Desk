@@ -4,14 +4,15 @@ import type {Job} from './model';
 
 export type ScheduleViewMode='Day'|'Week'|'Month';
 const addDays=(date:string,count:number)=>new Date(Date.parse(date+'T12:00:00Z')+count*86400000).toISOString().slice(0,10);
-const startOfWeek=(date:string)=>addDays(date,-((new Date(date+'T12:00:00Z').getUTCDay()+6)%7));
-const datesFor=(date:string,view:ScheduleViewMode)=>{
+const startOfWeek=(date:string)=>addDays(date,-new Date(date+'T12:00:00Z').getUTCDay());
+export const datesFor=(date:string,view:ScheduleViewMode)=>{
  if(view==='Day')return [date];
  if(view==='Week'){const start=startOfWeek(date);return Array.from({length:7},(_,i)=>addDays(start,i))}
  const parsed=new Date(date+'T12:00:00Z'),year=parsed.getUTCFullYear(),month=parsed.getUTCMonth();
  const first=new Date(Date.UTC(year,month,1,12)).toISOString().slice(0,10);
  const length=new Date(Date.UTC(year,month+1,0,12)).getUTCDate();
- return Array.from({length},(_,i)=>addDays(first,i));
+ const start=startOfWeek(first),offset=new Date(first+'T12:00:00Z').getUTCDay();
+ return Array.from({length:Math.ceil((offset+length)/7)*7},(_,i)=>addDays(start,i));
 };
 const label=(date:string,view:ScheduleViewMode)=>new Intl.DateTimeFormat('en-US',view==='Month'?{weekday:'short',day:'numeric'}:{weekday:'short',month:'short',day:'numeric'}).format(new Date(date+'T12:00:00Z'));
 

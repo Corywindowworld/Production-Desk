@@ -12,7 +12,7 @@ async function uploadAccess(member:Member,jobId:string,kind:string){
  if(kind==='visit'&&member.role!=='supervisor'&&member.role!=='admin')throw new ApiError(403,'Only supervisors and administrators can upload visit photos.');
  const job=kind==='visit'?await visitJobFor(member,jobId):await jobFor(member,jobId);
  if(kind!=='visit'&&member.role!=='installer'&&!canEditJob(member,job))throw new ApiError(403,'You do not have permission to update job attachments.');
- if(member.role==='installer'&&job.stage!=='Production')throw new ApiError(400,'This job is not in Production.');
+ if(member.role==='installer'&&!['Production','InProgress'].includes(job.stage))throw new ApiError(400,'This job must be in PROD or IN PROGRESS.');
 }
 export async function POST(request:Request){try{
  sameOrigin(request);const member=await actor(request),db=database();
@@ -56,7 +56,6 @@ export async function POST(request:Request){try{
 export async function GET(request:Request){try{
  const member=await actor(request),key=new URL(request.url).searchParams.get('key')||'';
  if(!/^jobs\/[0-9a-f-]+\/(completion|incomplete|reorder|photos|front|rear|left|right|issue|visit)\/[0-9a-f-]+$/.test(key))throw new ApiError(404,'File not found.');
- if(key.split('/')[2]==='visit'&&member.role==='installer')throw new ApiError(403,'Visit photos are available to supervisors and office staff.');
  if(key.split('/')[2]==='visit')await visitJobFor(member,key.split('/')[1]);else await jobFor(member,key.split('/')[1]);
  if(!await bucket.head(key))throw new ApiError(404,'File not found.');
  const {data,error}=await storage().createSignedUrl(key,60);if(error||!data)throw new ApiError(404,'File not found.');

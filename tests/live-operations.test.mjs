@@ -21,19 +21,25 @@ const today=localDay();let j;
 async function reload(){j=(await operationsData(admin)).jobs[0];globalThis.__jobId=j.id;return j}
 async function act(m,action,data={}){await operation(m,{action,jobId:j?.id,version:j?.version,data});return reload()}
 test('live approvals, persistence, scopes and money',async()=>{
- await act(pa,'create',{number:'LEGACY-1',customer:'Test Customer',address:'123 Test Street',amount:1000,contractAmount:5000,supervisorId:fs.id,received:addDays(today,-31)});
+ await act(pa,'create',{number:'LEGACY-1',customer:'Test Customer',address:'123 Test Street',amount:1000,contractAmount:5000,supervisorId:fs.id});assert.equal(j.stage,'Ordered');
+ await assert.rejects(()=>act(pa,'schedule',{date:today,period:'AM',installerId:installer.id,stop:1}),/RCVD/i);
+ await act(pa,'receive',{received:addDays(today,-31),bay:'A-12',brand:'Simonton',materialType:'Window'});assert.equal(j.stage,'Received');
+ await assert.rejects(()=>act(pa,'schedule',{date:today,period:'AM',installerId:installer.id,stop:1}),/permit/i);
+ await act(pa,'permit',{received:true,number:'PERMIT-100'});
  await assert.rejects(()=>act(pa,'schedule',{date:today,period:'AM',installerId:installer.id,stop:1}),/payment/i);
  await act(pa,'payment',{amount:0,reference:'Receipt #1'});
  await act(pa,'schedule',{date:today,period:'AM',installerId:installer.id,stop:1,paymentReference:'Receipt #1'});
  assert.equal(j.install,'');assert.ok(j.operations.pendingSchedule);assert.equal((await operationsData(installer)).jobs.length,0);
  await assert.rejects(()=>act(pa,'approveSchedule'),/approval required/);
  await act(fs,'approveSchedule');assert.equal(j.install,today);assert.equal(aging(j,today).aged,true);
+ assert.equal((await pg.query("SELECT count(*)::integer AS count FROM production.notifications WHERE recipient_id=$1 AND message LIKE '%added to your calendar%'",[installer.id])).rows[0].count,1);
  const paData=await operationsData(pa);assert.equal(paData.config,null);assert.equal('estimate' in paData.metrics,false);
  const installerData=await operationsData(installer);assert.equal(installerData.jobs[0].amount,undefined);assert.equal(installerData.jobs[0].contractAmount,undefined);
  await act(fs,'start');assert.equal(j.stage,'Production');
  const kinds=['front','rear','left','right','completion'];const attachments=kinds.map(kind=>({key:`jobs/${j.id}/${kind}/${crypto.randomUUID()}`,name:kind+'.jpg',kind}));
  for(const a of attachments)await pg.query("INSERT INTO production.attachment_uploads(key,staging_key,job_id,kind,member_id,name,expires,status,sha256) VALUES($1,$1,$2,$3,$4,$5,0,'ready',$1)",[a.key,j.id,a.kind,installer.id,a.name]);
  await act(installer,'report',{id:crypto.randomUUID(),status:'Complete',reason:'',notes:'Done',installed:today,attachments});assert.equal(j.stage,'Production');assert.equal(j.operations.report.pending,true);
+ assert.equal((await pg.query("SELECT count(*)::integer AS count FROM production.notifications WHERE recipient_id=$1 AND message LIKE '%Field supervisor review required%'",[fs.id])).rows[0].count,1);
  await assert.rejects(()=>act(pa,'reviewReport',{approve:true}),/approval required/);
  await act(fs,'reviewReport',{approve:true});assert.equal(j.stage,'Closed');assert.equal(j.operations.report.confirmed,true);
  await act(fs,'edit',{notes:'New notes'});assert.equal(j.notes,'New notes');
@@ -58,10 +64,15 @@ test('live approvals, persistence, scopes and money',async()=>{
  await operation(fs,{action:'crewColors',data:{[installer.id]:'#123abc'}});assert.equal((await operationsData(fs)).crewColors[installer.id],'#123abc');assert.deepEqual((await operationsData(admin)).crewColors,{});
 });
 test('supervisor status controls and administrator deletion',async()=>{
- await act(pa,'create',{number:'LEGACY-DELETE',customer:'Delete Customer',address:'456 Test Street',amount:0,contractAmount:1000,supervisorId:fs.id,received:today});
+ await act(pa,'create',{number:'LEGACY-DELETE',customer:'Delete Customer',address:'456 Test Street',amount:0,contractAmount:1000,supervisorId:fs.id});
  await assert.rejects(()=>act(pa,'status',{target:'Production',reason:''}),/supervisor or administrator/i);
- await act(fs,'status',{target:'Production',reason:''});assert.equal(j.stage,'Production');
- await act(fs,'status',{target:'Incomplete',reason:'Missing sash'});assert.equal(j.stage,'Incomplete');
+ await act(pa,'receive',{received:today,bay:'B-2',brand:'CWS',materialType:'SPD'});await act(pa,'permit',{received:true,number:'PERMIT-200'});await act(pa,'schedule',{date:today,period:'AM',installerId:installer.id,stop:2,additionalInstructions:'Side gate'});
+ await act(fs,'status',{target:'Production'});assert.equal(j.stage,'Production');
+ await act(fs,'status',{target:'InProgress'});assert.equal(j.stage,'InProgress');assert.equal(aging(j,today).kind,'Production');
+ const incKinds=['front','rear','left','right','issue','incomplete'];const incAttachments=incKinds.map(kind=>({key:`jobs/${j.id}/${kind}/${crypto.randomUUID()}`,name:kind+'.jpg',kind}));
+ for(const a of incAttachments)await pg.query("INSERT INTO production.attachment_uploads(key,staging_key,job_id,kind,member_id,name,expires,status,sha256) VALUES($1,$1,$2,$3,$4,$5,0,'ready',$1)",[a.key,j.id,a.kind,installer.id,a.name]);
+ await act(installer,'report',{id:crypto.randomUUID(),status:'Incomplete',reason:'Damaged sash',notes:'Return needed',installed:today,attachments:incAttachments});
+ await assert.rejects(()=>act(fs,'reviewReport',{approve:true}),/reorder information/i);await act(fs,'edit',{reorder:'Order replacement sash'});await act(fs,'reviewReport',{approve:true});assert.equal(j.stage,'Incomplete');
  const id=j.id;await assert.rejects(()=>act(fs,'delete'),/Administrator/);await act(admin,'delete');
  assert.equal((await pg.query('SELECT id FROM production.jobs WHERE id=$1',[id])).rows.length,0);
 });

@@ -7,7 +7,7 @@ export const localDay=()=>new Intl.DateTimeFormat('en-CA',{timeZone:'America/New
 export const addDays=(d:string,n:number)=>new Date(Date.parse(d+'T12:00:00Z')+n*86400000).toISOString().slice(0,10);
 export const dayDifference=(a:string,b:string)=>{if(!a||!b)return null;const n=Math.floor((Date.parse(b.slice(0,10)+'T12:00:00Z')-Date.parse(a.slice(0,10)+'T12:00:00Z'))/86400000);return Number.isFinite(n)?n:null};
 export function aging(j:any,today=localDay()){
- const stage=j.stage,kind=stage==='Received'?'Received':stage==='Production'?'Production':stage==='Incomplete'?'Incomplete':null;
+ const stage=j.stage,kind=stage==='Received'?'Received':['Production','InProgress'].includes(stage)?'Production':stage==='Incomplete'?'Incomplete':null;
  const since=kind==='Received'?j.received:kind==='Production'?j.installed:j.incompleteSince?.slice(0,10);
  const days=kind&&since?dayDifference(since,today):null,limit=kind==='Incomplete'?45:kind==='Production'?7:30;
  const aged=days!==null&&(kind==='Incomplete'?days>=limit:days>limit);
@@ -21,13 +21,15 @@ export function bonusPeriod(day:string){
 }
 export const fieldsSchema=z.object({
  number:z.string().trim().min(1).max(80),customer:z.string().trim().min(1).max(160),address:z.string().trim().min(1).max(300),phone:z.string().max(50).default(''),
- customerEmail:z.union([z.string().email(),z.literal('')]).default(''),product:z.enum(['Windows','Entry Doors']).default('Windows'),slidingDoors:z.number().int().min(0).max(999).default(0),
- received:optionalDate,installed:optionalDate,incompleteSince:optionalDate,stage:z.enum(['Received','Production','Incomplete','Closed','Ordered']).default('Received'),
+ customerEmail:z.union([z.string().email(),z.literal('')]).default(''),product:z.enum(['Windows','Entry Doors']).default('Windows'),windowCount:z.number().int().min(0).max(999).default(0),slidingDoors:z.number().int().min(0).max(999).default(0),entryDoorCount:z.number().int().min(0).max(999).default(0),
+ brand:z.enum(['','Simonton','Plygem','Wincore','Thermatru','Diamond Screens','AMI','CWS']).default(''),materialType:z.enum(['','Window','SPD','Entry Door','Diamond Screen']).default(''),permitReceived:z.boolean().default(false),permitNumber:z.string().trim().max(150).default(''),
+ received:optionalDate,installed:optionalDate,incompleteSince:optionalDate,stage:z.enum(['Received','Production','InProgress','Incomplete','Closed','Ordered']).default('Ordered'),
  amount:money.nullable(),contractAmount:money.nullable().default(null),supervisorId:z.string().min(1),
  salesRep:z.string().max(160).default(''),salesRepPhone:z.string().max(50).default(''),salesRepEmail:z.union([z.string().email(),z.literal('')]).default(''),
  bay:z.string().max(100).default(''),notes:z.string().max(4000).default(''),instructions:z.string().max(4000).default(''),reorder:z.string().max(4000).default('')
 });
-export const scheduleSchema=z.object({date,period:z.enum(['AM','PM']),installerId:z.string().uuid(),stop:z.number().int().min(1).max(99),paymentReference:z.string().trim().max(300).default('')});
+export const scheduleSchema=z.object({date,period:z.enum(['AM','PM']),installerId:z.string().uuid(),stop:z.number().int().min(1).max(99),paymentReference:z.string().trim().max(300).default(''),additionalInstructions:z.string().trim().max(4000).default('')});
+export const receiveSchema=z.object({received:date,bay:z.string().trim().min(1).max(100),brand:z.enum(['Simonton','Plygem','Wincore','Thermatru','Diamond Screens','AMI','CWS']),materialType:z.enum(['Window','SPD','Entry Door','Diamond Screen'])});
 export const requestSchema=z.object({type:z.enum(['UTI','COLL','Service','ACCRF']),details:z.string().trim().min(1).max(4000),paymentReference:z.string().trim().max(300).default(''),refused:z.boolean().default(false),serviceDate:optionalDate,period:z.enum(['AM','PM']).default('AM'),installerId:z.string().default(''),amount:money.optional()});
 export const surveySchema=z.object({externalId:z.string().trim().min(1).max(150),installerId:z.string().uuid(),completedOn:date,ratings:z.array(z.number().int().min(1).max(5).nullable()).length(4)}).refine(s=>s.ratings.some(r=>r!==null),'Enter at least one rating.');
 export const configSchema=z.object({period:date,pool:money,dollars:z.array(money).length(4),jobs:z.array(z.number().int().min(0)).length(4),quality:z.array(z.number().min(0).max(4)).length(5)}).refine(c=>c.dollars.every((v,i)=>!i||v>=c.dollars[i-1])&&c.jobs.every((v,i)=>!i||v>=c.jobs[i-1])&&c.quality.every((v,i)=>!i||v<=c.quality[i-1]),'Thresholds must be ordered.');

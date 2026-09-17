@@ -1,5 +1,5 @@
 import { z } from 'zod';
-export const reportLabels={front:'Front of house',rear:'Back of house',left:'Left side of house',right:'Right side of house',photos:'Job photos',issue:'Photos of the issue',completion:'Completion certificate',incomplete:'Incomplete certificate',reorder:'Reorder form'} as const;
+export const reportLabels={front:'Front of house',rear:'Back of house',left:'Left side of house',right:'Right side of house',photos:'Additional photos (optional)',issue:'Photos of the issue',completion:'Completion certificate',incomplete:'Incomplete certificate',reorder:'Reorder form'} as const;
 export const reportKinds=Object.keys(reportLabels) as (keyof typeof reportLabels)[];
 export const reportAttachment=z.object({key:z.string().max(250),name:z.string().max(255),kind:z.enum(['front','rear','left','right','photos','issue','completion','incomplete','reorder'])});
 export const reportSchema=z.object({id:z.string().uuid(),jobId:z.string().uuid(),version:z.number().int().min(1),status:z.enum(['Complete','Incomplete']),reason:z.string().trim().max(1000),notes:z.string().max(4000),installed:z.string().regex(/^\d{4}-\d{2}-\d{2}$/),attachments:z.array(reportAttachment).max(100)});

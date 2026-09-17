@@ -98,7 +98,10 @@ export async function operation(m:Member,input:any){
   }else if(action==='issue'){
    assert(m.role==='installer','Installer access required.');const text=parse(z.string().trim().min(1).max(4000),input.data.text);o.issues=[{id:crypto.randomUUID(),text,by:m.name,at},...(o.issues||[])];await alert(j.supervisorId,`⚠ Job #${j.number}: ${text}`);history='Installer reported an issue: '+text;
   }else if(action==='report'){
-   assert(m.role==='installer'&&j.installerId===m.id,'Only the assigned installer can submit an installation report.');assert(j.stage==='Production'&&!o.report?.pending&&!o.report?.approved,'Start production first; the previous report must be resolved before submitting another.',409);
+   assert(m.role==='installer'&&j.installerId===m.id,'Only the assigned installer can submit an installation report.');
+   const scheduledAndDue=!!j.install&&j.install<=today&&['Received','Incomplete'].includes(j.stage);
+   assert((j.stage==='Production'||scheduledAndDue)&&!o.report?.pending&&!o.report?.approved,'This job must be scheduled for today or already in progress before completion can be submitted.',409);
+   if(scheduledAndDue){j.stage='Production';j.installed=today}
    const r=parse(reportSchema,{...input.data,jobId:j.id,version});assert(r.installed<=today,'Installation date cannot be in the future.',400);assert(!reportError(r),reportError(r),400);const hashes=new Set();
    for(const a of r.attachments){const file=await tx.prepare("SELECT * FROM attachment_uploads WHERE key=? AND status='ready'").bind(a.key).first();assert(a.key.startsWith(`jobs/${j.id}/${a.kind}/`)&&file?.job_id===j.id&&file?.kind===a.kind&&file?.member_id===m.id,'An uploaded attachment is missing.',400);if(['front','rear','left','right'].includes(a.kind)){const hash=file?.sha256;assert(hash&&!hashes.has(hash),'Upload four different exterior photos.',400);hashes.add(hash)}}
    const report={...r,installerId:m.id,installerName:m.name,submittedAt:at,pending:true};

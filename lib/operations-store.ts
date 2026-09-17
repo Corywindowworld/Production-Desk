@@ -1,6 +1,6 @@
 import {database} from '@/db/raw';
 import {ApiError,Member,hasJobEditPermission} from '@/lib/access';
-import {fieldsSchema,scheduleSchema,receiveSchema,requestSchema,surveySchema,configSchema,localDay,dayDifference,bonusMetrics,bonusPeriod} from './operations';
+import {fieldsSchema,scheduleSchema,receiveSchema,receiveItemsSchema,allowedMaterials,requestSchema,surveySchema,configSchema,localDay,dayDifference,bonusMetrics,bonusPeriod} from './operations';
 import {env} from './server-env';
 import {reportSchema,reportError,installerJob} from './installer-workflow';
 import {deliverPush} from './push';
@@ -13,7 +13,7 @@ const parse=<T>(schema:z.ZodType<T>,value:unknown):T=>{const p=schema.safeParse(
 export function installerVisible(m:Member,j:any,today=localDay()) {return j.installerId===m.id||j.operations?.services?.some((s:any)=>s.installerId===m.id&&s.date>=today)}
 export function publicJob(m:Member,j:any){
  if(m.role!=='installer')return j;
- return {...installerJob(j),install:j.installerId===m.id?j.install:'',canReport:j.installerId===m.id,salesRep:j.salesRep,salesRepPhone:j.salesRepPhone,salesRepEmail:j.salesRepEmail,product:j.product,windowCount:j.windowCount||0,slidingDoors:j.slidingDoors||0,entryDoorCount:j.entryDoorCount||0,brand:j.brand||'',materialType:j.materialType||'',permitReceived:!!j.permitReceived,permitNumber:j.permitNumber||'',instructions:j.instructions,scheduleInstructions:j.scheduleInstructions||'',reorder:j.reorder||'',attachments:(j.attachments||[]).filter((a:any)=>a.kind!=='visit'),operations:{salesKeys:j.operations?.salesKeys,report:j.operations?.report,services:(j.operations?.services||[]).filter((s:any)=>s.installerId===m.id)}};
+ return {...installerJob(j),install:j.installerId===m.id?j.install:'',canReport:j.installerId===m.id,salesRep:j.salesRep,salesRepPhone:j.salesRepPhone,salesRepEmail:j.salesRepEmail,received:j.received,bay:j.bay,city:j.city,state:j.state,zip:j.zip,materials:j.materials||[],product:j.product,windowCount:j.windowCount||0,slidingDoors:j.slidingDoors||0,entryDoorCount:j.entryDoorCount||0,brand:j.brand||'',materialType:j.materialType||'',permitReceived:!!j.permitReceived,permitNumber:j.permitNumber||'',instructions:j.instructions,scheduleInstructions:j.scheduleInstructions||'',reorder:j.reorder||'',attachments:(j.attachments||[]).filter((a:any)=>a.kind!=='visit'),operations:{salesKeys:j.operations?.salesKeys,report:j.operations?.report,services:(j.operations?.services||[]).filter((s:any)=>s.installerId===m.id)}};
 }
 export async function operationsData(m:Member){
  const db=database(),today=localDay();
@@ -77,12 +77,12 @@ export async function operation(m:Member,input:any){
   const checkSupervisor=async()=>{const s=await tx.prepare("SELECT id,name FROM members WHERE id=? AND role IN ('admin','supervisor') AND active=1").bind(j.supervisorId).first();assert(s,'Select an active field supervisor or administrator.',400);j.supervisor=s.name};
   const confirmSchedule=async(s:any)=>{const i=await installer(s.installerId);j.install=s.date;j.installPeriod=s.period;j.stopNumber=s.stop;j.installerId=i.id;j.crew=i.name;j.scheduleInstructions=s.additionalInstructions||'';o.pendingSchedule=null;await alert(i.id,`Job #${j.number} added to your calendar for ${s.date} ${s.period}, stop ${s.stop}: ${j.customer}.`)};
   const edit=()=>assert(hasJobEditPermission(m),'Your account needs job editing permission.');
-  if(action==='create'){await checkSupervisor();history='Customer created manually';}
+  if(action==='create'){assert(!(j.product==='Windows'&&j.entryDoorCount>0)&&!(j.product!=='Windows'&&(j.windowCount>0||j.slidingDoors>0))&&!(j.product==='Diamond Screens'&&j.entryDoorCount>0),'Windows/SPD, Entry Doors, and Diamond Screens require separate accounts.',400);await checkSupervisor();history='Customer created manually';}
   else if(action==='edit'){
    edit();const schema=fieldsSchema.omit({number:true,contractAmount:true,amount:true,stage:true,received:true,installed:true,incompleteSince:true,permitReceived:true,permitNumber:true});
    for(const k of ['contractAmount','amount','stage','received','installed','incompleteSince','permitReceived','permitNumber'])assert(input.data[k]===undefined,'Use the protected workflow actions for price, balance, permit and status changes.',400);
    const f=parse(schema,{...j,...input.data});
-   Object.assign(j,f);await checkSupervisor();history='Customer and job information updated';
+   assert(!(f.product==='Windows'&&(f.entryDoorCount||0)>0)&&!(f.product!=='Windows'&&((f.windowCount||0)>0||(f.slidingDoors||0)>0))&&!(f.product==='Diamond Screens'&&(f.entryDoorCount||0)>0),'Windows/SPD, Entry Doors, and Diamond Screens require separate accounts.',400);assert((j.materials||[]).every((v:any)=>allowedMaterials(f.product||'Windows').includes(v.materialType)),'Received materials require a separate account for this account type.',400);Object.assign(j,f);await checkSupervisor();history='Customer and job information updated';
   }else if(action==='payment'){
    edit();const amount=parse(z.number().finite().min(0).multipleOf(.01),input.data.amount),reference=parse(z.string().trim().min(1).max(300),input.data.reference);
    assert(j.amount!=null&&amount<=j.amount,'A payment must not increase the balance. Ask an administrator to reconcile unknown balances.',400);history=`Amount due ${j.amount} → ${amount}. Payment reference: ${reference}`;j.amount=amount;
@@ -90,13 +90,14 @@ export async function operation(m:Member,input:any){
    assert(m.role==='admin','Administrator access required.');const amount=parse(z.number().finite().min(0).multipleOf(.01),input.data.amount);const reference=parse(z.string().trim().min(1).max(300),input.data.reference);history=`Balance reconciled ${j.amount??'unknown'} → ${amount}. Source: ${reference}`;j.amount=amount;
   }else if(action==='schedule'){
    edit();const s=parse(scheduleSchema,input.data);assert(s.date>=today,'Choose today or a future date.',400);await installer(s.installerId);await checkSupervisor();assert(j.stage==='Received'&&j.received,'Only an RCVD job can be scheduled.',400);assert(j.permitReceived&&j.permitNumber,'Permit Received and a permit number are required before scheduling.',400);
+   for(const a of s.salesPhotos||[]){const file=await tx.prepare("SELECT * FROM attachment_uploads WHERE key=? AND status='ready'").bind(a.key).first();assert(file?.job_id===j.id&&file?.member_id===m.id&&file?.kind==='photos','Upload sales photos for this job before scheduling.',400);j.attachments=[...(j.attachments||[]).filter((v:any)=>v.key!==a.key),a];o.salesKeys=[...new Set([...(o.salesKeys||[]),a.key])]}
    if((dayDifference(j.received,s.date)??0)>30){assert(j.amount===0&&s.paymentReference,'Beyond 30 days requires a zero amount due and payment reference.',400);o.pendingSchedule={...s,requestedBy:m.name,requestedAt:at};history='Schedule requested beyond 30 days; awaiting FS/Admin approval';await alert(j.supervisorId,`Job #${j.number}: schedule beyond 30 days needs approval.`)}
    else{await confirmSchedule(s);history=`Scheduled ${s.date} ${s.period}, stop ${s.stop}`}
   }else if(action==='approveSchedule'||action==='rejectSchedule'){
    assert(reviewer(m),'Field supervisor or administrator approval required.');assert(o.pendingSchedule,'No schedule request is pending.',409);
    if(action==='approveSchedule'){assert(j.amount===0&&o.pendingSchedule.paymentReference,'Payment in full must be recorded before approval.',400);assert(o.pendingSchedule.date>=today,'Requested date has passed. Schedule again.',400);await confirmSchedule(o.pendingSchedule);history='Schedule beyond 30 days approved'}else{o.pendingSchedule=null;history='Schedule request declined'}
   }else if(action==='receive'){
-   edit();assert(j.stage==='Ordered','Only ORD jobs can be marked received.',400);const r=parse(receiveSchema,input.data);assert(r.received<=today,'Materials received date cannot be in the future.',400);Object.assign(j,r);j.stage='Received';history=`Materials received ${r.received}; ${r.materialType}, ${r.brand}, bay ${r.bay}`;
+   edit();const r=input.data.materials?parse(receiveItemsSchema,input.data):(()=>{const legacy=parse(receiveSchema,input.data);return {received:legacy.received,materials:[legacy]}})();assert(r.received<=today,'Materials received date cannot be in the future.',400);assert(r.materials.every(v=>allowedMaterials(j.product||'Windows').includes(v.materialType)),'Windows/SPD, Entry Doors, and Diamond Screens must be received on separate accounts.',400);j.materials=r.materials;j.bay=r.materials.map(v=>v.bay).join(', ');j.brand=r.materials[0].brand;j.materialType=r.materials[0].materialType;if(j.stage==='Ordered'){j.received=r.received;j.stage='Received'}else assert(j.received===r.received,'The original received date cannot be changed.',400);history=`Received materials updated: ${r.materials.map(v=>`${v.materialType}, ${v.brand}, bay ${v.bay}`).join('; ')}`;
   }else if(action==='permit'){
    edit();const p=parse(z.object({received:z.boolean(),number:z.string().trim().max(150)}),input.data);assert(!p.received||p.number,'Enter the permit number when Permit Received is checked.',400);j.permitReceived=p.received;j.permitNumber=p.received?p.number:'';history=p.received?`Permit received: ${p.number}`:'Permit marked not received';
   }else if(action==='start'){
@@ -120,7 +121,7 @@ export async function operation(m:Member,input:any){
    o.report=report;j.attachments=[...(j.attachments||[]),...r.attachments];history=`Installer submitted ${r.status}; awaiting approval`;await notifyReport(`Job #${j.number}: ${r.status} submitted by ${m.name}. Field supervisor review required.`);
   }else if(action==='reviewReport'){
    assert(reviewer(m),'Supervisor approval required.');assert(o.report?.pending,'No report is pending.',409);const approve=parse(z.boolean(),input.data.approve);o.report={...o.report,pending:false,approved:approve,reviewedBy:m.name,reviewedAt:at,confirmed:approve};
-   if(approve){if(o.report.status==='Incomplete')assert(String(j.reorder||'').trim(),'Enter reorder information before approving an INC result.',400);j.stage=o.report.status==='Complete'?'Closed':'Incomplete';if(j.stage==='Incomplete')j.incompleteSince=at;history=`Installer report approved; job moved to ${j.stage==='Closed'?'COMP':'INC'}`}
+   if(approve){assert(!reportError(o.report),reportError(o.report),400);if(o.report.status==='Incomplete')assert(String(j.reorder||'').trim(),'Enter reorder information before approving an INC result.',400);j.stage=o.report.status==='Complete'?'Closed':'Incomplete';if(j.stage==='Incomplete')j.incompleteSince=at;history=`Installer report approved; job moved to ${j.stage==='Closed'?'COMP':'INC'}`}
    else history='Installer report returned for correction';
    await alert(j.installerId,`Job #${j.number}: report ${approve?`approved and moved to ${j.stage==='Closed'?'COMP':'INC'}`:'returned for correction'}.`);
   }else if(action==='confirmStatus'){

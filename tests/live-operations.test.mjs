@@ -23,7 +23,8 @@ async function act(m,action,data={}){await operation(m,{action,jobId:j?.id,versi
 test('live approvals, persistence, scopes and money',async()=>{
  await act(pa,'create',{number:'LEGACY-1',customer:'Test Customer',address:'123 Test Street',amount:1000,contractAmount:5000,supervisorId:fs.id});assert.equal(j.stage,'Ordered');
  await assert.rejects(()=>act(pa,'schedule',{date:today,period:'AM',installerId:installer.id,stop:1}),/RCVD/i);
- await act(pa,'receive',{received:addDays(today,-31),bay:'A-12',brand:'Simonton',materialType:'Window'});assert.equal(j.stage,'Received');
+ await assert.rejects(()=>act(pa,'receive',{received:today,materials:[{bay:'D-1',brand:'Thermatru',materialType:'Entry Door'}]}),/separate accounts/i);
+ await act(pa,'receive',{received:addDays(today,-31),materials:[{bay:'A-12',brand:'Simonton',materialType:'Window'},{bay:'A-13',brand:'CWS',materialType:'SPD'}]});assert.equal(j.stage,'Received');assert.equal(j.materials.length,2);
  await assert.rejects(()=>act(pa,'schedule',{date:today,period:'AM',installerId:installer.id,stop:1}),/permit/i);
  await act(pa,'permit',{received:true,number:'PERMIT-100'});
  await assert.rejects(()=>act(pa,'schedule',{date:today,period:'AM',installerId:installer.id,stop:1}),/payment/i);

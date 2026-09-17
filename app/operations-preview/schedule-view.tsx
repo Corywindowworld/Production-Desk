@@ -14,6 +14,12 @@ export const datesFor=(date:string,view:ScheduleViewMode)=>{
  const start=startOfWeek(first),offset=new Date(first+'T12:00:00Z').getUTCDay();
  return Array.from({length:Math.ceil((offset+length)/7)*7},(_,i)=>addDays(start,i));
 };
+export const moveCalendar=(date:string,view:ScheduleViewMode,direction:number)=>{
+ if(view==='Day')return addDays(date,direction);
+ if(view==='Week')return addDays(date,7*direction);
+ const parsed=new Date(date+'T12:00:00Z');
+ return new Date(Date.UTC(parsed.getUTCFullYear(),parsed.getUTCMonth()+direction,1,12)).toISOString().slice(0,10);
+};
 const label=(date:string,view:ScheduleViewMode)=>new Intl.DateTimeFormat('en-US',view==='Month'?{weekday:'short',day:'numeric'}:{weekday:'short',month:'short',day:'numeric'}).format(new Date(date+'T12:00:00Z'));
 
 export function ScheduleView({jobs,role,installer,asOf,day,setDay,view,setView,onOpen,onSchedule}:{jobs:Job[];role:string;installer:string;asOf:string;day:string;setDay:(date:string)=>void;view:ScheduleViewMode;setView:(view:ScheduleViewMode)=>void;onOpen:(job:Job)=>void;onSchedule:()=>void}){

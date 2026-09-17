@@ -11,6 +11,7 @@ const vite=await createServer({configFile:false,resolve:{alias:{'@':resolve('.')
 const {createDatabase}=await vite.ssrLoadModule('/db/adapter.ts');globalThis.__liveDb=createDatabase(wrap(pg));
 const {operation,operationsData}=await vite.ssrLoadModule('/lib/operations-store.ts');
 const {localDay,addDays,aging,bonusPeriod,bonusMetrics}=await vite.ssrLoadModule('/lib/operations.ts');
+const {requiredReportKinds,reportError}=await vite.ssrLoadModule('/lib/installer-workflow.ts');
 const admin={id:'owner',name:'Admin',role:'admin',email:'admin@example.com',active:1};
 const fs={id:crypto.randomUUID(),name:'Supervisor',role:'supervisor',can_edit_jobs:1,active:1};
 const pa={id:crypto.randomUUID(),name:'Assistant',role:'production_assistant',can_edit_jobs:1,active:1};
@@ -34,7 +35,7 @@ test('live approvals, persistence, scopes and money',async()=>{
  for(const a of attachments)await pg.query("INSERT INTO production.attachment_uploads(key,staging_key,job_id,kind,member_id,name,expires,status,sha256) VALUES($1,$1,$2,$3,$4,$5,0,'ready',$1)",[a.key,j.id,a.kind,installer.id,a.name]);
  await act(installer,'report',{id:crypto.randomUUID(),status:'Complete',reason:'',notes:'Done',installed:today,attachments});assert.equal(j.stage,'Production');assert.equal(j.operations.report.pending,true);
  await assert.rejects(()=>act(pa,'reviewReport',{approve:true}),/approval required/);
- await act(fs,'reviewReport',{approve:true});assert.equal(j.stage,'Production');await act(fs,'confirmStatus');assert.equal(j.stage,'Closed');
+ await act(fs,'reviewReport',{approve:true});assert.equal(j.stage,'Closed');assert.equal(j.operations.report.confirmed,true);
  await act(fs,'edit',{notes:'New notes'});assert.equal(j.notes,'New notes');
  await assert.rejects(()=>act(fs,'edit',{amount:10}),/protected/);
  await act(fs,'request',{type:'ACCRF',details:'Extra trim',amount:5100});const req=j.operations.requests[0];
@@ -42,7 +43,9 @@ test('live approvals, persistence, scopes and money',async()=>{
  await act(admin,'reviewRequest',{id:req.id,approve:true});assert.equal(j.contractAmount,5100);assert.equal(j.amount,100);
  await assert.rejects(()=>operation(admin,{action:'edit',jobId:j.id,version:j.version-1,data:{notes:'stale'}}),/changed/);
  assert.ok(j.history.some(h=>h.text.includes('approved')));
- await act(pa,'request',{type:'Service',details:'Adjust lock',serviceDate:addDays(today,2),installerId:installer.id,period:'PM'});assert.equal(j.operations.services.length,1);assert.equal(j.install,today);
+ await act(pa,'request',{type:'Service',details:'Adjust lock',serviceDate:addDays(today,2),installerId:installer.id,period:'PM'});let service=j.operations.requests[0];assert.equal(j.operations.services?.length||0,0);assert.equal(service.status,'Pending');
+ await assert.rejects(()=>act(fs,'reviewRequest',{id:service.id,approve:true}),/Administrator/);
+ await act(admin,'reviewRequest',{id:service.id,approve:true});assert.equal(j.operations.services.length,1);assert.equal(j.stage,'SVC');
  await act(pa,'payment',{amount:0,reference:'Final payment'});
  await act(fs,'request',{type:'UTI',details:'Customer unavailable',paymentReference:'Final payment'});
  const uti=j.operations.requests[0];await assert.rejects(()=>act(pa,'reviewRequest',{id:uti.id,approve:true}),/Administrator/);
@@ -52,6 +55,15 @@ test('live approvals, persistence, scopes and money',async()=>{
  assert.equal((await operationsData(fs)).metrics.score,4);
  await assert.rejects(()=>operation(installer,{action:'configure',data:{}}),/Administrator/);
  await assert.rejects(()=>operation(installer,{action:'create',data:{}}),/permission/);
+ await operation(fs,{action:'crewColors',data:{[installer.id]:'#123abc'}});assert.equal((await operationsData(fs)).crewColors[installer.id],'#123abc');assert.deepEqual((await operationsData(admin)).crewColors,{});
+});
+test('supervisor status controls and administrator deletion',async()=>{
+ await act(pa,'create',{number:'LEGACY-DELETE',customer:'Delete Customer',address:'456 Test Street',amount:0,contractAmount:1000,supervisorId:fs.id,received:today});
+ await assert.rejects(()=>act(pa,'status',{target:'Production',reason:''}),/supervisor or administrator/i);
+ await act(fs,'status',{target:'Production',reason:''});assert.equal(j.stage,'Production');
+ await act(fs,'status',{target:'Incomplete',reason:'Missing sash'});assert.equal(j.stage,'Incomplete');
+ const id=j.id;await assert.rejects(()=>act(fs,'delete'),/Administrator/);await act(admin,'delete');
+ assert.equal((await pg.query('SELECT id FROM production.jobs WHERE id=$1',[id])).rows.length,0);
 });
 test('period and aging boundaries',()=>{
  assert.deepEqual(bonusPeriod('2026-09-15'),{start:'2026-08-26',end:'2026-09-29'});
@@ -61,5 +73,14 @@ test('period and aging boundaries',()=>{
  assert.equal(aging({stage:'Incomplete',incompleteSince:addDays(today,-45)},today).aged,true);
  assert.equal(aging({stage:'UTI',received:addDays(today,-90)},today).aged,false);
  const m=bonusMetrics([],[{completed_on:today,ratings:[5,5,5,5]}],null,today);assert.equal(m.score,4);assert.equal(m.estimate,null);
+});
+test('completion and incomplete evidence requirements',()=>{
+ assert.deepEqual(requiredReportKinds('Complete'),['front','rear','left','right','completion']);
+ assert.deepEqual(requiredReportKinds('Incomplete'),['front','rear','left','right','issue','incomplete']);
+ const files=kinds=>kinds.map((kind,i)=>({kind,key:'file-'+i}));
+ assert.equal(reportError({status:'Complete',reason:'',attachments:files(requiredReportKinds('Complete'))}),'');
+ assert.equal(reportError({status:'Incomplete',reason:'Broken glass',attachments:files(requiredReportKinds('Incomplete'))}),'');
+ assert.match(reportError({status:'Incomplete',reason:'',attachments:files(requiredReportKinds('Incomplete'))}),/Explain/);
+ assert.match(reportError({status:'Incomplete',reason:'Broken glass',attachments:files(['front','rear','left','right','incomplete'])}),/photos of the issue/i);
 });
 test.after(async()=>{await vite.close();await pg.close()});

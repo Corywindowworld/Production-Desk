@@ -21,14 +21,15 @@ export async function operationsData(m:Member){
  const all=rows.results.map((r:any)=>({...withCustomerRecord(JSON.parse(r.payload),r.record),version:r.version}));
  const jobs=all.filter((j:any)=>m.role!=='installer'||installerVisible(m,j)).map((j:any)=>publicJob(m,j));
  const team=m.role==='installer'?[]:(await db.prepare('SELECT id,name,role FROM members WHERE active=1 ORDER BY name').all()).results;
- let surveys:any[]=[],config:any=null,metrics:any=null;
+ let surveys:any[]=[],config:any=null,metrics:any=null,crewColors:any={};
  if(m.role!=='installer'){
   surveys=(await db.prepare('SELECT * FROM production.operations_surveys ORDER BY completed_on DESC').all()).results;
   config=(await db.prepare('SELECT payload FROM production.operations_config WHERE id=?').bind(bonusPeriod(today).end).first())?.payload;
   metrics=bonusMetrics(all,surveys,config,today);
+  crewColors=(await db.prepare('SELECT payload FROM production.operations_config WHERE id=?').bind(`crew-colors:${m.id}`).first())?.payload||{};
   if(!reviewer(m)){delete metrics.estimate;config=null;}
  }
- return {me:m,jobs,team,today,metrics,surveys:m.role==='installer'?[]:surveys,config:reviewer(m)?config:null,canEdit:hasJobEditPermission(m),canReview:reviewer(m)};
+ return {me:m,jobs,team,today,metrics,surveys:m.role==='installer'?[]:surveys,config:reviewer(m)?config:null,crewColors,canEdit:hasJobEditPermission(m),canReview:reviewer(m)};
 }
 // All job changes lock the row and compare versions inside one transaction. Side effects are queued with the change.
 export async function operation(m:Member,input:any){
@@ -42,6 +43,13 @@ export async function operation(m:Member,input:any){
   assert(reviewer(m),'Field supervisor or administrator access required.');const s=parse(surveySchema,input.data);assert(s.completedOn<=today,'Survey date cannot be in the future.',400);
   assert(await db.prepare("SELECT id FROM members WHERE id=? AND role='installer'").bind(s.installerId).first(),'Select an installer.',400);
   const r=await db.prepare('INSERT INTO production.operations_surveys (id,external_id,installer_id,completed_on,ratings,entered_by,created) VALUES (?,?,?,?,?,?,?) ON CONFLICT(external_id) DO NOTHING').bind(crypto.randomUUID(),s.externalId,s.installerId,s.completedOn,JSON.stringify(s.ratings),m.id,at).run();assert(r.meta.changes,'That survey reference has already been recorded.',409);return;
+ }
+ if(action==='crewColors'){
+  assert(m.role!=='installer','Installer accounts cannot change crew colors.');
+  const colors=parse(z.record(z.string(),z.string().regex(/^#[0-9a-f]{6}$/i)),input.data);
+  const installers=(await db.prepare("SELECT id FROM members WHERE role='installer' AND active=1").all()).results.map((v:any)=>v.id);
+  assert(Object.keys(colors).every(id=>installers.includes(id)),'Crew colors may only be assigned to active installers.',400);
+  await db.prepare('INSERT INTO production.operations_config (id,payload,updated_by,updated) VALUES (?,?,?,?) ON CONFLICT(id) DO UPDATE SET payload=EXCLUDED.payload,updated_by=EXCLUDED.updated_by,updated=EXCLUDED.updated').bind(`crew-colors:${m.id}`,JSON.stringify(colors),m.id,at).run();return;
  }
  await db.transaction(async tx=>{
   let j:any,version=0;
@@ -83,7 +91,7 @@ export async function operation(m:Member,input:any){
   }else if(action==='balance'){
    assert(m.role==='admin','Administrator access required.');const amount=parse(z.number().finite().min(0).multipleOf(.01),input.data.amount);const reference=parse(z.string().trim().min(1).max(300),input.data.reference);history=`Balance reconciled ${j.amount??'unknown'} → ${amount}. Source: ${reference}`;j.amount=amount;
   }else if(action==='schedule'){
-   edit();const s=parse(scheduleSchema,input.data);assert(s.date>=today,'Choose today or a future date.',400);await installer(s.installerId);await checkSupervisor();assert(j.received,'Record the received date before scheduling.',400);assert(!['Closed','UTI','COLL','Ordered'].includes(j.stage),'This status cannot be scheduled for installation.',400);
+   edit();const s=parse(scheduleSchema,input.data);assert(s.date>=today,'Choose today or a future date.',400);await installer(s.installerId);await checkSupervisor();assert(j.received,'Record the received date before scheduling.',400);assert(!['Closed','UTI','COLL','SVC','Ordered'].includes(j.stage),'This status cannot be scheduled for installation.',400);
    if((dayDifference(j.received,s.date)??0)>30){assert(j.amount===0&&s.paymentReference,'Beyond 30 days requires a zero amount due and payment reference.',400);o.pendingSchedule={...s,requestedBy:m.name,requestedAt:at};history='Schedule requested beyond 30 days; awaiting FS/Admin approval';await alert(j.supervisorId,`Job #${j.number}: schedule beyond 30 days needs approval.`)}
    else{await confirmSchedule(s);history=`Scheduled ${s.date} ${s.period}, stop ${s.stop}`}
   }else if(action==='approveSchedule'||action==='rejectSchedule'){
@@ -93,6 +101,11 @@ export async function operation(m:Member,input:any){
    edit();assert(j.stage==='Ordered','Only ordered jobs can be marked received.',400);j.received=today;j.stage='Received';history='Materials received';
   }else if(action==='start'){
    edit();assert(['Received','Incomplete'].includes(j.stage)&&j.install&&j.install<=today,'An approved appointment must be due before production starts.',400);j.stage='Production';j.installed=today;o.report=null;history='Installation moved into production';
+  }else if(action==='status'){
+   assert(reviewer(m),'Field supervisor or administrator access required.');assert(!o.report?.pending,'Review the installer submission before changing status.',409);
+   const target=parse(z.enum(['Production','Incomplete']),input.data.target);
+   if(target==='Production'){assert(!['Closed','UTI','COLL'].includes(j.stage),'This job cannot be returned to production from its current status.',400);j.stage='Production';j.installed=today;o.report=null;history='Status moved to IN PROGRESS'}
+   else{const reason=parse(z.string().trim().min(1).max(4000),input.data.reason);j.stage='Incomplete';j.incompleteSince=at;o.report=null;history=`Status moved to INC: ${reason}`;if(j.installerId)await alert(j.installerId,`Job #${j.number} moved to INC: ${reason}`)}
   }else if(action==='attach'){
    edit();const a=parse(z.object({key:z.string(),name:z.string().max(255),kind:z.literal('photos')}),input.data);const file=await tx.prepare("SELECT * FROM attachment_uploads WHERE key=? AND status='ready'").bind(a.key).first();assert(a.key.startsWith(`jobs/${j.id}/photos/`)&&file?.job_id===j.id,'Upload the file before saving it.',400);j.attachments=[...(j.attachments||[]).filter((v:any)=>v.key!==a.key),a];o.salesKeys=[...new Set([...(o.salesKeys||[]),a.key])];history='Sales handoff file added';
   }else if(action==='issue'){
@@ -108,7 +121,10 @@ export async function operation(m:Member,input:any){
    await tx.prepare('INSERT INTO installer_reports(id,job_id,installer_id,supervisor_id,payload,created) VALUES(?,?,?,?,?,?)').bind(r.id,j.id,m.id,j.supervisorId,JSON.stringify(report),at).run();
    o.report=report;j.attachments=[...(j.attachments||[]),...r.attachments];history=`Installer submitted ${r.status}; awaiting approval`;await notifyReport(`Job #${j.number}: ${r.status} submitted by ${m.name}. Field supervisor review required.`);
   }else if(action==='reviewReport'){
-   assert(reviewer(m),'Supervisor approval required.');assert(o.report?.pending,'No report is pending.',409);const approve=parse(z.boolean(),input.data.approve);o.report={...o.report,pending:false,approved:approve,reviewedBy:m.name,reviewedAt:at};history=approve?'Installer report approved; official status confirmation required':'Installer report returned for correction';await alert(j.installerId,`Job #${j.number}: report ${approve?'approved':'returned for correction'}.`);
+   assert(reviewer(m),'Supervisor approval required.');assert(o.report?.pending,'No report is pending.',409);const approve=parse(z.boolean(),input.data.approve);o.report={...o.report,pending:false,approved:approve,reviewedBy:m.name,reviewedAt:at,confirmed:approve};
+   if(approve){j.stage=o.report.status==='Complete'?'Closed':'Incomplete';if(j.stage==='Incomplete')j.incompleteSince=at;history=`Installer report approved; job moved to ${j.stage==='Closed'?'COMP':'INC'}`}
+   else history='Installer report returned for correction';
+   await alert(j.installerId,`Job #${j.number}: report ${approve?`approved and moved to ${j.stage==='Closed'?'COMP':'INC'}`:'returned for correction'}.`);
   }else if(action==='confirmStatus'){
    assert(reviewer(m),'Supervisor or administrator access required.');assert(j.stage==='Production'&&o.report?.approved&&!o.report?.confirmed,'Approve an installer report while the job is in production first.',409);j.stage=o.report.status==='Complete'?'Closed':'Incomplete';if(j.stage==='Incomplete')j.incompleteSince=at;o.report.confirmed=true;history=`Official status confirmed: ${j.stage}`;
   }else if(action==='request'){
@@ -116,14 +132,19 @@ export async function operation(m:Member,input:any){
    if(r.type==='UTI')assert(j.amount===0&&r.paymentReference&&j.received,'UTI requires payment in full, a reference, and receipt date.',400);
    if(r.type==='COLL')assert(r.refused,'Confirm that payment was refused.',400);
    if(r.type==='ACCRF')assert(r.amount!==undefined&&j.contractAmount!=null&&j.amount!=null,'Enter the revised contract price. Existing price and amount due must be known.',400);
-   if(r.type==='Service'){assert(r.serviceDate&&r.serviceDate>=today,'Select a future service date.',400);const i=await installer(r.installerId||'');o.services=[...(o.services||[]),{id,date:r.serviceDate,period:r.period,installerId:i.id,crew:i.name,details:r.details}];await alert(i.id,`Service for job #${j.number}: ${r.serviceDate} ${r.period}. ${r.details}`)}
-   o.requests=[{...r,id,status:r.type==='Service'?'Scheduled':'Pending',by:m.name,at},...(o.requests||[])];history=`${r.type} request: ${r.details}`;
+   if(r.type==='Service'){assert(r.serviceDate&&r.serviceDate>=today,'Select a future service date.',400);await installer(r.installerId||'')}
+   o.requests=[{...r,id,status:'Pending',by:m.name,at},...(o.requests||[])];history=`${r.type} request submitted for administrator approval: ${r.details}`;
   }else if(action==='reviewRequest'){
    assert(m.role==='admin','Administrator approval required.');const r=(o.requests||[]).find((v:any)=>v.id===input.data.id);assert(r&&r.status==='Pending','Request is no longer pending.',409);const approve=parse(z.boolean(),input.data.approve);
    if(approve&&r.type==='UTI'){assert(j.amount===0&&r.paymentReference,'Full payment is required.',400);j.stage='UTI';o.pendingSchedule=null;j.install=''}
    if(approve&&r.type==='COLL'){assert(r.refused,'Refused payment is required.',400);j.stage='COLL';o.pendingSchedule=null;j.install=''}
+   if(approve&&r.type==='Service'){assert(r.serviceDate&&r.serviceDate>=today,'The requested service date has passed. Submit a new request.',400);const i=await installer(r.installerId||'');o.services=[...(o.services||[]),{id:r.id,date:r.serviceDate,period:r.period,installerId:i.id,crew:i.name,details:r.details}];j.stage='SVC';await alert(i.id,`Service for job #${j.number}: ${r.serviceDate} ${r.period}. ${r.details}`)}
    if(approve&&r.type==='ACCRF'){assert(j.contractAmount!=null&&j.amount!=null,'Reconcile price and balance first.',400);const delta=Math.round((r.amount-j.contractAmount)*100)/100;assert(j.amount+delta>=0,'This adjustment would create a credit. Reconcile it with the main system first.',400);j.amount=Math.round((j.amount+delta)*100)/100;j.contractAmount=r.amount}
    r.status=approve?'Approved':'Declined';r.reviewedBy=m.name;r.reviewedAt=at;history=`${r.type} ${r.status.toLowerCase()}`;
+  }else if(action==='delete'){
+   assert(m.role==='admin','Administrator access required.');
+   for(const table of ['customer_events','customer_records','installer_reports','job_visits','notifications','attachment_uploads'])await tx.prepare(`DELETE FROM ${table} WHERE job_id=?`).bind(j.id).run();
+   await tx.prepare('DELETE FROM jobs WHERE id=?').bind(j.id).run();return;
   }else if(action!=='create')throw new ApiError(400,'Unknown action.');
   j.history=[{at,by:m.name,text:history},...(j.history||[])];
   if(version)await tx.prepare('UPDATE jobs SET payload=?,version=version+1,updated=? WHERE id=?').bind(JSON.stringify(j),at,j.id).run();

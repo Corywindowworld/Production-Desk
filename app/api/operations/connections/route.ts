@@ -1,0 +1,3 @@
+import {actor,apiError,ApiError} from '@/lib/access';
+import {database} from '@/db/raw';
+export async function GET(request:Request){try{const m=await actor(request);if(m.role!=='admin')throw new ApiError(403,'Administrator access required.');const emails=await database().prepare('SELECT id,recipient,subject,status,created FROM production.operations_email ORDER BY created DESC LIMIT 50').all();return Response.json({salesIntegration:'Not connected — manual entry enabled',guildQuality:'Manual survey entry enabled',emailConfigured:!!process.env.RESEND_API_KEY&&!!process.env.ACCOUNT_EMAIL_FROM,pushConfigured:!!process.env.VAPID_PUBLIC_KEY&&!!process.env.VAPID_PRIVATE_KEY,emails:emails.results},{headers:{'Cache-Control':'no-store'}})}catch(e){return apiError(e)}}

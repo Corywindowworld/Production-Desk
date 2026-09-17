@@ -11,6 +11,7 @@ await pg.exec(readFileSync('supabase/migrations/003_account_permissions.sql','ut
 await pg.exec(readFileSync('supabase/migrations/004_account_profiles.sql','utf8'));
 await pg.exec(readFileSync('supabase/migrations/005_account_theme.sql','utf8'));
 await pg.exec(readFileSync('supabase/migrations/007_customer_records.sql','utf8'));
+await pg.exec(readFileSync('supabase/migrations/008_live_operations.sql','utf8'));
 const wrap=client=>({query:async(sql,args)=>{const r=await client.query(sql,args);return {rows:r.rows,changes:r.affectedRows??r.rows.length}},transaction:fn=>client.transaction(tx=>fn(wrap(tx)))});
 const objects=new Map();let uploadSequence=0,signingFailure=false;
 const storage={async createSignedUploadUrl(path){if(signingFailure)return {error:new Error('Bucket not found')};return {data:{signedUrl:'https://storage.example/upload/'+path}}},async download(key){return objects.has(key)?{data:objects.get(key)}:{error:new Error('Not found')}},async upload(key,bytes){if(objects.has(key))return {error:new Error('Exists')};objects.set(key,new Blob([bytes]));return {data:{path:key}}},async remove(keys){keys.forEach(k=>objects.delete(k));return {data:[]}},async createSignedUrl(key){return {data:{signedUrl:'https://storage.example/read/'+key}}}};
@@ -141,7 +142,10 @@ test('native PostgreSQL auth, role permissions, payment methods, signed uploads,
  const replacement=await member('replacement@example.com','installer',supervisor.id);
  other.id=replacement.id;other.cookie=replacement.cookie;
  const base={id:crypto.randomUUID(),number:'123',customer:'Test customer',address:'Test street',supervisor:'',crew:'',stage:'Received',installerId:installer.id,supervisorId:supervisor.id,eta:'',install:'2026-09-01',blocker:'',notes:'',version:0,history:[],attachments:[],paymentMethod:'PO'};
- let j=(await success(await jobs.POST(req('jobs',base,owner)))).job;
+ assert.equal((await jobs.POST(req('jobs',base,owner))).status,410);
+ // Legacy customers are seeded directly; live creation/approvals are exercised in live-operations.test.mjs.
+ let j={...base,version:1,stage:'Production'};
+ await db.prepare('INSERT INTO jobs(id,payload,version,updated) VALUES(?,?,1,?)').bind(j.id,JSON.stringify(j),new Date().toISOString()).run();
  assert.equal(j.paymentMethod,'PO');
  const initialCustomer=await success(await customers.GET(req('customer-records?jobId='+j.id,null,owner)));
  assert.equal(initialCustomer.version,0);
@@ -154,18 +158,11 @@ test('native PostgreSQL auth, role permissions, payment methods, signed uploads,
  const savedCustomer=await success(await customers.GET(req('customer-records?jobId='+j.id,null,owner)));
  assert.equal(savedCustomer.record.warehouseBay,'B12');assert.equal(savedCustomer.record.legacyJobId,'00305267');assert.equal(savedCustomer.record.callbackScheduledDate,'2026-09-21');assert.equal(savedCustomer.record.additionalWork[0].description,'Replace screen');assert.equal(savedCustomer.record.additionalWork[0].period,'AM');assert.equal(savedCustomer.events.length,2);
  
- const second=(await success(await jobs.POST(req('jobs',{...base,id:crypto.randomUUID(),number:'124',installPeriod:'PM',stopNumber:2},owner)))).job;
- assert.equal(second.stopNumber,2);assert.equal(second.installPeriod,'PM');
+ const second={...j,id:crypto.randomUUID(),number:'124',installPeriod:'PM',stopNumber:2};
+ await db.prepare('INSERT INTO jobs(id,payload,version,updated) VALUES(?,?,1,?)').bind(second.id,JSON.stringify(second),new Date().toISOString()).run();
  assert.equal((await success(await installerJobs.GET(req('installer/jobs',null,installer.cookie)))).jobs.length,2);
- const alertCount=(await db.prepare('SELECT * FROM notifications').all()).results.length;
- j=(await success(await jobs.POST(req('jobs',{...j,notes:'Changed notes'},owner)))).job;
- assert.equal((await db.prepare('SELECT * FROM notifications').all()).results.length,alertCount);
- assert.equal((await jobs.POST(req('jobs',{...j,stopNumber:0},owner))).status,400);
-
- assert.equal((await jobs.POST(req('jobs',{...j,paymentMethod:'Cash'},owner))).status,400);
- assert.equal((await jobs.POST(req('jobs',{...j,notes:'Unauthorized'},supervisor.cookie))).status,403);
+ for(const item of [j,second])await db.prepare('INSERT INTO notifications(id,recipient_id,job_id,message,created,push_status) VALUES(?,?,?,?,?,?)').bind(crypto.randomUUID(),installer.id,item.id,'Scheduled',new Date().toISOString(),'pending').run();
  const list=await success(await jobs.GET(req('jobs',null,otherSupervisor.cookie)));assert.ok(list.jobs.some(x=>x.id===j.id));assert.equal(list.jobs[0].canEdit,false);
- j=(await success(await jobs.POST(req('jobs',{...j,stage:'Production'},owner)))).job;
  const projection=await success(await installerJobs.GET(req('installer/jobs',null,installer.cookie)));assert.equal(projection.jobs[0].paymentMethod,'PO');assert.equal('amount' in projection.jobs[0],false);
 
  assert.equal((await removeMember.POST(req('team/delete',{id:installer.id},owner))).status,409);
@@ -191,7 +188,7 @@ test('native PostgreSQL auth, role permissions, payment methods, signed uploads,
  const report={id:crypto.randomUUID(),jobId:j.id,version:j.version,status:'Complete',reason:'',notes:'',installed:'2026-09-01',attachments:evidence};
  assert.equal((await reports.POST(req('installer/reports',{...report,attachments:evidence.slice(1)},installer.cookie))).status,400);
  await success(await reports.POST(req('installer/reports',report,installer.cookie)));
- const saved=await db.prepare('SELECT payload FROM jobs WHERE id=?').bind(j.id).first();assert.equal(JSON.parse(saved.payload).stage,'Closed');assert.equal(JSON.parse(saved.payload).paymentMethod,'PO');
+ const saved=await db.prepare('SELECT payload FROM jobs WHERE id=?').bind(j.id).first();assert.equal(JSON.parse(saved.payload).stage,'Production');assert.equal(JSON.parse(saved.payload).operations.report.pending,true);assert.equal(JSON.parse(saved.payload).paymentMethod,'PO');
  assert.equal((await db.prepare('SELECT * FROM notifications').all()).results.length,3);
  const recentAlerts=await success(await notifications.GET(req('notifications',null,owner)));
  assert.equal(recentAlerts.notifications.length,3);

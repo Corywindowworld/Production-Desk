@@ -1,0 +1,5 @@
+Production Desk — live operations release
+
+Read DEPLOY-LIVE.txt first.
+For your existing Supabase database, the new SQL is supabase/migrations/008_live_operations.sql.
+Extract All before uploading source files to GitHub. The live dashboard opens at /.

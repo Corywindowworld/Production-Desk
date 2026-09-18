@@ -28,7 +28,7 @@ test('live approvals, persistence, scopes and money',async()=>{
  await assert.rejects(()=>act(pa,'schedule',{date:today,period:'AM',installerId:installer.id,stop:1}),/permit/i);
  await act(pa,'permit',{received:true,number:'PERMIT-100'});
  await assert.rejects(()=>act(pa,'schedule',{date:today,period:'AM',installerId:installer.id,stop:1}),/payment/i);
- await act(pa,'payment',{amount:0,reference:'Receipt #1'});
+ await act(admin,'payment',{paymentType:'CHK',amount:0,reference:'Receipt #1'});
  await act(pa,'schedule',{date:today,period:'AM',installerId:installer.id,stop:1,paymentReference:'Receipt #1'});
  assert.equal(j.install,'');assert.ok(j.operations.pendingSchedule);assert.equal((await operationsData(installer)).jobs.length,0);
  await assert.rejects(()=>act(pa,'approveSchedule'),/approval required/);
@@ -53,7 +53,7 @@ test('live approvals, persistence, scopes and money',async()=>{
  await act(pa,'request',{type:'Service',details:'Adjust lock',serviceDate:addDays(today,2),installerId:installer.id,period:'PM'});let service=j.operations.requests[0];assert.equal(j.operations.services?.length||0,0);assert.equal(service.status,'Pending');
  await assert.rejects(()=>act(fs,'reviewRequest',{id:service.id,approve:true}),/Administrator/);
  await act(admin,'reviewRequest',{id:service.id,approve:true});assert.equal(j.operations.services.length,1);assert.equal(j.stage,'SVC');
- await act(pa,'payment',{amount:0,reference:'Final payment'});
+ await act(admin,'payment',{paymentType:'CHK',amount:0,reference:'Final payment'});
  await act(fs,'request',{type:'UTI',details:'Customer unavailable',paymentReference:'Final payment'});
  const uti=j.operations.requests[0];await assert.rejects(()=>act(pa,'reviewRequest',{id:uti.id,approve:true}),/Administrator/);
  await act(admin,'reviewRequest',{id:uti.id,approve:true});assert.equal(j.stage,'UTI');assert.equal(aging(j,today).aged,false);
@@ -132,3 +132,32 @@ test('bonus payout amounts use the selected category rows, including printed zer
  const score=bonusMetrics([],[...surveys,{completed_on:'2026-08-25',ratings:[1,1,1,1]}],config,'2026-09-17');assert.equal(score.score,3.5);assert.equal(score.surveys,1);
 });
 test.after(async()=>{await vite.close();await pg.close()});
+
+test('multi-day schedules, permit details and payment permissions persist',async()=>{
+ await act(pa,'create',{number:'MULTI',supervisorId:fs.id,customer:'Multi day customer',address:'123 Test',amount:100,permitNumber:'OPT',buildingDepartment:'Tampa',permitExpiration:'2027-01-01'});
+ assert.equal(j.permitNumber,'OPT');assert.equal(j.permitExpiration,'2027-01-01');
+ await act(pa,'receive',{received:today,materials:[{bay:'A1',brand:'CWS',materialType:'Window'}]});
+ await act(pa,'permit',{received:true,number:'OPT',buildingDepartment:'Tampa',expiration:'2027-01-01',buildingDepartmentPhone:'8135551234',privateProvider:true});
+ await assert.rejects(()=>act(fs,'payment',{amount:0,paymentType:'CHK'}),/Administrator/i);
+ await assert.rejects(()=>act(pa,'payment',{amount:0,paymentType:'CHK'}),/Administrator/i);
+ await act(admin,'payment',{amount:0,paymentType:'FNC',reference:'Paid'});assert.equal(j.paymentMethod,'FNC');
+ await assert.rejects(()=>act(fs,'schedule',{date:today,endDate:addDays(today,-1),period:'AM',installerId:installer.id,stop:1}));
+ await act(fs,'schedule',{date:today,endDate:addDays(today,3),period:'AM',installerId:installer.id,stop:1});assert.equal(j.installEnd,addDays(today,3));
+ const view=(await operationsData(installer)).jobs.find(v=>v.id===j.id);assert.equal(view.installEnd,addDays(today,3));assert.equal(view.privateProvider,true);assert.equal(view.permitExpiration,'2027-01-01');
+});
+test('installer profile ownership and inactivity are enforced',async()=>{
+ const {saveInstallerProfile,installerProfiles}=await vite.ssrLoadModule('/lib/installer-directory.ts');
+ const p={id:installer.id,name:'Updated Crew',leadInstallerName:'Lead Name',phone:'8135551234',address:'123 Main',contactEmail:'contact@example.com',emergencyContact:'Contact',emergencyPhone:'8135555678'};
+ await saveInstallerProfile(installer,p);const own=await installerProfiles(installer);assert.equal(own.installers.length,1);assert.equal(own.installers[0].leadInstallerName,'Lead Name');
+ await assert.rejects(()=>saveInstallerProfile(installer,{...p,inactive:true}),/Only a Field/);
+ await assert.rejects(()=>saveInstallerProfile(pa,p),/own installer/);
+ await saveInstallerProfile(fs,{...p,inactive:true});assert.equal((await installerProfiles(fs)).installers.find(x=>x.id===installer.id).active,0);
+ await reload();await assert.rejects(()=>act(fs,'schedule',{date:today,period:'AM',installerId:installer.id,stop:1}),/installer/i);
+ await saveInstallerProfile(admin,{...p,inactive:false});
+});
+test('survey detail scores preserve zeros and only link unique customer IDs',async()=>{
+ const {surveyDetails}=await vite.ssrLoadModule('/lib/survey-details.ts');const survey={external_id:'gq:C123:1001:2026-09-01',ratings:[1,5,5,5]};
+ assert.equal(surveyDetails(survey,[]).score,3);assert.equal(surveyDetails(survey,[]).customerId,'1001');
+ assert.equal(surveyDetails(survey,[{id:'a',number:'1001'}]).job.id,'a');
+ assert.equal(surveyDetails(survey,[{id:'a',number:'1001'},{id:'b',number:'1001'}]).job,null);
+});

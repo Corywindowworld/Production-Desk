@@ -194,3 +194,10 @@ test('multi-day calendar skips weekends, counts inclusively and cuts off approve
  assert.equal(installAppointments({...job,scheduleCompletedOn:'2026-09-18'},dates).length,1);
  assert.equal(installAppointments({...job,operations:{report:{pending:true,status:'Complete'}}},dates).length,2);
 });
+test('only reviewers may confirm a missing aging date, and verified dates cannot be overwritten',async()=>{
+ await act(pa,'create',{number:'MISSING-DATE',customer:'Verify date',address:'123 Main',supervisorId:fs.id,amount:100});
+ await pg.query("UPDATE production.jobs SET payload=(payload::jsonb||'{\"stage\":\"Incomplete\",\"incompleteSince\":\"\"}'::jsonb)::text WHERE id=$1",[j.id]);await reload();
+ await assert.rejects(()=>act(pa,'agingDate',{date:addDays(today,-50),reference:'Leads status audit'}),/supervisor/i);
+ await act(fs,'agingDate',{date:addDays(today,-50),reference:'Leads status audit'});assert.equal(aging(j,today).aged,true);
+ await assert.rejects(()=>act(admin,'agingDate',{date:today,reference:'New date'}),/unconfirmed/i);
+});

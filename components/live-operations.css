@@ -9,3 +9,5 @@
 .op-installer-directory{display:grid;gap:10px;margin:20px 0}.op-installer-fields{border:0;padding:0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.op-installer-fields label{display:grid;gap:6px}.op-survey{padding:18px 0;border-bottom:1px solid #d4dce5}.op-survey .op-quality{margin:12px 0}@media(max-width:600px){.op-installer-fields{grid-template-columns:1fr}}
 
 .op-multi-day{display:inline-block!important;width:fit-content;background:#ffdf47!important;color:#332600!important;border-radius:5px;padding:4px 8px;font-weight:800;letter-spacing:.04em;}
+
+.op-crew-surveys{border:1px solid var(--op-border,#d7e0ea);border-radius:12px;margin:12px 0;overflow:hidden}.op-crew-surveys>.op-appointment{width:100%;margin:0;border:0}.op-crew-surveys .op-panel{border:0;margin:0}.op-aging-table{width:100%;border-collapse:collapse}.op-aging-table td,.op-aging-table th{text-align:left;padding:12px;border-bottom:1px solid #d7e0ea;}

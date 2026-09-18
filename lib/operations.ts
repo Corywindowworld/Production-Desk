@@ -22,6 +22,7 @@ export function bonusPeriod(day:string){
 export const materialSchema=z.object({materialType:z.enum(['Window','SPD','Entry Door','Diamond Screen']),brand:z.enum(['Simonton','Plygem','Wincore','Thermatru','Diamond Screens','AMI','CWS']),bay:z.string().trim().min(1).max(100)});
 export const allowedMaterials=(product:string)=>product==='Entry Doors'?['Entry Door']:product==='Diamond Screens'?['Diamond Screen']:['Window','SPD'];
 export const fieldsSchema=z.object({
+ reorderDate:optionalDate,lastEstimatedShipDate:optionalDate,loadBrands:z.string().trim().max(300).default(''),reportedUnits:z.number().int().min(0).max(999).nullable().default(null),
  permitExpiration:optionalDate,buildingDepartmentPhone:z.string().trim().max(50).default(''),privateProvider:z.boolean().default(false),
  screenCount:z.number().int().min(0).max(999).default(0),paymentMethod:z.enum(['','FNC','CHK','CC','AQUA','PO']).default(''),buildingDepartment:z.string().trim().max(200).default(''),
  city:z.string().trim().max(120).default(''),state:z.string().trim().max(50).default(''),zip:z.string().trim().regex(/^$|^\d{5}(-\d{4})?$/).default(''),

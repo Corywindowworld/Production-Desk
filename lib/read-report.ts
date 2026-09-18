@@ -4,7 +4,7 @@ export async function readReport(file:File,progress:(message:string)=>void){
  let worker:import('tesseract.js').Worker|undefined;
  const recognize=async(image:any)=>{if(!worker){const {createWorker}=await import('tesseract.js');worker=await createWorker('eng',1,{workerPath:'/report-reader/worker.min.js',corePath:'/report-reader',langPath:'/report-reader',logger:m=>progress(`Reading scan: ${Math.round((m.progress||0)*100)}%`)})}return (await worker.recognize(image)).data.text};
  try{
-  if(file.type!=='application/pdf'&&!file.name.toLowerCase().endsWith('.pdf'))return await recognize(file);
+  if(file.type!=='application/pdf'&&!file.name.toLowerCase().endsWith('.pdf')){const bitmap=await createImageBitmap(file);try{const scale=Math.min(3,2400/Math.max(bitmap.width,bitmap.height));const canvas=document.createElement('canvas');canvas.width=Math.round(bitmap.width*Math.max(1,scale));canvas.height=Math.round(bitmap.height*Math.max(1,scale));const ctx=canvas.getContext('2d')!;ctx.fillStyle='#fff';ctx.fillRect(0,0,canvas.width,canvas.height);ctx.drawImage(bitmap,0,0,canvas.width,canvas.height);return await recognize(canvas);}finally{bitmap.close()}}
   const pdfjs=await import('pdfjs-dist');pdfjs.GlobalWorkerOptions.workerSrc='/report-reader/pdf.worker.min.mjs';
   const pdf=await pdfjs.getDocument({data:new Uint8Array(await file.arrayBuffer()),isEvalSupported:false}).promise;
   try{if(pdf.numPages>25)throw Error('Import up to 25 pages at a time.');const pages:string[]=[];

@@ -22,13 +22,13 @@ async function reload(){j=(await operationsData(admin)).jobs[0];globalThis.__job
 async function act(m,action,data={}){await operation(m,{action,jobId:j?.id,version:j?.version,data});return reload()}
 test('live approvals, persistence, scopes and money',async()=>{
  await act(pa,'create',{number:'LEGACY-1',customer:'Test Customer',address:'123 Test Street',amount:1000,contractAmount:5000,supervisorId:fs.id});assert.equal(j.stage,'Ordered');
- await assert.rejects(()=>act(pa,'schedule',{date:today,period:'AM',installerId:installer.id,stop:1}),/RCVD/i);
+ await assert.rejects(()=>act(pa,'schedule',{date:today,period:'AM',installerId:installer.id,stop:1}),/permit/i);
  await assert.rejects(()=>act(pa,'receive',{received:today,materials:[{bay:'D-1',brand:'Thermatru',materialType:'Entry Door'}]}),/separate accounts/i);
  await act(pa,'receive',{received:addDays(today,-31),materials:[{bay:'A-12',brand:'Simonton',materialType:'Window'},{bay:'A-13',brand:'CWS',materialType:'SPD'}]});assert.equal(j.stage,'Received');assert.equal(j.materials.length,2);
  await assert.rejects(()=>act(pa,'schedule',{date:today,period:'AM',installerId:installer.id,stop:1}),/permit/i);
  await act(pa,'permit',{received:true,number:'PERMIT-100'});
  await assert.rejects(()=>act(pa,'schedule',{date:today,period:'AM',installerId:installer.id,stop:1}),/payment/i);
- await act(admin,'payment',{paymentType:'CHK',amount:0,reference:'Receipt #1'});
+ await act(admin,'payment',{paymentType:'CHK',paymentAmount:1000,reference:'Receipt #1'});
  await act(pa,'schedule',{date:today,period:'AM',installerId:installer.id,stop:1,paymentReference:'Receipt #1'});
  assert.equal(j.install,'');assert.ok(j.operations.pendingSchedule);assert.equal((await operationsData(installer)).jobs.length,0);
  await assert.rejects(()=>act(pa,'approveSchedule'),/approval required/);
@@ -42,7 +42,7 @@ test('live approvals, persistence, scopes and money',async()=>{
  await act(installer,'report',{id:crypto.randomUUID(),status:'Complete',reason:'',notes:'Done',installed:today,attachments});assert.equal(j.stage,'Production');assert.equal(j.operations.report.pending,true);
  assert.equal((await pg.query("SELECT count(*)::integer AS count FROM production.notifications WHERE recipient_id=$1 AND message LIKE '%Field supervisor review required%'",[fs.id])).rows[0].count,1);
  await assert.rejects(()=>act(pa,'reviewReport',{approve:true}),/approval required/);
- await act(fs,'reviewReport',{approve:true});assert.equal(j.stage,'Closed');assert.equal(j.operations.report.confirmed,true);
+ await act(fs,'reviewReport',{approve:true});assert.equal(j.stage,'Closed');assert.equal(j.operations.report.confirmed,true);assert.equal(j.scheduleCompletedOn,today);
  await act(fs,'edit',{notes:'New notes'});assert.equal(j.notes,'New notes');
  await assert.rejects(()=>act(fs,'edit',{amount:10}),/protected/);
  await act(fs,'request',{type:'ACCRF',details:'Extra trim',amount:5100});const req=j.operations.requests[0];
@@ -53,7 +53,7 @@ test('live approvals, persistence, scopes and money',async()=>{
  await act(pa,'request',{type:'Service',details:'Adjust lock',serviceDate:addDays(today,2),installerId:installer.id,period:'PM'});let service=j.operations.requests[0];assert.equal(j.operations.services?.length||0,0);assert.equal(service.status,'Pending');
  await assert.rejects(()=>act(fs,'reviewRequest',{id:service.id,approve:true}),/Administrator/);
  await act(admin,'reviewRequest',{id:service.id,approve:true});assert.equal(j.operations.services.length,1);assert.equal(j.stage,'SVC');
- await act(admin,'payment',{paymentType:'CHK',amount:0,reference:'Final payment'});
+ await act(admin,'payment',{paymentType:'CHK',paymentAmount:100,reference:'Final payment'});
  await act(fs,'request',{type:'UTI',details:'Customer unavailable',paymentReference:'Final payment'});
  const uti=j.operations.requests[0];await assert.rejects(()=>act(pa,'reviewRequest',{id:uti.id,approve:true}),/Administrator/);
  await act(admin,'reviewRequest',{id:uti.id,approve:true});assert.equal(j.stage,'UTI');assert.equal(aging(j,today).aged,false);
@@ -140,7 +140,7 @@ test('multi-day schedules, permit details and payment permissions persist',async
  await act(pa,'permit',{received:true,number:'OPT',buildingDepartment:'Tampa',expiration:'2027-01-01',buildingDepartmentPhone:'8135551234',privateProvider:true});
  await assert.rejects(()=>act(fs,'payment',{amount:0,paymentType:'CHK'}),/Administrator/i);
  await assert.rejects(()=>act(pa,'payment',{amount:0,paymentType:'CHK'}),/Administrator/i);
- await act(admin,'payment',{amount:0,paymentType:'FNC',reference:'Paid'});assert.equal(j.paymentMethod,'FNC');
+ await act(admin,'payment',{paymentAmount:100,paymentType:'FNC',reference:'Paid'});assert.equal(j.paymentMethod,'FNC');
  await assert.rejects(()=>act(fs,'schedule',{date:today,endDate:addDays(today,-1),period:'AM',installerId:installer.id,stop:1}));
  await act(fs,'schedule',{date:today,endDate:addDays(today,3),period:'AM',installerId:installer.id,stop:1});assert.equal(j.installEnd,addDays(today,3));
  const view=(await operationsData(installer)).jobs.find(v=>v.id===j.id);assert.equal(view.installEnd,addDays(today,3));assert.equal(view.privateProvider,true);assert.equal(view.permitExpiration,'2027-01-01');
@@ -160,4 +160,37 @@ test('survey detail scores preserve zeros and only link unique customer IDs',asy
  assert.equal(surveyDetails(survey,[]).score,3);assert.equal(surveyDetails(survey,[]).customerId,'1001');
  assert.equal(surveyDetails(survey,[{id:'a',number:'1001'}]).job.id,'a');
  assert.equal(surveyDetails(survey,[{id:'a',number:'1001'},{id:'b',number:'1001'}]).job,null);
+});
+
+test('payment amount subtracts exactly and rejects stale or excessive payments',async()=>{
+ await act(admin,'create',{number:'PAYMENT-NEW',customer:'Payment',address:'123 Street',supervisorId:fs.id,amount:1000.25});
+ await assert.rejects(()=>act(admin,'payment',{amount:200,paymentType:'CC',reference:'Old client'}));
+ await assert.rejects(()=>act(admin,'payment',{paymentAmount:1001,paymentType:'CC',reference:'Too much'}));
+ await act(admin,'payment',{paymentAmount:200.10,paymentType:'CC',reference:'Receipt'});assert.equal(j.amount,800.15);
+ const version=j.version;
+ await act(admin,'payment',{paymentAmount:800.15,paymentType:'CHK',reference:'Final'});assert.equal(j.amount,0);
+ await assert.rejects(()=>operation(admin,{action:'payment',jobId:j.id,version,data:{paymentAmount:800.15,paymentType:'CHK',reference:'Retry'}}),/changed/);
+});
+test('any status can be scheduled, hourly slots persist, only admin reverses PROD',async()=>{
+ await act(pa,'create',{number:'ANY-STATUS',customer:'Schedule',address:'123 Main',supervisorId:fs.id,amount:0});
+ await act(pa,'permit',{received:true,number:'P2'});
+ await act(pa,'schedule',{date:today,period:'AM',time:'09:00',installerId:installer.id,stop:1});assert.equal(j.stage,'Ordered');assert.equal(j.installTime,'09:00');
+ await act(pa,'receive',{received:today,materials:[{bay:'B1',brand:'CWS',materialType:'Window'}]});await act(fs,'start');
+ await assert.rejects(()=>act(fs,'status',{target:'Received'}),/Administrator/i);
+ await act(admin,'status',{target:'Received'});assert.equal(j.stage,'Received');assert.equal(j.received,today);
+ await act(fs,'start');
+ for(const stage of ['Production','InProgress','Incomplete','Closed','COLL','UTI','SVC']){
+  await pg.query("UPDATE production.jobs SET payload=(payload::jsonb || jsonb_build_object('stage',$1::text))::text WHERE id=$2",[stage,j.id]);await reload();
+  await act(fs,'schedule',{date:today,endDate:addDays(today,5),period:'PM',time:'14:00',installerId:installer.id,stop:2});assert.equal(j.stage,stage);assert.equal(j.installTime,'14:00');assert.equal(j.scheduleCompletedOn,'');
+ }
+ await assert.rejects(()=>act(fs,'schedule',{date:today,period:'PM',time:'14:30',installerId:installer.id,stop:2}));
+});
+test('multi-day calendar skips weekends, counts inclusively and cuts off approved completion',async()=>{
+ const {installAppointments,remainingWorkdays}=await vite.ssrLoadModule('/lib/install-calendar.ts');
+ const job={install:'2026-09-18',installEnd:'2026-09-21',installTime:'09:00'};
+ const dates=['2026-09-18','2026-09-19','2026-09-20','2026-09-21'];
+ const rows=installAppointments(job,dates);assert.deepEqual(rows.map(x=>x.date),['2026-09-18','2026-09-21']);assert.deepEqual(rows.map(x=>x.daysLeft),[2,1]);
+ assert.equal(remainingWorkdays('2026-09-18','2026-09-25'),6);
+ assert.equal(installAppointments({...job,scheduleCompletedOn:'2026-09-18'},dates).length,1);
+ assert.equal(installAppointments({...job,operations:{report:{pending:true,status:'Complete'}}},dates).length,2);
 });

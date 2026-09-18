@@ -22,6 +22,7 @@ export function bonusPeriod(day:string){
 export const materialSchema=z.object({materialType:z.enum(['Window','SPD','Entry Door','Diamond Screen']),brand:z.enum(['Simonton','Plygem','Wincore','Thermatru','Diamond Screens','AMI','CWS']),bay:z.string().trim().min(1).max(100)});
 export const allowedMaterials=(product:string)=>product==='Entry Doors'?['Entry Door']:product==='Diamond Screens'?['Diamond Screen']:['Window','SPD'];
 export const fieldsSchema=z.object({
+ screenCount:z.number().int().min(0).max(999).default(0),paymentMethod:z.enum(['','FNC','CHK','CC','AQUA','PO']).default(''),buildingDepartment:z.string().trim().max(200).default(''),
  city:z.string().trim().max(120).default(''),state:z.string().trim().max(50).default(''),zip:z.string().trim().regex(/^$|^\d{5}(-\d{4})?$/).default(''),
  number:z.string().trim().min(1).max(80),customer:z.string().trim().min(1).max(160),address:z.string().trim().min(1).max(300),phone:z.string().max(50).default(''),
  customerEmail:z.union([z.string().email(),z.literal('')]).default(''),product:z.enum(['Windows','Entry Doors','Diamond Screens']).default('Windows'),windowCount:z.number().int().min(0).max(999).default(0),slidingDoors:z.number().int().min(0).max(999).default(0),entryDoorCount:z.number().int().min(0).max(999).default(0),
@@ -36,7 +37,7 @@ export const receiveSchema=z.object({received:date,bay:z.string().trim().min(1).
 export const receiveItemsSchema=z.object({received:date,materials:z.array(materialSchema).min(1).max(50)});
 export const requestSchema=z.object({type:z.enum(['UTI','COLL','Service','ACCRF']),details:z.string().trim().min(1).max(4000),paymentReference:z.string().trim().max(300).default(''),refused:z.boolean().default(false),serviceDate:optionalDate,period:z.enum(['AM','PM']).default('AM'),installerId:z.string().default(''),amount:money.optional()});
 export const surveySchema=z.object({externalId:z.string().trim().min(1).max(150),installerId:z.string().uuid(),completedOn:date,ratings:z.array(z.number().int().min(1).max(5).nullable()).length(4)}).refine(s=>s.ratings.some(r=>r!==null),'Enter at least one rating.');
-export const configSchema=z.object({period:date,pool:money,dollars:z.array(money).length(4),jobs:z.array(z.number().int().min(0)).length(4),quality:z.array(z.number().min(0).max(4)).length(5)}).refine(c=>c.dollars.every((v,i)=>!i||v>=c.dollars[i-1])&&c.jobs.every((v,i)=>!i||v>=c.jobs[i-1])&&c.quality.every((v,i)=>!i||v<=c.quality[i-1]),'Thresholds must be ordered.');
+export const configSchema=z.object({period:date,pool:money,payouts:z.object({dollars:z.array(money).length(6),jobs:z.array(money).length(6),quality:z.array(money).length(6)}).optional(),dollars:z.array(money).length(4),jobs:z.array(z.number().int().min(0)).length(4),quality:z.array(z.number().min(0).max(4)).length(5)}).refine(c=>c.dollars.every((v,i)=>!i||v>=c.dollars[i-1])&&c.jobs.every((v,i)=>!i||v>=c.jobs[i-1])&&c.quality.every((v,i)=>!i||v<=c.quality[i-1]),'Thresholds must be ordered.').refine(c=>date.safeParse(c.period).success&&bonusPeriod(c.period).end===c.period,'Choose the last Tuesday of the bonus month.');
 export function bonusMetrics(jobs:any[],surveys:any[],config:any,today=localDay()){
  const period=bonusPeriod(today),aged=jobs.filter(j=>aging(j,today).aged),missing=aged.filter(j=>j.amount==null).length,unknownDates=jobs.filter(j=>aging(j,today).missing).length;
  const amount=Math.round(aged.reduce((s,j)=>s+(j.amount??0),0)*100)/100;
@@ -45,6 +46,6 @@ export function bonusMetrics(jobs:any[],surveys:any[],config:any,today=localDay(
  const score=categories.every(c=>c!==null)?categories.reduce((s,c)=>s+c!,0)/4:null;
  const tier=(v:number,t:number[])=>v===0?1.2:[1,.75,.5,.25][t.findIndex(x=>v<=x)]??0;
  const q=score===null||!config?null:([1.2,1,.75,.5,.25][config.quality.findIndex((x:number)=>score>=x)]??0);
- const estimate=config&&config.period===period.end&&!missing&&!unknownDates&&q!==null?config.pool*(.4*tier(amount,config.dollars)+.2*tier(aged.length,config.jobs)+.4*q):null;
+ const estimate=config&&config.period===period.end&&!missing&&!unknownDates&&q!==null?(config.payouts?config.payouts.dollars[amount===0?0:(config.dollars.findIndex((x:number)=>amount<=x)<0?5:config.dollars.findIndex((x:number)=>amount<=x)+1)]+config.payouts.jobs[aged.length===0?0:(config.jobs.findIndex((x:number)=>aged.length<=x)<0?5:config.jobs.findIndex((x:number)=>aged.length<=x)+1)]+config.payouts.quality[config.quality.findIndex((x:number)=>score!>=x)<0?5:config.quality.findIndex((x:number)=>score!>=x)]:config.pool*(.4*tier(amount,config.dollars)+.2*tier(aged.length,config.jobs)+.4*q)):null;
  return {period,count:aged.length,amount,missing,unknownDates,categories,score,surveys:included.length,estimate};
 }

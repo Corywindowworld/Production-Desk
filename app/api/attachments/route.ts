@@ -11,7 +11,7 @@ const finishSchema=z.object({action:z.literal('finish'),key:z.string().max(250)}
 async function uploadAccess(member:Member,jobId:string,kind:string){
  if(kind==='visit'&&member.role!=='supervisor'&&member.role!=='admin')throw new ApiError(403,'Only supervisors and administrators can upload visit photos.');
  const job=kind==='visit'?await visitJobFor(member,jobId):await jobFor(member,jobId);
- if(kind!=='visit'&&member.role!=='installer'&&!canEditJob(member,job))throw new ApiError(403,'You do not have permission to update job attachments.');
+ if(kind!=='visit'&&member.role!=='installer'&&member.role!=='supervisor'&&member.role!=='admin'&&!canEditJob(member,job))throw new ApiError(403,'You do not have permission to update job attachments.');
  if(member.role==='installer'&&!['Production','InProgress'].includes(job.stage))throw new ApiError(400,'This job must be in PROD or IN PROGRESS.');
 }
 export async function POST(request:Request){try{

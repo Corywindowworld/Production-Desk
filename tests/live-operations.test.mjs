@@ -95,4 +95,40 @@ test('completion and incomplete evidence requirements',()=>{
  assert.match(reportError({status:'Incomplete',reason:'',attachments:files(requiredReportKinds('Incomplete'))}),/Explain/);
  assert.match(reportError({status:'Incomplete',reason:'Broken glass',attachments:files(['front','rear','left','right','incomplete'])}),/photos of the issue/i);
 });
+test('FS and Admin submit and approve their own closeout evidence',async()=>{
+ for(const [member,result] of [[fs,'Incomplete'],[admin,'Complete']]){
+  await act(pa,'create',{number:'STAFF-'+result,customer:'Staff report test',address:'123 Main',amount:0,supervisorId:fs.id,paymentMethod:'AQUA'});
+  await act(pa,'receive',{received:today,materials:[{bay:'A1',brand:'CWS',materialType:'Window'},{bay:'A2',brand:'CWS',materialType:'SPD'}]});
+  await act(pa,'receive',{received:today,materials:[{bay:'A1',brand:'CWS',materialType:'Window'}]});assert.equal(j.materials.length,1);
+  await act(pa,'permit',{received:true,number:'P1',buildingDepartment:'City of Tampa'});
+  await act(pa,'schedule',{date:today,period:'AM',installerId:installer.id,stop:1});await act(fs,'start');
+  const view=(await operationsData(installer)).jobs.find(v=>v.id===j.id);assert.equal(view.buildingDepartment,'City of Tampa');assert.equal(view.paymentMethod,'AQUA');
+  const attachments=requiredReportKinds(result).map(kind=>({key:`jobs/${j.id}/${kind}/${crypto.randomUUID()}`,kind,name:kind+'.jpg'}));
+  for(const a of attachments)await pg.query("INSERT INTO production.attachment_uploads(key,staging_key,job_id,kind,member_id,name,expires,status,sha256) VALUES($1,$1,$2,$3,$4,$5,0,'ready',$1)",[a.key,j.id,a.kind,member.id,a.name]);
+  const report={id:crypto.randomUUID(),status:result,reason:'Damaged sash',notes:'Recorded by staff',installed:today,attachments};
+  await assert.rejects(()=>act(pa,'report',report),/Only the assigned/);
+  await assert.rejects(()=>act(member,'report',{...report,attachments:attachments.slice(1)}),/front/i);
+  await act(member,'report',report);assert.equal(j.operations.report.submittedBy,member.id);assert.equal(j.operations.report.installerId,installer.id);
+  if(result==='Incomplete'){await assert.rejects(()=>act(member,'reviewReport',{approve:true}),/reorder/i);await act(member,'edit',{reorder:'Replacement sash ordered'});}
+  await act(member,'reviewReport',{approve:true});assert.equal(j.stage,result==='Complete'?'Closed':'Incomplete');
+ }
+});
+test('GQ imports are permission checked, converted once, deduplicated and conflict-safe',async()=>{
+ const {importGuild}=await vite.ssrLoadModule('/lib/report-import-store.ts');
+ const rows=[{code:'C999',name:'Imported Crew',supervisor:fs.name,customerId:'1001',completedOn:today,ratings:[4,3,4,4]}];
+ await assert.rejects(()=>importGuild(fs,{rows}),/Administrator/);
+ assert.deepEqual(await importGuild(admin,{rows}),{created:1,inserted:1,skipped:0});
+ assert.deepEqual(await importGuild(admin,{rows}),{created:0,inserted:0,skipped:1});
+ const crew=(await pg.query("SELECT * FROM production.members WHERE installer_code='C999'")).rows[0];assert.equal(crew.supervisor_id,fs.id);
+ assert.equal((await pg.query('SELECT * FROM production.credentials WHERE member_id=$1',[crew.id])).rows.length,0);
+ const survey=(await pg.query("SELECT * FROM production.operations_surveys WHERE external_id LIKE 'gq:C999:%'")).rows[0];assert.deepEqual(survey.ratings,[5,4,5,5]);
+ await assert.rejects(()=>importGuild(admin,{rows:[{...rows[0],ratings:[0,0,0,0]}]}),/Conflicting/);
+ assert.deepEqual((await pg.query('SELECT ratings FROM production.operations_surveys WHERE id=$1',[survey.id])).rows[0].ratings,[5,4,5,5]);
+});
+test('bonus payout amounts use the selected category rows, including printed zero',()=>{
+ const config={period:'2026-09-29',pool:7667,dollars:[45735,76225,106715,137206],jobs:[6,12,19,25],quality:[3.8,3.75,3.7,3.6,3.5],payouts:{dollars:[3680,3067,2300,1533,767,0],jobs:[1840,1533,1150,767,383,0],quality:[3680,3067,2300,1533,0,0]}};
+ const surveys=[{completed_on:'2026-09-01',ratings:[5,5,4,4]}];
+ const m=bonusMetrics([],surveys,config,'2026-09-17');assert.equal(m.score,3.5);assert.equal(m.estimate,5520);
+ const score=bonusMetrics([],[...surveys,{completed_on:'2026-08-25',ratings:[1,1,1,1]}],config,'2026-09-17');assert.equal(score.score,3.5);assert.equal(score.surveys,1);
+});
 test.after(async()=>{await vite.close();await pg.close()});

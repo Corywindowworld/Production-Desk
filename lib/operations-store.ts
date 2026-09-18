@@ -13,7 +13,7 @@ const parse=<T>(schema:z.ZodType<T>,value:unknown):T=>{const p=schema.safeParse(
 export function installerVisible(m:Member,j:any,today=localDay()) {return j.installerId===m.id||j.operations?.services?.some((s:any)=>s.installerId===m.id&&s.date>=today)}
 export function publicJob(m:Member,j:any){
  if(m.role!=='installer')return j;
- return {...installerJob(j),install:j.installerId===m.id?j.install:'',canReport:j.installerId===m.id,salesRep:j.salesRep,salesRepPhone:j.salesRepPhone,salesRepEmail:j.salesRepEmail,received:j.received,bay:j.bay,city:j.city,state:j.state,zip:j.zip,materials:j.materials||[],product:j.product,windowCount:j.windowCount||0,slidingDoors:j.slidingDoors||0,entryDoorCount:j.entryDoorCount||0,brand:j.brand||'',materialType:j.materialType||'',permitReceived:!!j.permitReceived,permitNumber:j.permitNumber||'',instructions:j.instructions,scheduleInstructions:j.scheduleInstructions||'',reorder:j.reorder||'',attachments:(j.attachments||[]).filter((a:any)=>a.kind!=='visit'),operations:{salesKeys:j.operations?.salesKeys,report:j.operations?.report,services:(j.operations?.services||[]).filter((s:any)=>s.installerId===m.id)}};
+ return {...installerJob(j),install:j.installerId===m.id?j.install:'',canReport:j.installerId===m.id,salesRep:j.salesRep,salesRepPhone:j.salesRepPhone,salesRepEmail:j.salesRepEmail,received:j.received,bay:j.bay,city:j.city,state:j.state,zip:j.zip,materials:j.materials||[],product:j.product,windowCount:j.windowCount||0,slidingDoors:j.slidingDoors||0,entryDoorCount:j.entryDoorCount||0,screenCount:j.screenCount||0,buildingDepartment:j.buildingDepartment||'',brand:j.brand||'',materialType:j.materialType||'',permitReceived:!!j.permitReceived,permitNumber:j.permitNumber||'',instructions:j.instructions,scheduleInstructions:j.scheduleInstructions||'',reorder:j.reorder||'',attachments:(j.attachments||[]).filter((a:any)=>a.kind!=='visit'),operations:{salesKeys:j.operations?.salesKeys,report:j.operations?.report,services:(j.operations?.services||[]).filter((s:any)=>s.installerId===m.id)}};
 }
 export async function operationsData(m:Member){
  const db=database(),today=localDay();
@@ -29,7 +29,8 @@ export async function operationsData(m:Member){
   crewColors=(await db.prepare('SELECT payload FROM production.operations_config WHERE id=?').bind(`crew-colors:${m.id}`).first())?.payload||{};
   if(!reviewer(m)){delete metrics.estimate;config=null;}
  }
- return {me:m,jobs,team,today,metrics,surveys:m.role==='installer'?[]:surveys,config:reviewer(m)?config:null,crewColors,canEdit:hasJobEditPermission(m),canReview:reviewer(m)};
+ const bonusConfigs=m.role==='admin'?(await db.prepare("SELECT payload FROM production.operations_config WHERE id NOT LIKE 'crew-colors:%' ORDER BY id DESC").all()).results.map((r:any)=>r.payload):[];
+ return {bonusConfigs,me:m,jobs,team,today,metrics,surveys:m.role==='installer'?[]:surveys,config:reviewer(m)?config:null,crewColors,canEdit:hasJobEditPermission(m),canReview:reviewer(m)};
 }
 // All job changes lock the row and compare versions inside one transaction. Side effects are queued with the change.
 export async function operation(m:Member,input:any){
@@ -77,11 +78,11 @@ export async function operation(m:Member,input:any){
   const checkSupervisor=async()=>{const s=await tx.prepare("SELECT id,name FROM members WHERE id=? AND role IN ('admin','supervisor') AND active=1").bind(j.supervisorId).first();assert(s,'Select an active field supervisor or administrator.',400);j.supervisor=s.name};
   const confirmSchedule=async(s:any)=>{const i=await installer(s.installerId);j.install=s.date;j.installPeriod=s.period;j.stopNumber=s.stop;j.installerId=i.id;j.crew=i.name;j.scheduleInstructions=s.additionalInstructions||'';o.pendingSchedule=null;await alert(i.id,`Job #${j.number} added to your calendar for ${s.date} ${s.period}, stop ${s.stop}: ${j.customer}.`)};
   const edit=()=>assert(hasJobEditPermission(m),'Your account needs job editing permission.');
-  if(action==='create'){assert(!(j.product==='Windows'&&j.entryDoorCount>0)&&!(j.product!=='Windows'&&(j.windowCount>0||j.slidingDoors>0))&&!(j.product==='Diamond Screens'&&j.entryDoorCount>0),'Windows/SPD, Entry Doors, and Diamond Screens require separate accounts.',400);await checkSupervisor();history='Customer created manually';}
+  if(action==='create'){assert(j.product==='Diamond Screens'||!j.screenCount,'Screen quantities require a Diamond Screens account.',400);assert(!(j.product==='Windows'&&j.entryDoorCount>0)&&!(j.product!=='Windows'&&(j.windowCount>0||j.slidingDoors>0))&&!(j.product==='Diamond Screens'&&j.entryDoorCount>0),'Windows/SPD, Entry Doors, and Diamond Screens require separate accounts.',400);await checkSupervisor();history='Customer created manually';}
   else if(action==='edit'){
    edit();const schema=fieldsSchema.omit({number:true,contractAmount:true,amount:true,stage:true,received:true,installed:true,incompleteSince:true,permitReceived:true,permitNumber:true});
    for(const k of ['contractAmount','amount','stage','received','installed','incompleteSince','permitReceived','permitNumber'])assert(input.data[k]===undefined,'Use the protected workflow actions for price, balance, permit and status changes.',400);
-   const f=parse(schema,{...j,...input.data});
+   const f=parse(schema,{...j,...input.data});assert(f.product==='Diamond Screens'||!f.screenCount,'Screen quantities require a Diamond Screens account.',400);
    assert(!(f.product==='Windows'&&(f.entryDoorCount||0)>0)&&!(f.product!=='Windows'&&((f.windowCount||0)>0||(f.slidingDoors||0)>0))&&!(f.product==='Diamond Screens'&&(f.entryDoorCount||0)>0),'Windows/SPD, Entry Doors, and Diamond Screens require separate accounts.',400);assert((j.materials||[]).every((v:any)=>allowedMaterials(f.product||'Windows').includes(v.materialType)),'Received materials require a separate account for this account type.',400);Object.assign(j,f);await checkSupervisor();history='Customer and job information updated';
   }else if(action==='payment'){
    edit();const amount=parse(z.number().finite().min(0).multipleOf(.01),input.data.amount),reference=parse(z.string().trim().min(1).max(300),input.data.reference);
@@ -99,7 +100,7 @@ export async function operation(m:Member,input:any){
   }else if(action==='receive'){
    edit();const r=input.data.materials?parse(receiveItemsSchema,input.data):(()=>{const legacy=parse(receiveSchema,input.data);return {received:legacy.received,materials:[legacy]}})();assert(r.received<=today,'Materials received date cannot be in the future.',400);assert(r.materials.every(v=>allowedMaterials(j.product||'Windows').includes(v.materialType)),'Windows/SPD, Entry Doors, and Diamond Screens must be received on separate accounts.',400);j.materials=r.materials;j.bay=r.materials.map(v=>v.bay).join(', ');j.brand=r.materials[0].brand;j.materialType=r.materials[0].materialType;if(j.stage==='Ordered'){j.received=r.received;j.stage='Received'}else assert(j.received===r.received,'The original received date cannot be changed.',400);history=`Received materials updated: ${r.materials.map(v=>`${v.materialType}, ${v.brand}, bay ${v.bay}`).join('; ')}`;
   }else if(action==='permit'){
-   edit();const p=parse(z.object({received:z.boolean(),number:z.string().trim().max(150)}),input.data);assert(!p.received||p.number,'Enter the permit number when Permit Received is checked.',400);j.permitReceived=p.received;j.permitNumber=p.received?p.number:'';history=p.received?`Permit received: ${p.number}`:'Permit marked not received';
+   edit();const p=parse(z.object({received:z.boolean(),number:z.string().trim().max(150),buildingDepartment:z.string().trim().max(200).default('')}),input.data);assert(!p.received||p.number,'Enter the permit number when Permit Received is checked.',400);j.buildingDepartment=p.buildingDepartment;j.permitReceived=p.received;j.permitNumber=p.received?p.number:'';history=p.received?`Permit received: ${p.number}`:'Permit marked not received';
   }else if(action==='start'){
    assert(reviewer(m),'Field supervisor or administrator access required.');assert(j.stage==='Received'&&j.install,'Schedule the RCVD job before moving it to PROD.',400);j.stage='Production';j.installed=today;o.report=null;history='Job moved to PROD; production aging started';
   }else if(action==='status'){
@@ -112,12 +113,12 @@ export async function operation(m:Member,input:any){
   }else if(action==='issue'){
    assert(m.role==='installer','Installer access required.');const text=parse(z.string().trim().min(1).max(4000),input.data.text);o.issues=[{id:crypto.randomUUID(),text,by:m.name,at},...(o.issues||[])];await alert(j.supervisorId,`⚠ Job #${j.number}: ${text}`);history='Installer reported an issue: '+text;
   }else if(action==='report'){
-   assert(m.role==='installer'&&j.installerId===m.id,'Only the assigned installer can submit an installation report.');
+   assert(reviewer(m)||(m.role==='installer'&&j.installerId===m.id),'Only the assigned installer, Field Supervisor or Administrator can submit a report.');
    assert(['Production','InProgress'].includes(j.stage)&&!o.report?.pending&&!o.report?.approved,'A Field Supervisor or Administrator must move the scheduled job to PROD before completion can be submitted.',409);
    const r=parse(reportSchema,{...input.data,jobId:j.id,version});assert(r.installed<=today,'Installation date cannot be in the future.',400);assert(!reportError(r),reportError(r),400);const hashes=new Set();
    for(const a of r.attachments){const file=await tx.prepare("SELECT * FROM attachment_uploads WHERE key=? AND status='ready'").bind(a.key).first();assert(a.key.startsWith(`jobs/${j.id}/${a.kind}/`)&&file?.job_id===j.id&&file?.kind===a.kind&&file?.member_id===m.id,'An uploaded attachment is missing.',400);if(['front','rear','left','right'].includes(a.kind)){const hash=file?.sha256;assert(hash&&!hashes.has(hash),'Upload four different exterior photos.',400);hashes.add(hash)}}
-   const report={...r,installerId:m.id,installerName:m.name,submittedAt:at,pending:true};
-   await tx.prepare('INSERT INTO installer_reports(id,job_id,installer_id,supervisor_id,payload,created) VALUES(?,?,?,?,?,?)').bind(r.id,j.id,m.id,j.supervisorId,JSON.stringify(report),at).run();
+   const report={...r,installerId:j.installerId||m.id,installerName:j.crew||m.name,submittedBy:m.id,submittedByName:m.name,submittedAt:at,pending:true};
+   await tx.prepare('INSERT INTO installer_reports(id,job_id,installer_id,supervisor_id,payload,created) VALUES(?,?,?,?,?,?)').bind(r.id,j.id,j.installerId||m.id,j.supervisorId,JSON.stringify(report),at).run();
    o.report=report;j.attachments=[...(j.attachments||[]),...r.attachments];history=`Installer submitted ${r.status}; awaiting approval`;await notifyReport(`Job #${j.number}: ${r.status} submitted by ${m.name}. Field supervisor review required.`);
   }else if(action==='reviewReport'){
    assert(reviewer(m),'Supervisor approval required.');assert(o.report?.pending,'No report is pending.',409);const approve=parse(z.boolean(),input.data.approve);o.report={...o.report,pending:false,approved:approve,reviewedBy:m.name,reviewedAt:at,confirmed:approve};
@@ -125,7 +126,7 @@ export async function operation(m:Member,input:any){
    else history='Installer report returned for correction';
    await alert(j.installerId,`Job #${j.number}: report ${approve?`approved and moved to ${j.stage==='Closed'?'COMP':'INC'}`:'returned for correction'}.`);
   }else if(action==='confirmStatus'){
-   assert(reviewer(m),'Supervisor or administrator access required.');assert(j.stage==='Production'&&o.report?.approved&&!o.report?.confirmed,'Approve an installer report while the job is in production first.',409);j.stage=o.report.status==='Complete'?'Closed':'Incomplete';if(j.stage==='Incomplete')j.incompleteSince=at;o.report.confirmed=true;history=`Official status confirmed: ${j.stage}`;
+   assert(reviewer(m),'Supervisor or administrator access required.');assert(j.stage==='Production'&&o.report?.approved&&!o.report?.confirmed,'Approve an installer report while the job is in production first.',409);assert(!reportError(o.report),reportError(o.report),400);if(o.report.status==='Incomplete')assert(String(j.reorder||'').trim(),'Enter reorder information before approving INC.',400);j.stage=o.report.status==='Complete'?'Closed':'Incomplete';if(j.stage==='Incomplete')j.incompleteSince=at;o.report.confirmed=true;history=`Official status confirmed: ${j.stage}`;
   }else if(action==='request'){
    edit();const r=parse(requestSchema,input.data);const id=crypto.randomUUID();
    if(r.type==='UTI')assert(j.amount===0&&r.paymentReference&&j.received,'UTI requires payment in full, a reference, and receipt date.',400);

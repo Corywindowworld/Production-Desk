@@ -315,3 +315,15 @@ test('PA role can create and schedule without legacy edit flag; delivery label r
  await assert.rejects(()=>act(assistant,'adminResult',{target:'Closed',reason:'test',confirmed:true}),/Admin/i);
  await act(assistant,'edit',{deliveryOnly:false});assert.equal(j.deliveryOnly,false);
 });
+
+test('legacy null optional fields do not prevent customer edits or change protected values',async()=>{
+ await act(admin,'create',{number:'LEGACY-NULL',customer:'Legacy Account',address:'123 Main',amount:null,contractAmount:null});
+ const id=j.id;
+ const legacy={supervisorId:null,brand:null,materialType:null,phone:null,salesRepEmail:null,reportedUnits:null,permitExpiration:null};
+ await pg.query("UPDATE production.jobs SET payload=(payload::jsonb||$2::jsonb)::text WHERE id=$1",[id,JSON.stringify(legacy)]);await reload();
+ await act(pa,'edit',{notes:'Customer supplied permit delayed'});
+ assert.equal(j.notes,'Customer supplied permit delayed');assert.equal(j.supervisorId,'');assert.equal(j.brand,'');assert.equal(j.phone,'');assert.equal(j.reportedUnits,null);assert.equal(j.amount,null);assert.equal(j.contractAmount,null);assert.equal(j.stage,'Ordered');
+ await assert.rejects(()=>act(pa,'edit',{salesRepEmail:'not-an-email'}),/salesRepEmail/);
+ await assert.rejects(()=>act(pa,'edit',{customer:null}),/customer/);
+ await assert.rejects(()=>act(pa,'edit',{amount:0}),/protected/);
+});

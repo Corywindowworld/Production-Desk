@@ -3,7 +3,7 @@ import {remainingWorkdays,hourLabel} from './install-calendar';
 import {storedObject} from './stored-data';
 import {database} from '@/db/raw';
 import {ApiError,Member,hasJobEditPermission,type DashboardStep} from '@/lib/access';
-import {fieldsSchema,scheduleSchema,receiveSchema,receiveItemsSchema,allowedMaterials,requestSchema,surveySchema,configSchema,optionalDate,localDay,dayDifference,bonusMetrics,bonusPeriod} from './operations';
+import {normalizeStoredCustomerFields,fieldsSchema,scheduleSchema,receiveSchema,receiveItemsSchema,allowedMaterials,requestSchema,surveySchema,configSchema,optionalDate,localDay,dayDifference,bonusMetrics,bonusPeriod} from './operations';
 import {env} from './server-env';
 import {reportSchema,reportError,installerJob} from './installer-workflow';
 import {deliverPush} from './push';
@@ -12,7 +12,7 @@ import {z} from 'zod';
 export const reviewer=(m:Member)=>['admin','supervisor'].includes(m.role);
 function withCustomerRecord(j:any,r:any){const record=r==null?{}:storedObject(r);const permitNumber=j.permitNumber??record.permitNumber??'';const permitReceived=j.permitReceived??(['received','issued','approved'].includes(String(record.permitStatus||'').toLowerCase())&&!!permitNumber);return {...j,paymentMethod:resolvedPaymentMethod(j,record),amount:typeof j.amount==='number'&&Number.isFinite(j.amount)?j.amount:null,incompleteSince:j.incompleteSince||incompleteSince(j)||'',salesRep:j.salesRep||record.salesRep||'',salesRepPhone:j.salesRepPhone||record.salesRepPhone||'',bay:j.bay||record.warehouseBay||'',customerEmail:j.customerEmail||record.email||'',permitNumber,permitReceived,buildingDepartment:j.buildingDepartment??record.permitAuthority??'',permitExpiration:j.permitExpiration??record.permitExpiration??'',buildingDepartmentPhone:j.buildingDepartmentPhone??record.buildingDepartmentPhone??'',privateProvider:j.privateProvider??record.privateProvider??false}}
 const assert=(yes:unknown,message:string,status=403)=>{if(!yes)throw new ApiError(status,message)};
-const parse=<T>(schema:z.ZodType<T>,value:unknown):T=>{const p=schema.safeParse(value);if(!p.success)throw new ApiError(400,p.error.issues[0]?.message||'Check the form.');return p.data};
+const parse=<T>(schema:z.ZodType<T>,value:unknown):T=>{const p=schema.safeParse(value);if(!p.success)throw new ApiError(400,p.error.issues[0]?`${p.error.issues[0].path.join('.')||'Form'}: ${p.error.issues[0].message}`:'Check the form.');return p.data};
 export function installerVisible(m:Member,j:any,today=localDay()) {return j.installerId===m.id||j.operations?.services?.some((s:any)=>s.installerId===m.id&&s.date>=today)}
 export function publicJob(m:Member,j:any){
  if(m.role!=='installer')return j;
@@ -115,7 +115,7 @@ export async function operation(m:Member,input:any){
   else if(action==='edit'){
    edit();assert(input.data.supervisorId===undefined||input.data.supervisorId===j.supervisorId,'Change Field Supervisor in the installer profile.',400);assert(m.role==='admin'||input.data.paymentMethod===undefined||input.data.paymentMethod===(j.paymentMethod||''),'Only an Administrator may change the payment method.');const schema=fieldsSchema.omit({number:true,contractAmount:true,amount:true,stage:true,received:true,installed:true,incompleteSince:true,permitReceived:true,permitNumber:true});
    for(const k of ['contractAmount','amount','stage','received','installed','incompleteSince','permitReceived','permitNumber'])assert(input.data[k]===undefined,'Use the protected workflow actions for price, balance, permit and status changes.',400);
-   const f=parse(schema,{...j,...input.data});assert(f.product==='Diamond Screens'||!f.screenCount,'Screen quantities require a Diamond Screens account.',400);
+   const f=parse(schema,{...normalizeStoredCustomerFields(j),...input.data});assert(f.product==='Diamond Screens'||!f.screenCount,'Screen quantities require a Diamond Screens account.',400);
    assert(!(f.product==='Windows'&&(f.entryDoorCount||0)>0)&&!(f.product!=='Windows'&&((f.windowCount||0)>0||(f.slidingDoors||0)>0))&&!(f.product==='Diamond Screens'&&(f.entryDoorCount||0)>0),'Windows/SPD, Entry Doors, and Diamond Screens require separate accounts.',400);assert((j.materials||[]).every((v:any)=>allowedMaterials(f.product||'Windows').includes(v.materialType)),'Received materials require a separate account for this account type.',400);assert(!f.reorderDate||f.reorderDate<=today,'Reorder Date cannot be in the future.',400);const oldReorder=j.reorderDate;Object.assign(j,f);if(j.stage==='Incomplete'&&f.reorderDate)j.incompleteSince=f.reorderDate;if(j.importSource&&['windowCount','slidingDoors','entryDoorCount'].some(k=>k in input.data)&&(j.windowCount+j.slidingDoors+j.entryDoorCount)>0)j.importSource.unitsUnconfirmed=false;await checkSupervisor();history='Customer and job information updated'+(f.reorderDate&&oldReorder!==f.reorderDate?`; Reorder Date ${oldReorder||'not recorded'} → ${f.reorderDate}; INC aging uses this date.`:'');
   }else if(action==='agingDate'){
    assert(reviewer(m),'Field supervisor or administrator access required.');const d=parse(z.object({date:optionalDate,reference:z.string().trim().min(1).max(500)}),input.data);assert(d.date&&d.date<=today,'Enter a verified date no later than today.',400);

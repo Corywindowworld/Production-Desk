@@ -1,6 +1,7 @@
 import {remainingWorkdays,hourLabel} from './install-calendar';
+import {storedObject} from './stored-data';
 import {database} from '@/db/raw';
-import {ApiError,Member,hasJobEditPermission} from '@/lib/access';
+import {ApiError,Member,hasJobEditPermission,type DashboardStep} from '@/lib/access';
 import {fieldsSchema,scheduleSchema,receiveSchema,receiveItemsSchema,allowedMaterials,requestSchema,surveySchema,configSchema,optionalDate,localDay,dayDifference,bonusMetrics,bonusPeriod} from './operations';
 import {env} from './server-env';
 import {reportSchema,reportError,installerJob} from './installer-workflow';
@@ -8,7 +9,7 @@ import {deliverPush} from './push';
 import {incompleteSince} from './job-workflow';
 import {z} from 'zod';
 export const reviewer=(m:Member)=>['admin','supervisor'].includes(m.role);
-function withCustomerRecord(j:any,r:any){const record=r?JSON.parse(r):{};const permitNumber=j.permitNumber??record.permitNumber??'';const permitReceived=j.permitReceived??(['received','issued','approved'].includes(String(record.permitStatus||'').toLowerCase())&&!!permitNumber);return {...j,amount:typeof j.amount==='number'&&Number.isFinite(j.amount)?j.amount:null,incompleteSince:j.incompleteSince||incompleteSince(j)||'',salesRep:j.salesRep||record.salesRep||'',salesRepPhone:j.salesRepPhone||record.salesRepPhone||'',bay:j.bay||record.warehouseBay||'',customerEmail:j.customerEmail||record.email||'',permitNumber,permitReceived,buildingDepartment:j.buildingDepartment??record.permitAuthority??'',permitExpiration:j.permitExpiration??record.permitExpiration??'',buildingDepartmentPhone:j.buildingDepartmentPhone??record.buildingDepartmentPhone??'',privateProvider:j.privateProvider??record.privateProvider??false}}
+function withCustomerRecord(j:any,r:any){const record=r==null?{}:storedObject(r);const permitNumber=j.permitNumber??record.permitNumber??'';const permitReceived=j.permitReceived??(['received','issued','approved'].includes(String(record.permitStatus||'').toLowerCase())&&!!permitNumber);return {...j,amount:typeof j.amount==='number'&&Number.isFinite(j.amount)?j.amount:null,incompleteSince:j.incompleteSince||incompleteSince(j)||'',salesRep:j.salesRep||record.salesRep||'',salesRepPhone:j.salesRepPhone||record.salesRepPhone||'',bay:j.bay||record.warehouseBay||'',customerEmail:j.customerEmail||record.email||'',permitNumber,permitReceived,buildingDepartment:j.buildingDepartment??record.permitAuthority??'',permitExpiration:j.permitExpiration??record.permitExpiration??'',buildingDepartmentPhone:j.buildingDepartmentPhone??record.buildingDepartmentPhone??'',privateProvider:j.privateProvider??record.privateProvider??false}}
 const assert=(yes:unknown,message:string,status=403)=>{if(!yes)throw new ApiError(status,message)};
 const parse=<T>(schema:z.ZodType<T>,value:unknown):T=>{const p=schema.safeParse(value);if(!p.success)throw new ApiError(400,p.error.issues[0]?.message||'Check the form.');return p.data};
 export function installerVisible(m:Member,j:any,today=localDay()) {return j.installerId===m.id||j.operations?.services?.some((s:any)=>s.installerId===m.id&&s.date>=today)}
@@ -16,22 +17,33 @@ export function publicJob(m:Member,j:any){
  if(m.role!=='installer')return j;
  return {...installerJob(j),install:j.installerId===m.id?j.install:'',canReport:j.installerId===m.id,salesRep:j.salesRep,salesRepPhone:j.salesRepPhone,salesRepEmail:j.salesRepEmail,received:j.received,bay:j.bay,city:j.city,state:j.state,zip:j.zip,materials:j.materials||[],product:j.product,windowCount:j.windowCount||0,slidingDoors:j.slidingDoors||0,entryDoorCount:j.entryDoorCount||0,screenCount:j.screenCount||0,buildingDepartment:j.buildingDepartment||'',permitExpiration:j.permitExpiration||'',buildingDepartmentPhone:j.buildingDepartmentPhone||'',privateProvider:!!j.privateProvider,installEnd:j.installerId===m.id?j.installEnd:'',installTime:j.installTime||'',scheduleCompletedOn:j.scheduleCompletedOn||'',brand:j.brand||'',materialType:j.materialType||'',permitReceived:!!j.permitReceived,permitNumber:j.permitNumber||'',instructions:j.instructions,scheduleInstructions:j.scheduleInstructions||'',reorder:j.reorder||'',attachments:(j.attachments||[]).filter((a:any)=>a.kind!=='visit'),operations:{salesKeys:j.operations?.salesKeys,report:j.operations?.report,services:(j.operations?.services||[]).filter((s:any)=>s.installerId===m.id)}};
 }
-export async function operationsData(m:Member){
+export async function operationsData(m:Member,onStep:(step:DashboardStep)=>void=()=>{}){
  const db=database(),today=localDay();
+ onStep('jobs-query');
  const rows=await db.prepare('SELECT j.payload,j.version,c.payload AS record FROM jobs j LEFT JOIN customer_records c ON c.job_id=j.id ORDER BY j.updated DESC').all();
- const all=rows.results.map((r:any)=>({...withCustomerRecord(JSON.parse(r.payload),r.record),version:r.version}));
+ onStep('jobs-decode');
+ const all=rows.results.map((r:any)=>({...withCustomerRecord(storedObject(r.payload),r.record),version:r.version}));
+ onStep('installer-view');
  const jobs=all.filter((j:any)=>m.role!=='installer'||installerVisible(m,j)).map((j:any)=>publicJob(m,j));
+ onStep('team');
  const team=m.role==='installer'?[]:(await db.prepare('SELECT id,name,role,active,installer_code FROM members ORDER BY name').all()).results;
+ const warnings:string[]=[];
  let surveys:any[]=[],config:any=null,metrics:any=null,crewColors:any={};
  if(m.role!=='installer'){
+  onStep('surveys');
   surveys=(await db.prepare('SELECT * FROM production.operations_surveys ORDER BY completed_on DESC').all()).results;
+  onStep('bonus-settings');
   config=(await db.prepare('SELECT payload FROM production.operations_config WHERE id=?').bind(bonusPeriod(today).end).first())?.payload;
+  if(config!=null){try{const parsed=configSchema.safeParse(storedObject(config));if(!parsed.success)throw new TypeError('Invalid bonus settings');config=parsed.data;}catch{config=null;warnings.push('Bonus settings need review. The bonus estimate is unavailable. Admin can correct the targets in Settings.');}}
+  onStep('bonus-metrics');
   metrics=bonusMetrics(all,surveys,config,today);
+  onStep('crew-colors');
   crewColors=(await db.prepare('SELECT payload FROM production.operations_config WHERE id=?').bind(`crew-colors:${m.id}`).first())?.payload||{};
   if(!reviewer(m)){delete metrics.estimate;config=null;}
  }
- const bonusConfigs=m.role==='admin'?(await db.prepare("SELECT payload FROM production.operations_config WHERE id NOT LIKE 'crew-colors:%' ORDER BY id DESC").all()).results.map((r:any)=>r.payload):[];
- return {bonusConfigs,me:m,jobs,team,today,metrics,surveys:m.role==='installer'?[]:surveys,config:reviewer(m)?config:null,crewColors,canEdit:hasJobEditPermission(m),canReview:reviewer(m)};
+ onStep('settings-history');
+ const bonusConfigs=m.role==='admin'?(await db.prepare("SELECT payload FROM production.operations_config WHERE id NOT LIKE 'crew-colors:%' ORDER BY id DESC").all()).results.flatMap((r:any)=>{try{const parsed=configSchema.safeParse(storedObject(r.payload));return parsed.success?[parsed.data]:[]}catch{return []}}):[];
+ return {warnings,bonusConfigs,me:m,jobs,team,today,metrics,surveys:m.role==='installer'?[]:surveys,config:reviewer(m)?config:null,crewColors,canEdit:hasJobEditPermission(m),canReview:reviewer(m)};
 }
 // All job changes lock the row and compare versions inside one transaction. Side effects are queued with the change.
 export async function operation(m:Member,input:any){

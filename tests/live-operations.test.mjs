@@ -216,6 +216,28 @@ test('multi-day calendar skips weekends, counts inclusively and cuts off approve
  assert.equal(installAppointments({...job,scheduleCompletedOn:'2026-09-18'},dates).length,1);
  assert.equal(installAppointments({...job,operations:{report:{pending:true,status:'Complete'}}},dates).length,2);
 });
+test('stored objects support text and JSONB without silently dropping bad jobs',async()=>{
+ const {storedObject}=await vite.ssrLoadModule('/lib/stored-data.ts');
+ assert.deepEqual(storedObject('{"number":"100"}'),{number:'100'});
+ assert.deepEqual(storedObject({number:'100'}),{number:'100'});
+ for(const value of [null,'null','[]','invalid'])assert.throws(()=>storedObject(value));
+});
+test('invalid bonus settings do not crash jobs or invent a payout',async()=>{
+ const id=bonusPeriod(today).end;
+ const before=(await pg.query('SELECT * FROM production.operations_config WHERE id=$1',[id])).rows[0];
+ try{
+  await pg.query('INSERT INTO production.operations_config(id,payload,updated_by,updated) VALUES($1,$2,$3,$4) ON CONFLICT(id) DO UPDATE SET payload=EXCLUDED.payload',[id,JSON.stringify({period:id,pool:10000}),admin.id,today]);
+  const steps=[];const data=await operationsData(admin,step=>steps.push(step));
+  assert.ok(data.jobs.length);assert.equal(data.metrics.estimate,null);assert.equal(data.config,null);
+  assert.ok(data.warnings.some(w=>w.includes('Bonus settings')));
+  assert.ok(steps.includes('jobs-decode'));assert.ok(steps.includes('bonus-metrics'));
+  const stored=(await pg.query('SELECT payload FROM production.operations_config WHERE id=$1',[id])).rows[0].payload;
+  assert.deepEqual(stored,{period:id,pool:10000});
+ }finally{
+  if(before)await pg.query('UPDATE production.operations_config SET payload=$2 WHERE id=$1',[id,JSON.stringify(before.payload)]);
+  else await pg.query('DELETE FROM production.operations_config WHERE id=$1',[id]);
+ }
+});
 test('only reviewers may confirm a missing aging date, and verified dates cannot be overwritten',async()=>{
  await act(pa,'create',{number:'MISSING-DATE',customer:'Verify date',address:'123 Main',supervisorId:fs.id,amount:100});
  await pg.query("UPDATE production.jobs SET payload=(payload::jsonb||'{\"stage\":\"Incomplete\",\"incompleteSince\":\"\"}'::jsonb)::text WHERE id=$1",[j.id]);await reload();

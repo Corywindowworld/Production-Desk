@@ -52,6 +52,9 @@ test('unexpected errors log only safe diagnostic codes and a matching reference'
    assert.equal(logged.code,['28P01','SELF_SIGNED_CERT_IN_CHAIN'].includes(code)?code:'UNCLASSIFIED');
    assert.doesNotMatch(JSON.stringify([messages,body]),/secret-password|secret-query|private-email|secret-value/);
   }
+  const diagnostic=await apiError(new TypeError('secret-value private-email'), 'jobs-decode').json();
+  assert.match(diagnostic.error,/jobs-decode; TypeError/);
+  assert.doesNotMatch(JSON.stringify([messages,diagnostic]),/secret-value|private-email/);
   const count=messages.length,response=apiError(new ApiError(401,'Sign in with your email and password.'));
   assert.equal(response.status,401);
   assert.equal(messages.length,count);

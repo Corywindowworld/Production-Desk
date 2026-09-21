@@ -7,7 +7,7 @@ export const localDay=()=>new Intl.DateTimeFormat('en-CA',{timeZone:'America/New
 export const addDays=(d:string,n:number)=>new Date(Date.parse(d+'T12:00:00Z')+n*86400000).toISOString().slice(0,10);
 export const dayDifference=(a:string,b:string)=>{if(!a||!b)return null;const n=Math.floor((Date.parse(b.slice(0,10)+'T12:00:00Z')-Date.parse(a.slice(0,10)+'T12:00:00Z'))/86400000);return Number.isFinite(n)?n:null};
 export function aging(j:any,today=localDay()){
- const stage=j.stage,kind=stage==='Received'?'Received':['Production','InProgress'].includes(stage)?'Production':stage==='Incomplete'?'Incomplete':null;
+ const stage=j.paymentMethod==='PO'?'PO':j.stage,kind=stage==='Received'?'Received':['Production','InProgress'].includes(stage)?'Production':stage==='Incomplete'?'Incomplete':null;
  const since=kind==='Received'?j.received:kind==='Production'?j.installed:j.incompleteSince?.slice(0,10);
  const days=kind&&since?dayDifference(since,today):null,limit=kind==='Incomplete'?45:kind==='Production'?7:30;
  const aged=days!==null&&(kind==='Incomplete'?days>=limit:days>limit);

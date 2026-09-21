@@ -77,6 +77,28 @@ test('supervisor status controls and administrator deletion',async()=>{
  const id=j.id;await assert.rejects(()=>act(fs,'delete'),/Administrator/);await act(admin,'delete');
  assert.equal((await pg.query('SELECT id FROM production.jobs WHERE id=$1',[id])).rows.length,0);
 });
+test('admin override and payment permissions',async()=>{
+ await act(pa,'create',{number:'ADMIN-OVERRIDE',customer:'Override test',address:'Test street',amount:1000,contractAmount:1000,supervisorId:fs.id,paymentMethod:'CHK'});
+ for(const member of [fs,pa,installer])await assert.rejects(()=>act(member,'adminResult',{target:'Closed',confirmed:true,reason:'Legacy closeout'}),/Administrator|assigned/);
+ await assert.rejects(()=>act(admin,'adminResult',{target:'Closed',confirmed:false,reason:'Legacy closeout'}));
+ await assert.rejects(()=>act(admin,'adminResult',{target:'Incomplete',confirmed:true,reason:'Legacy incomplete'}),/reorder/i);
+ for(const member of [fs,pa])await assert.rejects(()=>act(member,'edit',{paymentMethod:'PO'}),/Administrator/);
+ await act(fs,'edit',{notes:'No payment change'});assert.equal(j.paymentMethod,'CHK');
+ await act(admin,'edit',{paymentMethod:'PO',reorder:'Replacement sash needed'});assert.equal(j.paymentMethod,'PO');
+ await act(admin,'adminResult',{target:'Incomplete',confirmed:true,reason:'Historical job missing photos'});
+ assert.equal(j.stage,'Incomplete');assert.ok(j.incompleteSince);assert.equal(j.attachments.length,0);
+ assert.equal(aging(j,today).aged,false);assert.equal(aging(j,today).missing,false);
+ await act(admin,'adminResult',{target:'Closed',confirmed:true,reason:'Verified closure in Leads'});
+ assert.equal(j.stage,'Closed');assert.equal(j.scheduleCompletedOn,today);
+ assert.ok(j.history.some(h=>h.text.includes('Administrator override')&&h.text.includes('Verified closure')));
+});
+test('excluded jobs do not affect aging or missing-date totals',()=>{
+ for(const stage of ['Received','Production','InProgress','Incomplete','PO','COLL','UTI','SVC']){
+  const job={stage,paymentMethod:['PO','COLL','UTI','SVC'].includes(stage)?'CHK':'PO',amount:9000,received:'2020-01-01',installed:'2020-01-01',incompleteSince:'2020-01-01'};
+  assert.equal(aging(job,today).aged,false);assert.equal(aging(job,today).kind,null);
+  const metrics=bonusMetrics([job],[],null,today);assert.equal(metrics.count,0);assert.equal(metrics.amount,0);assert.equal(metrics.unknownDates,0);
+ }
+});
 test('period and aging boundaries',()=>{
  assert.deepEqual(bonusPeriod('2026-09-15'),{start:'2026-08-26',end:'2026-09-29'});
  assert.deepEqual(bonusPeriod('2026-09-30'),{start:'2026-09-30',end:'2026-10-27'});

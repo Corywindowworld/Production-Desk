@@ -11,7 +11,7 @@ export function normalizeJob<T extends { stage: string }>(job: T): T {
 }
 // Aging is derived from the current incomplete period, never from last edit time.
 export const boardStages = [...stages, 'Aged Received', 'Aged Incomplete', 'Aged Production'] as const;
-type AgingJob = {stage: string; received?: string; install?: string; installed?: string; amount?: number | null; incompleteSince?: string | null; history?: {at: string; text: string}[]};
+type AgingJob = {stage: string; paymentMethod?: string | null; received?: string; install?: string; installed?: string; amount?: number | null; incompleteSince?: string | null; history?: {at: string; text: string}[]};
 export function incompleteSince(job: AgingJob): string | null {
   if (job.stage !== 'Incomplete') return null;
   if (job.incompleteSince && Number.isFinite(Date.parse(job.incompleteSince))) return job.incompleteSince;
@@ -30,6 +30,7 @@ export function boardStage(job: AgingJob, now = Date.now()) {
   return jobAging(job, now).category || job.stage;
 }
 export function jobAging(job: AgingJob, now = Date.now()) {
+  if(job.paymentMethod==='PO'||['PO','COLL','UTI','SVC'].includes(job.stage))return {kind:null,days:null,remaining:null,aged:false,warning:false,alert:false,message:'',category:null};
   const inc = incompleteAge(job, now);
   const kind = job.stage === 'Received' && !job.install ? 'Received' : job.stage === 'Incomplete' ? 'Incomplete' : job.stage === 'Production' ? 'Production' : null;
   const since = kind === 'Received' ? job.received : kind === 'Production' ? job.installed : inc.since;

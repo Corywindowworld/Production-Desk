@@ -60,7 +60,7 @@ test('unexpected errors log only safe diagnostic codes and a matching reference'
 test('native PostgreSQL auth, role permissions, payment methods, signed uploads, reports',async()=>{
  const owner=await activate('owner@example.com','TemporaryOwner1!');
  assert.equal((await login.POST(req('auth/login',{email:'owner@example.com',password:'TemporaryOwner1!'}))).status,401);
- async function member(email,role,supervisorId=null){const r=await success(await team.POST(req('team',{email,name:email,role,supervisorId,active:true},owner)));const row=await db.prepare('SELECT id FROM members WHERE email=?').bind(email).first();return {id:row.id,cookie:await activate(email,r.temporaryPassword)}}
+ async function member(email,role,supervisorId=null){const r=await success(await team.POST(req('team',{email,name:email,role,supervisorId,active:true},owner)));assert.equal(r.temporaryPassword,'Welcome123');const row=await db.prepare('SELECT id FROM members WHERE email=?').bind(email).first();return {id:row.id,cookie:await activate(email,r.temporaryPassword)}}
  const supervisor=await member('supervisor@example.com','supervisor'),otherSupervisor=await member('other-supervisor@example.com','supervisor'),installer=await member('installer@example.com','installer',supervisor.id),other=await member('other@example.com','installer',supervisor.id);
  assert.equal(qualityTone(null),'unrated');assert.equal(qualityTone(3.59),'below');assert.equal(qualityTone(3.60),'good');assert.equal(qualityTone(3.61),'good');
  const scoreRequest=(score,id=installer.id)=>({id,score});
@@ -213,6 +213,7 @@ test('native PostgreSQL auth, role permissions, payment methods, signed uploads,
  await success(await quality.POST(req('installer/quality',scoreRequest(4),otherSupervisor.cookie)));
  assert.equal((await me.GET(req('me',null,installer.cookie))).status,401);
  const resetResult=await success(await reset.POST(req('team/reset-password',{id:installer.id},owner)));
+ assert.equal(resetResult.temporaryPassword,'Welcome123');
  const resetCookie=await activate('installer@example.com',resetResult.temporaryPassword);
  assert.equal((await me.GET(req('me',null,resetCookie))).status,200);
 });

@@ -82,7 +82,7 @@ export async function operation(m:Member,input:any){
   if(['create','edit'].includes(action)&&input.data.assignedInstallerId){assert(hasJobEditPermission(m),'Job editing permission required.');const id=parse(z.string().uuid(),input.data.assignedInstallerId);const crew=await installer(id);if(j.installerId!==id){j.installerId=id;j.crew=crew.name;if(j.install)await alert(id,`Job #${j.number} assigned to your calendar for ${j.install}.`);}}
   if(action==='create'){assert(j.product==='Diamond Screens'||!j.screenCount,'Screen quantities require a Diamond Screens account.',400);assert(!(j.product==='Windows'&&j.entryDoorCount>0)&&!(j.product!=='Windows'&&(j.windowCount>0||j.slidingDoors>0))&&!(j.product==='Diamond Screens'&&j.entryDoorCount>0),'Windows/SPD, Entry Doors, and Diamond Screens require separate accounts.',400);await checkSupervisor();history='Customer created manually';}
   else if(action==='edit'){
-   edit();const schema=fieldsSchema.omit({number:true,contractAmount:true,amount:true,stage:true,received:true,installed:true,incompleteSince:true,permitReceived:true,permitNumber:true});
+   edit();assert(m.role==='admin'||input.data.paymentMethod===undefined||input.data.paymentMethod===(j.paymentMethod||''),'Only an Administrator may change the payment method.');const schema=fieldsSchema.omit({number:true,contractAmount:true,amount:true,stage:true,received:true,installed:true,incompleteSince:true,permitReceived:true,permitNumber:true});
    for(const k of ['contractAmount','amount','stage','received','installed','incompleteSince','permitReceived','permitNumber'])assert(input.data[k]===undefined,'Use the protected workflow actions for price, balance, permit and status changes.',400);
    const f=parse(schema,{...j,...input.data});assert(f.product==='Diamond Screens'||!f.screenCount,'Screen quantities require a Diamond Screens account.',400);
    assert(!(f.product==='Windows'&&(f.entryDoorCount||0)>0)&&!(f.product!=='Windows'&&((f.windowCount||0)>0||(f.slidingDoors||0)>0))&&!(f.product==='Diamond Screens'&&(f.entryDoorCount||0)>0),'Windows/SPD, Entry Doors, and Diamond Screens require separate accounts.',400);assert((j.materials||[]).every((v:any)=>allowedMaterials(f.product||'Windows').includes(v.materialType)),'Received materials require a separate account for this account type.',400);assert(!f.reorderDate||f.reorderDate<=today,'Reorder Date cannot be in the future.',400);const oldReorder=j.reorderDate;Object.assign(j,f);if(j.stage==='Incomplete'&&f.reorderDate)j.incompleteSince=f.reorderDate;if(j.importSource&&['windowCount','slidingDoors','entryDoorCount'].some(k=>k in input.data)&&(j.windowCount+j.slidingDoors+j.entryDoorCount)>0)j.importSource.unitsUnconfirmed=false;await checkSupervisor();history='Customer and job information updated'+(f.reorderDate&&oldReorder!==f.reorderDate?`; Reorder Date ${oldReorder||'not recorded'} → ${f.reorderDate}; INC aging uses this date.`:'');
@@ -109,6 +109,20 @@ export async function operation(m:Member,input:any){
    edit();const p=parse(z.object({received:z.boolean(),number:z.string().trim().max(150),buildingDepartment:z.string().trim().max(200).default(''),expiration:optionalDate,buildingDepartmentPhone:z.string().trim().max(50).default(''),privateProvider:z.boolean().default(false)}),input.data);assert(!p.received||p.number,'Enter the permit number when Permit Received is checked.',400);j.permitExpiration=p.expiration;j.buildingDepartmentPhone=p.buildingDepartmentPhone;j.privateProvider=p.privateProvider;j.buildingDepartment=p.buildingDepartment;j.permitReceived=p.received;j.permitNumber=p.number;history=p.received?`Permit received: ${p.number}`:'Permit marked not received';
   }else if(action==='start'){
    assert(reviewer(m),'Field supervisor or administrator access required.');assert(j.stage==='Received'&&j.install,'Schedule the RCVD job before moving it to PROD.',400);j.stage='Production';j.installed=today;o.report=null;history='Job moved to PROD; production aging started';
+   }else if(action==='adminResult'){
+   assert(m.role==='admin','Administrator access required.');
+   const result=parse(z.object({target:z.enum(['Closed','Incomplete']),confirmed:z.literal(true),reason:z.string().trim().min(1).max(1000)}),input.data);
+   const previous=j.stage;
+   if(result.target==='Incomplete')assert(String(j.reorder||'').trim(),'Enter reorder information before moving to INC.',400);
+   j.stage=result.target;
+   if(j.stage==='Closed')j.scheduleCompletedOn=today;
+   else {j.incompleteSince=previous==='Incomplete'&&j.incompleteSince?j.incompleteSince:j.reorderDate||at;j.scheduleCompletedOn='';}
+   if(o.report?.pending)o.report={...o.report,pending:false,approved:false,superseded:true,reviewedBy:m.name,reviewedAt:at};
+   o.pendingSchedule=null;
+   o.adminResult={target:result.target,by:m.id,name:m.name,at,reason:result.reason,requirementsOverridden:true};
+   history=`Administrator override: ${previous} → ${result.target==='Closed'?'COMP':'INC'} without required completion evidence. Reason: ${result.reason}`;
+   await notifyReport(`Job #${j.number}: Administrator ${m.name} moved this job to ${result.target==='Closed'?'COMP':'INC'}. ${result.reason}`);
+   await alert(j.installerId,`Job #${j.number}: Administrator moved this job to ${result.target==='Closed'?'COMP':'INC'}.`);
   }else if(action==='status'){
    assert(reviewer(m),'Field supervisor or administrator access required.');assert(!o.report?.pending,'Review the installer submission before changing status.',409);
    const target=parse(z.enum(['Production','InProgress','Received']),input.data.target);

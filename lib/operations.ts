@@ -22,6 +22,7 @@ export function bonusPeriod(day:string){
 export const materialSchema=z.object({materialType:z.enum(['Window','SPD','Entry Door','Diamond Screen']),brand:z.enum(['Simonton','Plygem','Wincore','Thermatru','Diamond Screens','AMI','CWS']),bay:z.string().trim().min(1).max(100)});
 export const allowedMaterials=(product:string)=>product==='Entry Doors'?['Entry Door']:product==='Diamond Screens'?['Diamond Screen']:['Window','SPD'];
 export const fieldsSchema=z.object({
+ firstName:z.string().trim().max(80).default(''),lastName:z.string().trim().max(80).default(''),phone2:z.string().max(50).default(''),phone3:z.string().max(50).default(''),customerSuppliedPermit:z.boolean().default(false),
  reorderDate:optionalDate,lastEstimatedShipDate:optionalDate,loadBrands:z.string().trim().max(300).default(''),reportedUnits:z.number().int().min(0).max(999).nullable().default(null),
  permitExpiration:optionalDate,buildingDepartmentPhone:z.string().trim().max(50).default(''),privateProvider:z.boolean().default(false),
  screenCount:z.number().int().min(0).max(999).default(0),paymentMethod:z.enum(['','FNC','CHK','CC','AQUA','PO']).default(''),buildingDepartment:z.string().trim().max(200).default(''),
@@ -30,7 +31,7 @@ export const fieldsSchema=z.object({
  customerEmail:z.union([z.string().email(),z.literal('')]).default(''),product:z.enum(['Windows','Entry Doors','Diamond Screens']).default('Windows'),windowCount:z.number().int().min(0).max(999).default(0),slidingDoors:z.number().int().min(0).max(999).default(0),entryDoorCount:z.number().int().min(0).max(999).default(0),
  brand:z.enum(['','Simonton','Plygem','Wincore','Thermatru','Diamond Screens','AMI','CWS']).default(''),materialType:z.enum(['','Window','SPD','Entry Door','Diamond Screen']).default(''),permitReceived:z.boolean().default(false),permitNumber:z.string().trim().max(150).default(''),
  received:optionalDate,installed:optionalDate,incompleteSince:optionalDate,stage:z.enum(['Received','Production','InProgress','Incomplete','Closed','Ordered']).default('Ordered'),
- amount:money.nullable(),contractAmount:money.nullable().default(null),supervisorId:z.string().min(1),
+ amount:money.nullable(),contractAmount:money.nullable().default(null),supervisorId:z.string().default(''),
  salesRep:z.string().max(160).default(''),salesRepPhone:z.string().max(50).default(''),salesRepEmail:z.union([z.string().email(),z.literal('')]).default(''),
  bay:z.string().max(100).default(''),notes:z.string().max(4000).default(''),instructions:z.string().max(4000).default(''),reorder:z.string().max(4000).default('')
 });

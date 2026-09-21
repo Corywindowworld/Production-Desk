@@ -17,6 +17,7 @@ const fs={id:crypto.randomUUID(),name:'Supervisor',role:'supervisor',can_edit_jo
 const pa={id:crypto.randomUUID(),name:'Assistant',role:'production_assistant',can_edit_jobs:1,active:1};
 const installer={id:crypto.randomUUID(),name:'Installer',role:'installer',active:1};globalThis.__installerId=installer.id;
 for(const m of [admin,fs,pa,installer])await pg.query('INSERT INTO production.members(id,name,email,role,active,can_edit_jobs) VALUES($1,$2,$3,$4,1,$5)',[m.id,m.name,m.id+'@example.com',m.role,m.can_edit_jobs||0]);
+await pg.query('UPDATE production.members SET supervisor_id=$2 WHERE id=$1',[installer.id,fs.id]);
 const today=localDay();let j;
 async function reload(){j=(await operationsData(admin)).jobs[0];globalThis.__jobId=j.id;return j}
 async function act(m,action,data={}){await operation(m,{action,jobId:j?.id,version:j?.version,data});return reload()}
@@ -244,4 +245,29 @@ test('only reviewers may confirm a missing aging date, and verified dates cannot
  await assert.rejects(()=>act(pa,'agingDate',{date:addDays(today,-50),reference:'Leads status audit'}),/supervisor/i);
  await act(fs,'agingDate',{date:addDays(today,-50),reference:'Leads status audit'});assert.equal(aging(j,today).aged,true);
  await assert.rejects(()=>act(admin,'agingDate',{date:today,reference:'New date'}),/unconfirmed/i);
+});
+test('customer fields, permit flag, received corrections and bulk aging persist',async()=>{
+ await act(pa,'create',{number:'BULK-DATE',customer:'Jane Smith',firstName:'Jane',lastName:'Smith',phone2:'(813)-555-1234',phone3:'(813)-555-5678',address:'123 Main',amount:100});
+ assert.equal(j.firstName,'Jane');assert.equal(j.phone2,'(813)-555-1234');assert.equal(j.supervisorId,'');
+ const materials=[{bay:'A1',brand:'Simonton',materialType:'Window'}];
+ await act(pa,'receive',{received:today,materials});
+ await assert.rejects(()=>act(pa,'receive',{received:addDays(today,-2),materials}),/input|invalid|check|required/i);
+ await act(pa,'receive',{received:addDays(today,-2),materials,reference:'Leads receipt'});assert.equal(j.received,addDays(today,-2));
+ await act(pa,'permit',{received:true,number:'P123',customerSuppliedPermit:true});assert.equal(j.customerSuppliedPermit,true);
+ const batch={reference:'Verified Leads report',rows:[{id:j.id,version:j.version,key:'received',date:addDays(today,-40)}]};
+ await assert.rejects(()=>operation(pa,{action:'agingDates',data:batch}),/supervisor/i);
+ await operation(fs,{action:'agingDates',data:batch});await reload();assert.equal(j.received,addDays(today,-40));assert.equal(aging(j,today).aged,true);
+ await assert.rejects(()=>operation(fs,{action:'agingDates',data:batch}),/changed|refresh/i);
+ assert.match(j.history[0].text,/Verified Leads report/);
+});
+test('installer supervisor assignment is displayed and propagated to linked jobs',async()=>{
+ const {saveInstallerProfile,installerProfiles}=await vite.ssrLoadModule('/lib/installer-directory.ts');
+ await act(admin,'create',{number:'CREW-ASSIGN',customer:'Crew Customer',address:'123 Main',amount:0,assignedInstallerId:installer.id});
+ assert.equal(j.supervisorId,fs.id);
+ const profile=(await installerProfiles(admin)).installers.find(x=>x.id===installer.id);assert.equal(profile.supervisorId,fs.id);
+ const p={id:installer.id,name:installer.name,leadInstallerName:'Lead',phone:'',address:'',contactEmail:'',emergencyContact:'',emergencyPhone:'',supervisorId:admin.id};
+ await assert.rejects(()=>saveInstallerProfile(installer,p),/supervisor/i);
+ await saveInstallerProfile(admin,p);await reload();assert.equal(j.supervisorId,admin.id);
+ assert.equal((await installerProfiles(admin)).installers.find(x=>x.id===installer.id).supervisorId,admin.id);
+ await assert.rejects(()=>act(fs,'edit',{supervisorId:fs.id}),/installer profile/i);
 });

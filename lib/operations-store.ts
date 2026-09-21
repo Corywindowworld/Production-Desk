@@ -1,4 +1,4 @@
-import {isPurchaseOrder} from './payment-status';
+import {isPurchaseOrder,resolvedPaymentMethod} from './payment-status';
 import {remainingWorkdays,hourLabel} from './install-calendar';
 import {storedObject} from './stored-data';
 import {database} from '@/db/raw';
@@ -10,7 +10,7 @@ import {deliverPush} from './push';
 import {incompleteSince} from './job-workflow';
 import {z} from 'zod';
 export const reviewer=(m:Member)=>['admin','supervisor'].includes(m.role);
-function withCustomerRecord(j:any,r:any){const record=r==null?{}:storedObject(r);const permitNumber=j.permitNumber??record.permitNumber??'';const permitReceived=j.permitReceived??(['received','issued','approved'].includes(String(record.permitStatus||'').toLowerCase())&&!!permitNumber);return {...j,amount:typeof j.amount==='number'&&Number.isFinite(j.amount)?j.amount:null,incompleteSince:j.incompleteSince||incompleteSince(j)||'',salesRep:j.salesRep||record.salesRep||'',salesRepPhone:j.salesRepPhone||record.salesRepPhone||'',bay:j.bay||record.warehouseBay||'',customerEmail:j.customerEmail||record.email||'',permitNumber,permitReceived,buildingDepartment:j.buildingDepartment??record.permitAuthority??'',permitExpiration:j.permitExpiration??record.permitExpiration??'',buildingDepartmentPhone:j.buildingDepartmentPhone??record.buildingDepartmentPhone??'',privateProvider:j.privateProvider??record.privateProvider??false}}
+function withCustomerRecord(j:any,r:any){const record=r==null?{}:storedObject(r);const permitNumber=j.permitNumber??record.permitNumber??'';const permitReceived=j.permitReceived??(['received','issued','approved'].includes(String(record.permitStatus||'').toLowerCase())&&!!permitNumber);return {...j,paymentMethod:resolvedPaymentMethod(j,record),amount:typeof j.amount==='number'&&Number.isFinite(j.amount)?j.amount:null,incompleteSince:j.incompleteSince||incompleteSince(j)||'',salesRep:j.salesRep||record.salesRep||'',salesRepPhone:j.salesRepPhone||record.salesRepPhone||'',bay:j.bay||record.warehouseBay||'',customerEmail:j.customerEmail||record.email||'',permitNumber,permitReceived,buildingDepartment:j.buildingDepartment??record.permitAuthority??'',permitExpiration:j.permitExpiration??record.permitExpiration??'',buildingDepartmentPhone:j.buildingDepartmentPhone??record.buildingDepartmentPhone??'',privateProvider:j.privateProvider??record.privateProvider??false}}
 const assert=(yes:unknown,message:string,status=403)=>{if(!yes)throw new ApiError(status,message)};
 const parse=<T>(schema:z.ZodType<T>,value:unknown):T=>{const p=schema.safeParse(value);if(!p.success)throw new ApiError(400,p.error.issues[0]?.message||'Check the form.');return p.data};
 export function installerVisible(m:Member,j:any,today=localDay()) {return j.installerId===m.id||j.operations?.services?.some((s:any)=>s.installerId===m.id&&s.date>=today)}

@@ -291,3 +291,14 @@ test('PO aliases and imported codes exclude Freedom Square balance from all agin
  }
  assert.equal(aging({paymentMethod:'CHK',importSource:{paymentCode:'PO'},stage:'Incomplete',incompleteSince:addDays(today,-90)},today).aged,true);
 });
+
+test('PO stored only in customer record is excluded in API totals and job display',async()=>{
+ await act(admin,'create',{number:'PO-RECORD',customer:'PO record',address:'123 Main',amount:51012});
+ const id=j.id;
+ await pg.query("UPDATE production.jobs SET payload=(payload::jsonb||$2::jsonb)::text WHERE id=$1",[id,JSON.stringify({stage:'Incomplete',incompleteSince:addDays(today,-90),paymentMethod:' '})]);
+ await pg.query('INSERT INTO production.customer_records(job_id,payload) VALUES($1,$2)',[id,JSON.stringify({paymentMethod:'Purchase Order (PO)'})]);
+ const data=await operationsData(admin),record=data.jobs.find(x=>x.id===id);
+ assert.equal(record.paymentMethod,'PO');assert.equal(aging(record,today).aged,false);
+ assert.equal(data.metrics.amount,bonusMetrics(data.jobs.filter(x=>x.id!==id),[],null,today).amount);
+ await act(admin,'edit',{paymentMethod:'CHK'});const changed=(await operationsData(admin)).jobs.find(x=>x.id===id);assert.equal(changed.paymentMethod,'CHK');assert.equal(aging(changed,today).aged,true);
+});

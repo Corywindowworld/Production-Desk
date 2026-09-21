@@ -13,3 +13,9 @@
 .op-crew-surveys{border:1px solid var(--op-border,#d7e0ea);border-radius:12px;margin:12px 0;overflow:hidden}.op-crew-surveys>.op-appointment{width:100%;margin:0;border:0}.op-crew-surveys .op-panel{border:0;margin:0}.op-aging-table{width:100%;border-collapse:collapse}.op-aging-table td,.op-aging-table th{text-align:left;padding:12px;border-bottom:1px solid #d7e0ea;}
 
 .live-pipeline-scroll{max-height:460px;overflow-y:auto;overscroll-behavior:contain}.live-date-editor{max-height:520px;overflow:auto}.live-date-editor table{width:100%;border-collapse:collapse}.live-date-editor th,.live-date-editor td{padding:10px;text-align:left;border-bottom:1px solid var(--op-line,#ccd2da)}.live-date-editor input{min-width:145px}
+
+.live-delivery-choice,.live-delivery-banner{grid-column:1/-1;background:#fff3c4;color:#573500;border:2px solid #b66a00;border-radius:10px;padding:16px;display:flex;align-items:center;gap:12px}
+.live-delivery-choice input{width:24px!important;height:24px!important;flex:0 0 24px;accent-color:#9a4b00}
+.live-delivery-choice strong,.live-delivery-choice small{display:block}
+.live-delivery-choice strong,.live-delivery-banner{font-weight:800;letter-spacing:.04em}
+.live-delivery-badge{display:inline-block!important;width:fit-content;background:#fff3c4!important;color:#573500!important;border:2px solid #b66a00;padding:4px 8px;border-radius:6px;font-size:12px;font-weight:800}

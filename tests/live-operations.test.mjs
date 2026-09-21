@@ -302,3 +302,16 @@ test('PO stored only in customer record is excluded in API totals and job displa
  assert.equal(data.metrics.amount,bonusMetrics(data.jobs.filter(x=>x.id!==id),[],null,today).amount);
  await act(admin,'edit',{paymentMethod:'CHK'});const changed=(await operationsData(admin)).jobs.find(x=>x.id===id);assert.equal(changed.paymentMethod,'CHK');assert.equal(aging(changed,today).aged,true);
 });
+
+test('PA role can create and schedule without legacy edit flag; delivery label reaches installer',async()=>{
+ const assistant={...pa,can_edit_jobs:0};
+ assert.equal((await operationsData(assistant)).canEdit,true);
+ await act(assistant,'create',{number:'DELIVERY-ONLY',customer:'Delivery customer',address:'123 Main',amount:0,deliveryOnly:true});
+ assert.equal(j.deliveryOnly,true);
+ await act(assistant,'permit',{received:true,number:'P123'});
+ await act(assistant,'schedule',{date:today,period:'AM',installerId:installer.id,stop:1});
+ const visible=(await operationsData(installer)).jobs.find(x=>x.id===j.id);
+ assert.equal(visible.deliveryOnly,true);
+ await assert.rejects(()=>act(assistant,'adminResult',{target:'Closed',reason:'test',confirmed:true}),/Admin/i);
+ await act(assistant,'edit',{deliveryOnly:false});assert.equal(j.deliveryOnly,false);
+});

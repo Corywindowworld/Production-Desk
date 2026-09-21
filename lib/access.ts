@@ -46,6 +46,6 @@ export function apiError(e:unknown,step?:DashboardStep){
 }
 export async function jobFor(m:Member,id:string){const row:any=await database().prepare('SELECT payload,version FROM jobs WHERE id=?').bind(id).first();if(!row)throw new ApiError(404,'Job not found.');const j={...JSON.parse(row.payload),version:row.version};if(!canSeeJob(m,j))throw new ApiError(403,'This job is not assigned to you.');return j}
 
-export const hasJobEditPermission=(m:Member)=>m.role==='admin'||(['office','production_assistant','supervisor'].includes(m.role)&&m.can_edit_jobs===1);
+export const hasJobEditPermission=(m:Member)=>m.role==='admin'||m.role==='production_assistant'||(['office','supervisor'].includes(m.role)&&m.can_edit_jobs===1);
 export const canCreateJobs=(m:Member)=>hasJobEditPermission(m);
 export const canEditJob=(m:Member,j:any)=>hasJobEditPermission(m);

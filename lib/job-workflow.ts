@@ -1,3 +1,4 @@
+import {isPurchaseOrder} from './payment-status';
 import { z } from 'zod';
 
 export const paymentMethods = ['Finance', 'Check', 'Credit Card', 'PO'] as const;
@@ -30,7 +31,7 @@ export function boardStage(job: AgingJob, now = Date.now()) {
   return jobAging(job, now).category || job.stage;
 }
 export function jobAging(job: AgingJob, now = Date.now()) {
-  if(job.paymentMethod==='PO'||['PO','COLL','UTI','SVC'].includes(job.stage))return {kind:null,days:null,remaining:null,aged:false,warning:false,alert:false,message:'',category:null};
+  if(isPurchaseOrder(job)||['PO','COLL','UTI','SVC'].includes(job.stage))return {kind:null,days:null,remaining:null,aged:false,warning:false,alert:false,message:'',category:null};
   const inc = incompleteAge(job, now);
   const kind = job.stage === 'Received' && !job.install ? 'Received' : job.stage === 'Incomplete' ? 'Incomplete' : job.stage === 'Production' ? 'Production' : null;
   const since = kind === 'Received' ? job.received : kind === 'Production' ? job.installed : inc.since;

@@ -271,3 +271,23 @@ test('installer supervisor assignment is displayed and propagated to linked jobs
  assert.equal((await installerProfiles(admin)).installers.find(x=>x.id===installer.id).supervisorId,admin.id);
  await assert.rejects(()=>act(fs,'edit',{supervisorId:fs.id}),/installer profile/i);
 });
+
+test('admin zero-balance late override and historical schedules enforce permissions',async()=>{
+ await act(admin,'create',{number:'PAST-OVERRIDE',customer:'Test Past',address:'123 Main',amount:0});
+ await act(pa,'receive',{received:addDays(today,-60),materials:[{bay:'A1',brand:'Simonton',materialType:'Window'}]});
+ await act(pa,'permit',{received:true,number:'PERMIT'});
+ const schedule={date:addDays(today,-10),period:'AM',installerId:installer.id,stop:1,adminOverride:true};
+ await assert.rejects(()=>act(pa,'schedule',schedule),/Administrator/);
+ await act(admin,'schedule',schedule);assert.equal(j.install,schedule.date);assert.equal(j.operations.pendingSchedule,null);assert.equal(j.stage,'Received');
+ assert.match(j.history[0].text,/Admin approved/);
+ await act(admin,'balance',{amount:5,reference:'test'});
+ await assert.rejects(()=>act(admin,'schedule',schedule),/zero balance/);
+});
+test('PO aliases and imported codes exclude Freedom Square balance from all aging metrics',()=>{
+ for(const job of [{paymentMethod:'PO'},{paymentMethod:' p.o. '},{paymentMethod:'Purchase Order'},{importSource:{paymentCode:'PO'}}]){
+  const record={...job,stage:'Incomplete',amount:51012,incompleteSince:addDays(today,-90)};
+  assert.equal(aging(record,today).aged,false);
+  const m=bonusMetrics([record],[],null,today);assert.equal(m.amount,0);assert.equal(m.count,0);assert.equal(m.unknownDates,0);
+ }
+ assert.equal(aging({paymentMethod:'CHK',importSource:{paymentCode:'PO'},stage:'Incomplete',incompleteSince:addDays(today,-90)},today).aged,true);
+});

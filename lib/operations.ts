@@ -1,3 +1,4 @@
+import {isPurchaseOrder} from './payment-status';
 import {z} from 'zod';
 export const officeRoles=['admin','office','production_assistant','supervisor'];
 export const date=z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(v=>!isNaN(Date.parse(v))&&new Date(v).toISOString().slice(0,10)===v);
@@ -7,7 +8,7 @@ export const localDay=()=>new Intl.DateTimeFormat('en-CA',{timeZone:'America/New
 export const addDays=(d:string,n:number)=>new Date(Date.parse(d+'T12:00:00Z')+n*86400000).toISOString().slice(0,10);
 export const dayDifference=(a:string,b:string)=>{if(!a||!b)return null;const n=Math.floor((Date.parse(b.slice(0,10)+'T12:00:00Z')-Date.parse(a.slice(0,10)+'T12:00:00Z'))/86400000);return Number.isFinite(n)?n:null};
 export function aging(j:any,today=localDay()){
- const stage=j.paymentMethod==='PO'?'PO':j.stage,kind=stage==='Received'?'Received':['Production','InProgress'].includes(stage)?'Production':stage==='Incomplete'?'Incomplete':null;
+ const stage=isPurchaseOrder(j)?'PO':j.stage,kind=stage==='Received'?'Received':['Production','InProgress'].includes(stage)?'Production':stage==='Incomplete'?'Incomplete':null;
  const since=kind==='Received'?j.received:kind==='Production'?j.installed:j.incompleteSince?.slice(0,10);
  const days=kind&&since?dayDifference(since,today):null,limit=kind==='Incomplete'?45:kind==='Production'?7:30;
  const aged=days!==null&&(kind==='Incomplete'?days>=limit:days>limit);
@@ -35,7 +36,7 @@ export const fieldsSchema=z.object({
  salesRep:z.string().max(160).default(''),salesRepPhone:z.string().max(50).default(''),salesRepEmail:z.union([z.string().email(),z.literal('')]).default(''),
  bay:z.string().max(100).default(''),notes:z.string().max(4000).default(''),instructions:z.string().max(4000).default(''),reorder:z.string().max(4000).default('')
 });
-export const scheduleSchema=z.object({time:z.union([z.string().regex(/^(?:[01]\d|2[0-3]):00$/),z.literal('')]).default(''),endDate:optionalDate,salesPhotos:z.array(z.object({key:z.string().max(250),name:z.string().max(255),kind:z.literal('photos')})).max(50).default([]),date,period:z.enum(['AM','PM']),installerId:z.string().uuid(),stop:z.number().int().min(1).max(99),paymentReference:z.string().trim().max(300).default(''),additionalInstructions:z.string().trim().max(4000).default('')}).refine(s=>!s.endDate||s.endDate>=s.date,'End date must be on or after start date.');
+export const scheduleSchema=z.object({time:z.union([z.string().regex(/^(?:[01]\d|2[0-3]):00$/),z.literal('')]).default(''),endDate:optionalDate,salesPhotos:z.array(z.object({key:z.string().max(250),name:z.string().max(255),kind:z.literal('photos')})).max(50).default([]),date,period:z.enum(['AM','PM']),installerId:z.string().uuid(),stop:z.number().int().min(1).max(99),adminOverride:z.boolean().default(false),paymentReference:z.string().trim().max(300).default(''),additionalInstructions:z.string().trim().max(4000).default('')}).refine(s=>!s.endDate||s.endDate>=s.date,'End date must be on or after start date.');
 export const receiveSchema=z.object({received:date,bay:z.string().trim().min(1).max(100),brand:z.enum(['Simonton','Plygem','Wincore','Thermatru','Diamond Screens','AMI','CWS']),materialType:z.enum(['Window','SPD','Entry Door','Diamond Screen'])});
 export const receiveItemsSchema=z.object({received:date,materials:z.array(materialSchema).min(1).max(50)});
 export const requestSchema=z.object({type:z.enum(['UTI','COLL','Service','ACCRF']),details:z.string().trim().min(1).max(4000),paymentReference:z.string().trim().max(300).default(''),refused:z.boolean().default(false),serviceDate:optionalDate,period:z.enum(['AM','PM']).default('AM'),installerId:z.string().default(''),amount:money.optional()});

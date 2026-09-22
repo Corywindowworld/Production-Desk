@@ -39,7 +39,16 @@ export async function operationsData(m:Member,onStep:(step:DashboardStep)=>void=
   onStep('bonus-metrics');
   metrics=bonusMetrics(all,surveys,config,today);
   onStep('crew-colors');
-  crewColors=(await db.prepare('SELECT payload FROM production.operations_config WHERE id=?').bind(`crew-colors:${m.id}`).first())?.payload||{};
+  const savedCrewColors=(await db.prepare('SELECT payload FROM production.operations_config WHERE id=?').bind(`crew-colors:${m.id}`).first())?.payload;
+  if(savedCrewColors!=null){
+   try{
+    const decoded=storedObject(savedCrewColors);
+    crewColors=decoded&&typeof decoded==='object'&&!Array.isArray(decoded)?decoded:{};
+   }catch{
+    crewColors={};
+    warnings.push('Your saved crew colors could not be read. Choose the colors again and save them.');
+   }
+  }
   if(!reviewer(m)){delete metrics.estimate;config=null;}
  }
  onStep('settings-history');

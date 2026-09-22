@@ -4,6 +4,17 @@ import {ReportImport} from './report-import';
 const categories=[['dollars','Aged dollars · 40%'],['jobs','Aged jobs · 20%'],['quality','Guild Quality · 40%']] as const;
 function blank(period:string){return {period,pool:0,dollars:[0,0,0,0],jobs:[0,0,0,0],quality:[4,3.8,3.7,3.6,3.5],payouts:{dollars:[0,0,0,0,0,0],jobs:[0,0,0,0,0,0],quality:[0,0,0,0,0,0]}}}
 function editable(c:any,period:string){if(!c)return blank(period);return {...c,payouts:c.payouts||Object.fromEntries(categories.map(([key])=>[key,[1.2,1,.75,.5,.25,0].map(n=>Math.round(c.pool*(key==='jobs'?.2:.4)*n*100)/100)]))}}
+const money=(value:any)=>new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0}).format(Number(value)||0);
+function threshold(config:any,key:string,index:number){
+ if(key==='quality')return index<5?`Score ${Number(config.quality[index]).toFixed(2)} or higher`:`Below ${Number(config.quality[4]).toFixed(2)}`;
+ if(index===0)return 'Zero aged';
+ if(index===5)return `Above ${Number(config[key][3]).toLocaleString()}`;
+ return `Up to ${Number(config[key][index-1]).toLocaleString()}`;
+}
+export function BonusThresholds({config,period,onEdit}:any){
+ if(!config)return <section className="live-bonus-thresholds"><p>No thresholds are configured for the bonus period ending {period}.</p>{onEdit&&<button className="op-primary" onClick={onEdit}>Edit bonus settings</button>}</section>;
+ return <section className="live-bonus-thresholds"><div className="op-section-head"><div><h2>Bonus tiers</h2><p>Read-only thresholds for the bonus period ending {config.period}.</p></div>{onEdit&&<button className="op-primary" onClick={onEdit}>Edit bonus settings</button>}</div><p>Base regional bonus pool: <strong>{money(config.pool)}</strong></p>{categories.map(([key,title])=><section key={key}><h3>{title}</h3><div className="live-import-scroll"><table><thead><tr><th>Tier</th><th>Threshold</th><th>Category payout</th></tr></thead><tbody>{[0,1,2,3,4,5].map(i=><tr key={i}><td>{i+1}</td><td>{threshold(config,key,i)}</td><td>{money(config.payouts?.[key]?.[i])}</td></tr>)}</tbody></table></div></section>)}</section>
+}
 export function BonusSettings({data,change,onImported}:any){
  const [draft,setDraft]=useState<any>(()=>editable(data.config,data.metrics.period.end)),[busy,setBusy]=useState(false),[error,setError]=useState(''),[message,setMessage]=useState('');
  const update=(key:string,index:number,value:string,payout=false)=>{setDraft((old:any)=>{if(payout){const values=[...old.payouts[key]];values[index]=value===''?'':Number(value);return {...old,payouts:{...old.payouts,[key]:values}}}const values=[...old[key]];values[index]=value===''?'':Number(value);return {...old,[key]:values}})};

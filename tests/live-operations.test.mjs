@@ -61,6 +61,7 @@ test('live approvals, persistence, scopes and money',async()=>{
  const survey={externalId:'guild-survey-1',installerId:installer.id,completedOn:today,ratings:[5,5,5,5]};
  await operation(fs,{action:'survey',data:survey});await assert.rejects(()=>operation(fs,{action:'survey',data:survey}),/already/);
  assert.equal((await operationsData(fs)).metrics.score,4);
+ const installerQuality=await operationsData(installer);assert.equal(installerQuality.metrics.score,4);assert.equal(installerQuality.surveys.length,1);assert.equal(installerQuality.surveys[0].installer_id,installer.id);
  await assert.rejects(()=>operation(installer,{action:'configure',data:{}}),/Administrator/);
  await assert.rejects(()=>operation(installer,{action:'create',data:{}}),/permission/);
  await operation(fs,{action:'crewColors',data:{[installer.id]:'#123abc'}});assert.equal((await operationsData(fs)).crewColors[installer.id],'#123abc');assert.deepEqual((await operationsData(admin)).crewColors,{});
@@ -82,6 +83,7 @@ test('admin override and payment permissions',async()=>{
  await act(pa,'create',{number:'ADMIN-OVERRIDE',customer:'Override test',address:'Test street',amount:1000,contractAmount:1000,supervisorId:fs.id,paymentMethod:'CHK'});
  for(const member of [fs,pa,installer])await assert.rejects(()=>act(member,'adminResult',{target:'Closed',confirmed:true,reason:'Legacy closeout'}),/Administrator|assigned/);
  await assert.rejects(()=>act(admin,'adminResult',{target:'Closed',confirmed:false,reason:'Legacy closeout'}));
+ await assert.rejects(()=>act(admin,'adminResult',{target:'Incomplete',confirmed:true,reason:''}),/reason|characters/i);
  await assert.rejects(()=>act(admin,'adminResult',{target:'Incomplete',confirmed:true,reason:'Legacy incomplete'}),/reorder/i);
  for(const member of [fs,pa])await assert.rejects(()=>act(member,'edit',{paymentMethod:'PO'}),/Administrator/);
  await act(fs,'edit',{notes:'No payment change'});assert.equal(j.paymentMethod,'CHK');

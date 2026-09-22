@@ -30,9 +30,11 @@ export async function operationsData(m:Member,onStep:(step:DashboardStep)=>void=
  const team=m.role==='installer'?[]:(await db.prepare('SELECT id,name,role,active,installer_code FROM members ORDER BY name').all()).results;
  const warnings:string[]=[];
  let surveys:any[]=[],config:any=null,metrics:any=null,crewColors:any={};
+ onStep('surveys');
+ surveys=m.role==='installer'
+  ?(await db.prepare('SELECT * FROM production.operations_surveys WHERE installer_id=? ORDER BY completed_on DESC').bind(m.id).all()).results
+  :(await db.prepare('SELECT * FROM production.operations_surveys ORDER BY completed_on DESC').all()).results;
  if(m.role!=='installer'){
-  onStep('surveys');
-  surveys=(await db.prepare('SELECT * FROM production.operations_surveys ORDER BY completed_on DESC').all()).results;
   onStep('bonus-settings');
   config=(await db.prepare('SELECT payload FROM production.operations_config WHERE id=?').bind(bonusPeriod(today).end).first())?.payload;
   if(config!=null){try{const parsed=configSchema.safeParse(storedObject(config));if(!parsed.success)throw new TypeError('Invalid bonus settings');config=parsed.data;}catch{config=null;warnings.push('Bonus settings need review. The bonus estimate is unavailable. Admin can correct the targets in Settings.');}}
@@ -50,10 +52,10 @@ export async function operationsData(m:Member,onStep:(step:DashboardStep)=>void=
    }
   }
   if(!reviewer(m)){delete metrics.estimate;config=null;}
- }
+ }else metrics=bonusMetrics([],surveys,null,today);
  onStep('settings-history');
  const bonusConfigs=m.role==='admin'?(await db.prepare("SELECT payload FROM production.operations_config WHERE id NOT LIKE 'crew-colors:%' ORDER BY id DESC").all()).results.flatMap((r:any)=>{try{const parsed=configSchema.safeParse(storedObject(r.payload));return parsed.success?[parsed.data]:[]}catch{return []}}):[];
- return {warnings,bonusConfigs,me:m,jobs,team,today,metrics,surveys:m.role==='installer'?[]:surveys,config:reviewer(m)?config:null,crewColors,canEdit:hasJobEditPermission(m),canReview:reviewer(m)};
+ return {warnings,bonusConfigs,me:m,jobs,team,today,metrics,surveys,config:reviewer(m)?config:null,crewColors,canEdit:hasJobEditPermission(m),canReview:reviewer(m)};
 }
 // All job changes lock the row and compare versions inside one transaction. Side effects are queued with the change.
 export async function operation(m:Member,input:any){

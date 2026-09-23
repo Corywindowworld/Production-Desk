@@ -1,6 +1,6 @@
 import {z} from 'zod';
 import {date,bonusPeriod,configSchema} from './operations';
-export const importedSurveySchema=z.object({code:z.string().regex(/^C\d+$/),name:z.string().trim().min(1).max(100),supervisor:z.string().max(100),customerId:z.string().regex(/^\d+$/),completedOn:date,ratings:z.array(z.number().int().min(0).max(4)).length(4)});
+export const importedSurveySchema=z.object({code:z.string().regex(/^C\d+$/),name:z.string().trim().min(1).max(100),supervisor:z.string().max(100),customerId:z.string().regex(/^\d+$/),completedOn:date,ratings:z.array(z.number().int().min(0).max(4)).length(4),installerId:z.string().uuid().optional()});
 export const reportImportSchema=z.object({rows:z.array(importedSurveySchema).min(1).max(2000)});
 export type ImportedSurvey=z.infer<typeof importedSurveySchema>;
 function usDate(s:string){const [m,d,y]=s.split('/');const v=`${y}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`;return date.parse(v)}

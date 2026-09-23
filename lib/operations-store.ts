@@ -10,6 +10,7 @@ import {deliverPush} from './push';
 import {incompleteSince} from './job-workflow';
 import {z} from 'zod';
 export const reviewer=(m:Member)=>['admin','supervisor'].includes(m.role);
+function normalizedSurvey(row:any){let ratings=row?.ratings;try{if(typeof ratings==='string')ratings=JSON.parse(ratings)}catch{ratings=[]}return {...row,completed_on:String(row?.completed_on||''),ratings:[0,1,2,3].map(i=>typeof ratings?.[i]==='number'&&Number.isFinite(ratings[i])?ratings[i]:null)}}
 function withCustomerRecord(j:any,r:any){const record=r==null?{}:storedObject(r);const permitNumber=j.permitNumber??record.permitNumber??'';const permitReceived=j.permitReceived??(['received','issued','approved'].includes(String(record.permitStatus||'').toLowerCase())&&!!permitNumber);return {...j,paymentMethod:resolvedPaymentMethod(j,record),amount:typeof j.amount==='number'&&Number.isFinite(j.amount)?j.amount:null,incompleteSince:j.incompleteSince||incompleteSince(j)||'',salesRep:j.salesRep||record.salesRep||'',salesRepPhone:j.salesRepPhone||record.salesRepPhone||'',bay:j.bay||record.warehouseBay||'',customerEmail:j.customerEmail||record.email||'',permitNumber,permitReceived,buildingDepartment:j.buildingDepartment??record.permitAuthority??'',permitExpiration:j.permitExpiration??record.permitExpiration??'',buildingDepartmentPhone:j.buildingDepartmentPhone??record.buildingDepartmentPhone??'',privateProvider:j.privateProvider??record.privateProvider??false}}
 const assert=(yes:unknown,message:string,status=403)=>{if(!yes)throw new ApiError(status,message)};
 const parse=<T>(schema:z.ZodType<T>,value:unknown):T=>{const p=schema.safeParse(value);if(!p.success)throw new ApiError(400,p.error.issues[0]?`${p.error.issues[0].path.join('.')||'Form'}: ${p.error.issues[0].message}`:'Check the form.');return p.data};
@@ -34,6 +35,7 @@ export async function operationsData(m:Member,onStep:(step:DashboardStep)=>void=
  surveys=m.role==='installer'
   ?(await db.prepare('SELECT * FROM production.operations_surveys WHERE installer_id=? ORDER BY completed_on DESC').bind(m.id).all()).results
   :(await db.prepare('SELECT * FROM production.operations_surveys ORDER BY completed_on DESC').all()).results;
+ surveys=surveys.map(normalizedSurvey);
  if(m.role!=='installer'){
   onStep('bonus-settings');
   config=(await db.prepare('SELECT payload FROM production.operations_config WHERE id=?').bind(bonusPeriod(today).end).first())?.payload;

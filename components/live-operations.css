@@ -21,3 +21,5 @@
 .live-delivery-choice strong,.live-delivery-choice small{display:block}
 .live-delivery-choice strong,.live-delivery-banner{font-weight:800;letter-spacing:.04em}
 .live-delivery-badge{display:inline-block!important;width:fit-content;background:#fff3c4!important;color:#573500!important;border:2px solid #b66a00;padding:4px 8px;border-radius:6px;font-size:12px;font-weight:800}
+
+.live-operations .live-installer-score{grid-template-columns:minmax(0,1fr);margin-bottom:20px}

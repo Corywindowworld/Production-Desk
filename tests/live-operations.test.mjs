@@ -87,9 +87,10 @@ test('admin override and payment permissions',async()=>{
  await assert.rejects(()=>act(admin,'adminResult',{target:'Incomplete',confirmed:true,reason:'Legacy incomplete'}),/reorder/i);
  for(const member of [fs,pa])await assert.rejects(()=>act(member,'edit',{paymentMethod:'PO'}),/Administrator/);
  await act(fs,'edit',{notes:'No payment change'});assert.equal(j.paymentMethod,'CHK');
- await act(admin,'edit',{paymentMethod:'PO',reorder:'Replacement sash needed'});assert.equal(j.paymentMethod,'PO');
- await act(admin,'adminResult',{target:'Incomplete',confirmed:true,reason:'Historical job missing photos'});
- assert.equal(j.stage,'Incomplete');assert.ok(j.incompleteSince);assert.equal(j.attachments.length,0);
+ await act(admin,'edit',{paymentMethod:'PO'});assert.equal(j.paymentMethod,'PO');
+ await assert.rejects(()=>act(admin,'adminResult',{target:'Incomplete',confirmed:true,reason:'Historical job missing photos',reorder:'Replacement sash needed'}),/reorder date/i);
+ await act(admin,'adminResult',{target:'Incomplete',confirmed:true,reason:'Historical job missing photos',reorder:'Replacement sash needed',reorderDate:today});
+ assert.equal(j.stage,'Incomplete');assert.equal(j.reorder,'Replacement sash needed');assert.equal(j.reorderDate,today);assert.equal(j.incompleteSince,today);assert.equal(j.attachments.length,0);
  assert.equal(aging(j,today).aged,false);assert.equal(aging(j,today).missing,false);
  await act(admin,'adminResult',{target:'Closed',confirmed:true,reason:'Verified closure in Leads'});
  assert.equal(j.stage,'Closed');assert.equal(j.scheduleCompletedOn,today);
@@ -107,6 +108,14 @@ test('excluded jobs do not affect aging or missing-date totals',()=>{
  }
  const legacyCollection={stage:'Incomplete',status:'COLL',paymentMethod:'CHK',amount:9000,incompleteSince:'2020-01-01'};
  assert.equal(aging(legacyCollection,today).aged,false);assert.equal(bonusMetrics([legacyCollection],[],null,today).count,0);
+});
+test('administrator COLL selection approves immediately and removes the job from aging',async()=>{
+ await act(pa,'create',{number:'ADMIN-COLL',customer:'Collection Customer',address:'789 Test Street',amount:2500,contractAmount:5000,supervisorId:fs.id});
+ await act(pa,'receive',{received:addDays(today,-40),materials:[{bay:'C-4',brand:'Simonton',materialType:'Window'}]});
+ assert.equal(aging(j,today).aged,true);
+ await act(admin,'request',{type:'COLL',details:'Customer refused final payment',refused:true});
+ assert.equal(j.stage,'COLL');assert.equal(j.operations.requests[0].status,'Approved');assert.equal(aging(j,today).aged,false);
+ const data=await operationsData(admin),saved=data.jobs.find(row=>row.number==='ADMIN-COLL');assert.ok(saved);assert.equal(aging(saved,today).aged,false);
 });
 test('period and aging boundaries',()=>{
  assert.deepEqual(bonusPeriod('2026-09-15'),{start:'2026-08-26',end:'2026-09-29'});

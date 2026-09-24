@@ -301,7 +301,10 @@ test('admin zero-balance late override and historical schedules enforce permissi
  await act(admin,'schedule',schedule);assert.equal(j.install,schedule.date);assert.equal(j.operations.pendingSchedule,null);assert.equal(j.stage,'Received');
  assert.match(j.history[0].text,/Admin approved/);
  await act(admin,'balance',{amount:5,reference:'test'});
- await assert.rejects(()=>act(admin,'schedule',schedule),/zero balance/);
+ await act(admin,'schedule',schedule);assert.equal(j.amount,5);assert.equal(j.install,schedule.date);
+ await act(fs,'schedule',{...schedule,date:today});assert.equal(j.install,today);assert.equal(j.amount,5);assert.equal(j.stage,'Received');assert.equal(aging(j,today).aged,true);assert.match(j.history[0].text,/Field Supervisor approved/);
+ await assert.rejects(()=>act(pa,'schedule',schedule),/Administrator/);
+ await assert.rejects(()=>act(fs,'schedule',{...schedule,adminOverride:false}),/zero amount/);
 });
 test('PO aliases and imported codes exclude Freedom Square balance from all aging metrics',()=>{
  for(const job of [{paymentMethod:'PO'},{paymentMethod:' p.o. '},{paymentMethod:'Purchase Order'},{importSource:{paymentCode:'PO'}}]){

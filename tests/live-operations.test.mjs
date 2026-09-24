@@ -87,9 +87,10 @@ test('admin override and payment permissions',async()=>{
  await assert.rejects(()=>act(admin,'adminResult',{target:'Incomplete',confirmed:true,reason:'Legacy incomplete'}),/reorder/i);
  for(const member of [fs,pa])await assert.rejects(()=>act(member,'edit',{paymentMethod:'PO'}),/Administrator/);
  await act(fs,'edit',{notes:'No payment change'});assert.equal(j.paymentMethod,'CHK');
- await act(admin,'edit',{paymentMethod:'PO',reorder:'Replacement sash needed'});assert.equal(j.paymentMethod,'PO');
- await act(admin,'adminResult',{target:'Incomplete',confirmed:true,reason:'Historical job missing photos'});
- assert.equal(j.stage,'Incomplete');assert.ok(j.incompleteSince);assert.equal(j.attachments.length,0);
+ await act(admin,'edit',{paymentMethod:'PO'});assert.equal(j.paymentMethod,'PO');
+ await assert.rejects(()=>act(admin,'adminResult',{target:'Incomplete',confirmed:true,reason:'Historical job missing photos',reorder:'Replacement sash needed'}),/reorder date/i);
+ await act(admin,'adminResult',{target:'Incomplete',confirmed:true,reason:'Historical job missing photos',reorder:'Replacement sash needed',reorderDate:today});
+ assert.equal(j.stage,'Incomplete');assert.equal(j.reorder,'Replacement sash needed');assert.equal(j.reorderDate,today);assert.equal(j.incompleteSince,today);assert.equal(j.attachments.length,0);
  assert.equal(aging(j,today).aged,false);assert.equal(aging(j,today).missing,false);
  await act(admin,'adminResult',{target:'Closed',confirmed:true,reason:'Verified closure in Leads'});
  assert.equal(j.stage,'Closed');assert.equal(j.scheduleCompletedOn,today);
@@ -101,6 +102,20 @@ test('excluded jobs do not affect aging or missing-date totals',()=>{
   assert.equal(aging(job,today).aged,false);assert.equal(aging(job,today).kind,null);
   const metrics=bonusMetrics([job],[],null,today);assert.equal(metrics.count,0);assert.equal(metrics.amount,0);assert.equal(metrics.unknownDates,0);
  }
+ for(const stage of ['SERV','Service','Collections','Unable To Install']){
+  const job={stage,paymentMethod:'CHK',amount:9000,received:'2020-01-01',installed:'2020-01-01',incompleteSince:'2020-01-01'};
+  assert.equal(aging(job,today).aged,false);assert.equal(aging(job,today).kind,null);
+ }
+ const legacyCollection={stage:'Incomplete',status:'COLL',paymentMethod:'CHK',amount:9000,incompleteSince:'2020-01-01'};
+ assert.equal(aging(legacyCollection,today).aged,false);assert.equal(bonusMetrics([legacyCollection],[],null,today).count,0);
+});
+test('administrator COLL selection approves immediately and removes the job from aging',async()=>{
+ await act(pa,'create',{number:'ADMIN-COLL',customer:'Collection Customer',address:'789 Test Street',amount:2500,contractAmount:5000,supervisorId:fs.id});
+ await act(pa,'receive',{received:addDays(today,-40),materials:[{bay:'C-4',brand:'Simonton',materialType:'Window'}]});
+ assert.equal(aging(j,today).aged,true);
+ await act(admin,'request',{type:'COLL',details:'Customer refused final payment',refused:true});
+ assert.equal(j.stage,'COLL');assert.equal(j.operations.requests[0].status,'Approved');assert.equal(aging(j,today).aged,false);
+ const data=await operationsData(admin),saved=data.jobs.find(row=>row.number==='ADMIN-COLL');assert.ok(saved);assert.equal(aging(saved,today).aged,false);
 });
 test('period and aging boundaries',()=>{
  assert.deepEqual(bonusPeriod('2026-09-15'),{start:'2026-08-26',end:'2026-09-29'});
@@ -142,11 +157,13 @@ test('GQ imports are permission checked, converted once, deduplicated and confli
  const {importGuild}=await vite.ssrLoadModule('/lib/report-import-store.ts');
  const rows=[{code:'C999',name:'Imported Crew',supervisor:fs.name,customerId:'1001',completedOn:today,ratings:[4,3,4,4]}];
  await assert.rejects(()=>importGuild(fs,{rows}),/Administrator/);
- assert.deepEqual(await importGuild(admin,{rows}),{created:1,inserted:1,skipped:0});
- assert.deepEqual(await importGuild(admin,{rows}),{created:0,inserted:0,skipped:1});
+ assert.deepEqual(await importGuild(admin,{rows}),{created:1,inserted:1,skipped:0,reassigned:0});
+ assert.deepEqual(await importGuild(admin,{rows}),{created:0,inserted:0,skipped:1,reassigned:0});
  const crew=(await pg.query("SELECT * FROM production.members WHERE installer_code='C999'")).rows[0];assert.equal(crew.supervisor_id,fs.id);
  assert.equal((await pg.query('SELECT * FROM production.credentials WHERE member_id=$1',[crew.id])).rows.length,0);
  const survey=(await pg.query("SELECT * FROM production.operations_surveys WHERE external_id LIKE 'gq:C999:%'")).rows[0];assert.deepEqual(survey.ratings,[5,4,5,5]);
+ const linked=crypto.randomUUID();await pg.query("INSERT INTO production.members(id,name,email,role,installer_code,active) VALUES($1,$2,$3,'installer',NULL,1)",[linked,'Imported Crew','linked@example.com']);await pg.query("INSERT INTO production.credentials(member_id,password_hash,must_change,generation) VALUES($1,'hash',0,1)",[linked]);
+ const relinked=await importGuild(admin,{rows:rows.map(r=>({...r,installerId:linked}))});assert.equal(relinked.reassigned,1);assert.equal((await pg.query("SELECT installer_id FROM production.operations_surveys WHERE external_id LIKE 'gq:C999:%'")).rows[0].installer_id,linked);assert.equal((await pg.query('SELECT installer_code FROM production.members WHERE id=$1',[linked])).rows[0].installer_code,'C999');
  await assert.rejects(()=>importGuild(admin,{rows:[{...rows[0],ratings:[0,0,0,0]}]}),/Conflicting/);
  assert.deepEqual((await pg.query('SELECT ratings FROM production.operations_surveys WHERE id=$1',[survey.id])).rows[0].ratings,[5,4,5,5]);
 });
@@ -183,6 +200,7 @@ test('installer profile ownership and inactivity are enforced',async()=>{
 test('survey detail scores preserve zeros and only link unique customer IDs',async()=>{
  const {surveyDetails}=await vite.ssrLoadModule('/lib/survey-details.ts');const survey={external_id:'gq:C123:1001:2026-09-01',ratings:[1,5,5,5]};
  assert.equal(surveyDetails(survey,[]).score,3);assert.equal(surveyDetails(survey,[]).customerId,'1001');
+ assert.deepEqual(surveyDetails({...survey,ratings:'[5,4,5,5]'},[]).ratings,[4,3,4,4]);assert.equal(surveyDetails({...survey,ratings:null},[]).score,null);
  assert.equal(surveyDetails(survey,[{id:'a',number:'1001'}]).job.id,'a');
  assert.equal(surveyDetails(survey,[{id:'a',number:'1001'},{id:'b',number:'1001'}]).job,null);
 });

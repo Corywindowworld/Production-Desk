@@ -10,6 +10,7 @@ import {deliverPush} from './push';
 import {incompleteSince} from './job-workflow';
 import {z} from 'zod';
 export const reviewer=(m:Member)=>['admin','supervisor'].includes(m.role);
+function normalizedSurvey(row:any){let ratings=row?.ratings;try{if(typeof ratings==='string')ratings=JSON.parse(ratings)}catch{ratings=[]}return {...row,completed_on:String(row?.completed_on||''),ratings:[0,1,2,3].map(i=>typeof ratings?.[i]==='number'&&Number.isFinite(ratings[i])?ratings[i]:null)}}
 function withCustomerRecord(j:any,r:any){const record=r==null?{}:storedObject(r);const permitNumber=j.permitNumber??record.permitNumber??'';const permitReceived=j.permitReceived??(['received','issued','approved'].includes(String(record.permitStatus||'').toLowerCase())&&!!permitNumber);return {...j,paymentMethod:resolvedPaymentMethod(j,record),amount:typeof j.amount==='number'&&Number.isFinite(j.amount)?j.amount:null,incompleteSince:j.incompleteSince||incompleteSince(j)||'',salesRep:j.salesRep||record.salesRep||'',salesRepPhone:j.salesRepPhone||record.salesRepPhone||'',bay:j.bay||record.warehouseBay||'',customerEmail:j.customerEmail||record.email||'',permitNumber,permitReceived,buildingDepartment:j.buildingDepartment??record.permitAuthority??'',permitExpiration:j.permitExpiration??record.permitExpiration??'',buildingDepartmentPhone:j.buildingDepartmentPhone??record.buildingDepartmentPhone??'',privateProvider:j.privateProvider??record.privateProvider??false}}
 const assert=(yes:unknown,message:string,status=403)=>{if(!yes)throw new ApiError(status,message)};
 const parse=<T>(schema:z.ZodType<T>,value:unknown):T=>{const p=schema.safeParse(value);if(!p.success)throw new ApiError(400,p.error.issues[0]?`${p.error.issues[0].path.join('.')||'Form'}: ${p.error.issues[0].message}`:'Check the form.');return p.data};
@@ -34,6 +35,7 @@ export async function operationsData(m:Member,onStep:(step:DashboardStep)=>void=
  surveys=m.role==='installer'
   ?(await db.prepare('SELECT * FROM production.operations_surveys WHERE installer_id=? ORDER BY completed_on DESC').bind(m.id).all()).results
   :(await db.prepare('SELECT * FROM production.operations_surveys ORDER BY completed_on DESC').all()).results;
+ surveys=surveys.map(normalizedSurvey);
  if(m.role!=='installer'){
   onStep('bonus-settings');
   config=(await db.prepare('SELECT payload FROM production.operations_config WHERE id=?').bind(bonusPeriod(today).end).first())?.payload;
@@ -153,16 +155,21 @@ export async function operation(m:Member,input:any){
    assert(reviewer(m),'Field supervisor or administrator access required.');assert(j.stage==='Received'&&j.install,'Schedule the RCVD job before moving it to PROD.',400);j.stage='Production';j.installed=today;o.report=null;history='Job moved to PROD; production aging started';
    }else if(action==='adminResult'){
    assert(m.role==='admin','Administrator access required.');
-   const result=parse(z.object({target:z.enum(['Closed','Incomplete']),confirmed:z.literal(true),reason:z.string().trim().min(1).max(1000)}),input.data);
+   const result=parse(z.object({target:z.enum(['Closed','Incomplete']),confirmed:z.literal(true),reason:z.string().trim().min(1).max(1000),reorder:z.string().trim().max(4000).default(''),reorderDate:optionalDate}),input.data);
    const previous=j.stage;
-   if(result.target==='Incomplete')assert(String(j.reorder||'').trim(),'Enter reorder information before moving to INC.',400);
+   if(result.target==='Incomplete'){
+    const reorder=result.reorder||String(j.reorder||'').trim(),reorderDate=result.reorderDate||j.reorderDate||'';
+    assert(reorder,'Enter reorder information before moving to INC.',400);
+    assert(reorderDate&&reorderDate<=today,'Enter the actual reorder date before moving to INC.',400);
+    j.reorder=reorder;j.reorderDate=reorderDate;
+   }
    j.stage=result.target;
    if(j.stage==='Closed')j.scheduleCompletedOn=today;
-   else {j.incompleteSince=previous==='Incomplete'&&j.incompleteSince?j.incompleteSince:j.reorderDate||at;j.scheduleCompletedOn='';}
+   else {j.incompleteSince=j.reorderDate;j.scheduleCompletedOn='';}
    if(o.report?.pending)o.report={...o.report,pending:false,approved:false,superseded:true,reviewedBy:m.name,reviewedAt:at};
    o.pendingSchedule=null;
    o.adminResult={target:result.target,by:m.id,name:m.name,at,reason:result.reason,requirementsOverridden:true};
-   history=`Administrator override: ${previous} → ${result.target==='Closed'?'COMP':'INC'} without required completion evidence. Reason: ${result.reason}`;
+   history=`Administrator override: ${previous} → ${result.target==='Closed'?'COMP':'INC'} without required completion evidence.${result.target==='Incomplete'?` Reorder date: ${j.reorderDate}.`:''} Reason: ${result.reason}`;
    await notifyReport(`Job #${j.number}: Administrator ${m.name} moved this job to ${result.target==='Closed'?'COMP':'INC'}. ${result.reason}`);
    await alert(j.installerId,`Job #${j.number}: Administrator moved this job to ${result.target==='Closed'?'COMP':'INC'}.`);
   }else if(action==='status'){
@@ -196,7 +203,10 @@ export async function operation(m:Member,input:any){
    if(r.type==='COLL')assert(r.refused,'Confirm that payment was refused.',400);
    if(r.type==='ACCRF')assert(r.amount!==undefined&&j.contractAmount!=null&&j.amount!=null,'Enter the revised contract price. Existing price and amount due must be known.',400);
    if(r.type==='Service'){assert(r.serviceDate&&r.serviceDate>=today,'Select a future service date.',400);await installer(r.installerId||'')}
-   o.requests=[{...r,id,status:'Pending',by:m.name,at},...(o.requests||[])];history=`${r.type} request submitted for administrator approval: ${r.details}`;
+   const adminCollection=m.role==='admin'&&r.type==='COLL';
+   o.requests=[{...r,id,status:adminCollection?'Approved':'Pending',by:m.name,at,...(adminCollection?{reviewedBy:m.name,reviewedAt:at}: {})},...(o.requests||[])];
+   if(adminCollection){j.stage='COLL';o.pendingSchedule=null;j.install='';history=`COLL approved by Administrator: ${r.details}`}
+   else history=`${r.type} request submitted for administrator approval: ${r.details}`;
   }else if(action==='reviewRequest'){
    assert(m.role==='admin','Administrator approval required.');const r=(o.requests||[]).find((v:any)=>v.id===input.data.id);assert(r&&r.status==='Pending','Request is no longer pending.',409);const approve=parse(z.boolean(),input.data.approve);
    if(approve&&r.type==='UTI'){assert(j.amount===0&&r.paymentReference,'Full payment is required.',400);j.stage='UTI';o.pendingSchedule=null;j.install=''}

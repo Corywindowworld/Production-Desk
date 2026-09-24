@@ -101,6 +101,12 @@ test('excluded jobs do not affect aging or missing-date totals',()=>{
   assert.equal(aging(job,today).aged,false);assert.equal(aging(job,today).kind,null);
   const metrics=bonusMetrics([job],[],null,today);assert.equal(metrics.count,0);assert.equal(metrics.amount,0);assert.equal(metrics.unknownDates,0);
  }
+ for(const stage of ['SERV','Service','Collections','Unable To Install']){
+  const job={stage,paymentMethod:'CHK',amount:9000,received:'2020-01-01',installed:'2020-01-01',incompleteSince:'2020-01-01'};
+  assert.equal(aging(job,today).aged,false);assert.equal(aging(job,today).kind,null);
+ }
+ const legacyCollection={stage:'Incomplete',status:'COLL',paymentMethod:'CHK',amount:9000,incompleteSince:'2020-01-01'};
+ assert.equal(aging(legacyCollection,today).aged,false);assert.equal(bonusMetrics([legacyCollection],[],null,today).count,0);
 });
 test('period and aging boundaries',()=>{
  assert.deepEqual(bonusPeriod('2026-09-15'),{start:'2026-08-26',end:'2026-09-29'});

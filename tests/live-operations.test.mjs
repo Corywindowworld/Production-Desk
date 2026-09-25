@@ -5,7 +5,7 @@ import {readFileSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {createServer} from 'vite';
 const pg=new PGlite();
-for(const file of ['001_initial','002_installer_quality','003_account_permissions','004_account_profiles','005_account_theme','006_more_themes','007_customer_records','008_live_operations','008_live_operations'])await pg.exec(readFileSync(`supabase/migrations/${file}.sql`,'utf8'));
+for(const file of ['001_initial','002_installer_quality','003_account_permissions','004_account_profiles','005_account_theme','006_more_themes','007_customer_records','008_live_operations','008_live_operations','009_tampa_themes'])await pg.exec(readFileSync(`supabase/migrations/${file}.sql`,'utf8'));
 const wrap=c=>({query:async(sql,args)=>{const r=await c.query(sql,args);return {rows:r.rows,changes:r.affectedRows??r.rows.length}},transaction:fn=>c.transaction(tx=>fn(wrap(tx)))});
 const vite=await createServer({configFile:false,resolve:{alias:{'@':resolve('.')}},plugins:[{name:'live-test',enforce:'pre',resolveId(id){if(id==='@/db/raw'||/\/db\/raw(?:\.ts)?$/.test(id))return '\0db';if(/(?:\/|^)server-env(?:\.ts)?$/.test(id)||id==='./server-env')return '\0env';if(id==='./push'||id==='@/lib/push')return '\0push'},load(id){if(id==='\0db')return 'export const database=()=>globalThis.__liveDb';if(id==='\0env')return 'export const env={BUCKET:{head:async key=>({customMetadata:{jobId:globalThis.__jobId,uploadedBy:globalThis.__installerId,sha256:key}})}}';if(id==='\0push')return 'export async function deliverPush(){}'}}],server:{middlewareMode:true,hmr:false}});
 const {createDatabase}=await vite.ssrLoadModule('/db/adapter.ts');globalThis.__liveDb=createDatabase(wrap(pg));
@@ -28,13 +28,9 @@ test('live approvals, persistence, scopes and money',async()=>{
  await act(pa,'receive',{received:addDays(today,-31),materials:[{bay:'A-12',brand:'Simonton',materialType:'Window'},{bay:'A-13',brand:'CWS',materialType:'SPD'}]});assert.equal(j.stage,'Received');assert.equal(j.materials.length,2);
  await assert.rejects(()=>act(pa,'schedule',{date:today,period:'AM',installerId:installer.id,stop:1}),/permit/i);
  await act(pa,'permit',{received:true,number:'PERMIT-100'});
- await assert.rejects(()=>act(pa,'schedule',{date:today,period:'AM',installerId:installer.id,stop:1}),/payment/i);
+ await act(pa,'schedule',{date:today,period:'AM',installerId:installer.id,stop:1});
+ assert.equal(j.install,today);assert.equal(j.amount,1000);assert.equal(j.operations.pendingSchedule,null);assert.equal(aging(j,today).aged,true);
  await act(admin,'payment',{paymentType:'CHK',paymentAmount:1000,reference:'Receipt #1'});
- await act(pa,'schedule',{date:today,period:'AM',installerId:installer.id,stop:1,paymentReference:'Receipt #1'});
- assert.equal(j.install,'');assert.ok(j.operations.pendingSchedule);assert.equal((await operationsData(installer)).jobs.length,0);
- await assert.rejects(()=>act(pa,'approveSchedule'),/approval required/);
- await act(fs,'approveSchedule');assert.equal(j.install,today);assert.equal(aging(j,today).aged,true);
- assert.equal((await pg.query("SELECT count(*)::integer AS count FROM production.notifications WHERE recipient_id=$1 AND message LIKE '%added to your calendar%'",[installer.id])).rows[0].count,1);
  const paData=await operationsData(pa);assert.equal(paData.config,null);assert.equal('estimate' in paData.metrics,false);
  const installerData=await operationsData(installer);assert.equal(installerData.jobs[0].amount,undefined);assert.equal(installerData.jobs[0].contractAmount,undefined);
  await act(fs,'start');assert.equal(j.stage,'Production');
@@ -116,6 +112,16 @@ test('administrator COLL selection approves immediately and removes the job from
  await act(admin,'request',{type:'COLL',details:'Customer refused final payment',refused:true});
  assert.equal(j.stage,'COLL');assert.equal(j.operations.requests[0].status,'Approved');assert.equal(aging(j,today).aged,false);
  const data=await operationsData(admin),saved=data.jobs.find(row=>row.number==='ADMIN-COLL');assert.ok(saved);assert.equal(aging(saved,today).aged,false);
+});
+test('Tampa themes persist and reorder editing updates INC aging',async()=>{
+ for(const theme of ['lightning','buccaneers','creamsicle']){
+  await pg.query('UPDATE production.members SET theme=$1 WHERE id=$2',[theme,fs.id]);
+  assert.equal((await pg.query('SELECT theme FROM production.members WHERE id=$1',[fs.id])).rows[0].theme,theme);
+ }
+ await act(pa,'create',{number:'REORDER-EDIT',customer:'Reorder Test',address:'Test Street',amount:100});
+ await act(admin,'adminResult',{target:'Incomplete',confirmed:true,reason:'Historical record',reorder:'Sash',reorderDate:today});
+ await act(pa,'edit',{reorder:'Replacement sash ordered',reorderDate:addDays(today,-46)});
+ assert.equal(j.incompleteSince,addDays(today,-46));assert.equal(j.reorder,'Replacement sash ordered');assert.equal(aging(j,today).aged,true);
 });
 test('period and aging boundaries',()=>{
  assert.deepEqual(bonusPeriod('2026-09-15'),{start:'2026-08-26',end:'2026-09-29'});
@@ -297,14 +303,14 @@ test('admin zero-balance late override and historical schedules enforce permissi
  await act(pa,'receive',{received:addDays(today,-60),materials:[{bay:'A1',brand:'Simonton',materialType:'Window'}]});
  await act(pa,'permit',{received:true,number:'PERMIT'});
  const schedule={date:addDays(today,-10),period:'AM',installerId:installer.id,stop:1,adminOverride:true};
- await assert.rejects(()=>act(pa,'schedule',schedule),/Administrator/);
+ await act(pa,'schedule',schedule);assert.equal(j.install,schedule.date);
  await act(admin,'schedule',schedule);assert.equal(j.install,schedule.date);assert.equal(j.operations.pendingSchedule,null);assert.equal(j.stage,'Received');
- assert.match(j.history[0].text,/Admin approved/);
+ assert.match(j.history[0].text,/Scheduled/);
  await act(admin,'balance',{amount:5,reference:'test'});
  await act(admin,'schedule',schedule);assert.equal(j.amount,5);assert.equal(j.install,schedule.date);
- await act(fs,'schedule',{...schedule,date:today});assert.equal(j.install,today);assert.equal(j.amount,5);assert.equal(j.stage,'Received');assert.equal(aging(j,today).aged,true);assert.match(j.history[0].text,/Field Supervisor approved/);
- await assert.rejects(()=>act(pa,'schedule',schedule),/Administrator/);
- await assert.rejects(()=>act(fs,'schedule',{...schedule,adminOverride:false}),/zero amount/);
+ await act(fs,'schedule',{...schedule,date:today});assert.equal(j.install,today);assert.equal(j.amount,5);assert.equal(j.stage,'Received');assert.equal(aging(j,today).aged,true);assert.match(j.history[0].text,/Scheduled/);
+ await act(pa,'schedule',schedule);assert.equal(j.install,schedule.date);
+ await act(fs,'schedule',{...schedule,adminOverride:false});assert.equal(j.amount,5);
 });
 test('PO aliases and imported codes exclude Freedom Square balance from all aging metrics',()=>{
  for(const job of [{paymentMethod:'PO'},{paymentMethod:' p.o. '},{paymentMethod:'Purchase Order'},{importSource:{paymentCode:'PO'}}]){

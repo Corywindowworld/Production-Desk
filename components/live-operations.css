@@ -23,3 +23,24 @@
 .live-delivery-badge{display:inline-block!important;width:fit-content;background:#fff3c4!important;color:#573500!important;border:2px solid #b66a00;padding:4px 8px;border-radius:6px;font-size:12px;font-weight:800}
 
 .live-operations .live-installer-score{grid-template-columns:minmax(0,1fr);margin-bottom:20px}
+
+html[data-theme=lightning]{--background:#f1f5fa;--primary:#134a91;--primary-foreground:#fff;--ring:#365d87}
+html[data-theme=lightning] .op{--op-side:#00205b;--op-side-text:#ffffff;--op-active:#134a91;--op-accent:#365d87;background:#f1f5fa}
+html[data-theme=lightning] :is(.gators-theme-banner,.desk-header){background:#00205b;color:#ffffff;border-bottom:3px solid #365d87}
+html[data-theme=lightning] .op-score{background:linear-gradient(110deg,#134a91,#365d87)}
+.theme-preview-lightning .theme-swatch{background:#f1f5fa}.theme-preview-lightning .theme-swatch i:nth-last-child(3){background:#00205b}.theme-preview-lightning .theme-swatch i:nth-last-child(2){background:#134a91}.theme-preview-lightning .theme-swatch i:last-child{background:#365d87}
+
+html[data-theme=buccaneers]{--background:#f6f3f1;--primary:#b80929;--primary-foreground:#fff;--ring:#a71930}
+html[data-theme=buccaneers] .op{--op-side:#34302b;--op-side-text:#ffffff;--op-active:#b80929;--op-accent:#a71930;background:#f6f3f1}
+html[data-theme=buccaneers] :is(.gators-theme-banner,.desk-header){background:#34302b;color:#ffffff;border-bottom:3px solid #a71930}
+html[data-theme=buccaneers] .op-score{background:linear-gradient(110deg,#b80929,#a71930)}
+.theme-preview-buccaneers .theme-swatch{background:#f6f3f1}.theme-preview-buccaneers .theme-swatch i:nth-last-child(3){background:#34302b}.theme-preview-buccaneers .theme-swatch i:nth-last-child(2){background:#b80929}.theme-preview-buccaneers .theme-swatch i:last-child{background:#a71930}
+
+html[data-theme=creamsicle]{--background:#fff8ee;--primary:#a92c16;--primary-foreground:#fff;--ring:#c55000}
+html[data-theme=creamsicle] .op{--op-side:#fff2dc;--op-side-text:#65301a;--op-active:#a92c16;--op-accent:#c55000;background:#fff8ee}
+html[data-theme=creamsicle] :is(.gators-theme-banner,.desk-header){background:#fff2dc;color:#65301a;border-bottom:3px solid #c55000}
+html[data-theme=creamsicle] .op-score{background:linear-gradient(110deg,#a92c16,#c55000)}
+.theme-preview-creamsicle .theme-swatch{background:#fff8ee}.theme-preview-creamsicle .theme-swatch i:nth-last-child(3){background:#fff2dc}.theme-preview-creamsicle .theme-swatch i:nth-last-child(2){background:#a92c16}.theme-preview-creamsicle .theme-swatch i:last-child{background:#c55000}
+
+html:is([data-theme=lightning],[data-theme=buccaneers],[data-theme=creamsicle]) .op-team-mark{background:#fff;border-radius:14px;padding:12px}
+html:is([data-theme=lightning],[data-theme=buccaneers],[data-theme=creamsicle]) .op-team-mark img{object-fit:contain}

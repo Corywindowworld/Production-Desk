@@ -47,9 +47,7 @@ test('live approvals, persistence, scopes and money',async()=>{
  await act(admin,'reviewRequest',{id:req.id,approve:true});assert.equal(j.contractAmount,5100);assert.equal(j.amount,100);
  await assert.rejects(()=>operation(admin,{action:'edit',jobId:j.id,version:j.version-1,data:{notes:'stale'}}),/changed/);
  assert.ok(j.history.some(h=>h.text.includes('approved')));
- await act(pa,'request',{type:'Service',details:'Adjust lock',serviceDate:addDays(today,2),installerId:installer.id,period:'PM'});let service=j.operations.requests[0];assert.equal(j.operations.services?.length||0,0);assert.equal(service.status,'Pending');
- await assert.rejects(()=>act(fs,'reviewRequest',{id:service.id,approve:true}),/Administrator/);
- await act(admin,'reviewRequest',{id:service.id,approve:true});assert.equal(j.operations.services.length,1);assert.equal(j.stage,'SVC');
+ await act(pa,'request',{type:'Service',details:'Adjust lock',serviceDate:addDays(today,2),installerId:installer.id,period:'PM'});assert.equal(j.operations.requests[0].status,'Approved');assert.equal(j.operations.services.length,1);assert.equal(j.stage,'SVC');
  await act(admin,'payment',{paymentType:'CHK',paymentAmount:100,reference:'Final payment'});
  await act(fs,'request',{type:'UTI',details:'Customer unavailable',paymentReference:'Final payment'});
  const uti=j.operations.requests[0];await assert.rejects(()=>act(pa,'reviewRequest',{id:uti.id,approve:true}),/Administrator/);
@@ -124,8 +122,8 @@ test('Tampa themes persist and reorder editing updates INC aging',async()=>{
  assert.equal(j.incompleteSince,addDays(today,-46));assert.equal(j.reorder,'Replacement sash ordered');assert.equal(aging(j,today).aged,true);
 });
 test('period and aging boundaries',()=>{
- assert.deepEqual(bonusPeriod('2026-09-15'),{start:'2026-09-01',end:'2026-09-30'});
- assert.deepEqual(bonusPeriod('2026-09-30'),{start:'2026-09-01',end:'2026-09-30'});
+ assert.deepEqual(bonusPeriod('2026-09-15'),{start:'2026-08-26',end:'2026-09-29'});
+ assert.deepEqual(bonusPeriod('2026-09-30'),{start:'2026-09-30',end:'2026-10-27'});
  assert.equal(aging({stage:'Received',received:addDays(today,-30),install:today},today).aged,false);
  assert.equal(aging({stage:'Received',received:addDays(today,-31),install:today},today).aged,true);
  assert.equal(aging({stage:'Incomplete',incompleteSince:addDays(today,-45)},today).aged,true);
@@ -197,6 +195,23 @@ test('Leads parser extracts address, bay and phones; conflicting digits are with
  const same=reconcileLeadsScans([text,text,text]);assert.equal(same.values.number,'506327');assert.equal(same.values.reorderDate,'2026-08-26');
  const conflict=reconcileLeadsScans([text,text.replace('506327','505327'),text]);assert.equal(conflict.values.number,undefined);assert.ok(conflict.warnings.some(w=>w.startsWith('number:')));
 });
+test('scheduling COMP becomes service, INC remains incomplete, and Other schedules service',async()=>{
+ await act(admin,'create',{number:'SERVICE-SCHEDULE',customer:'Service Customer',address:'123 Test Street',amount:0,contractAmount:100});
+ await act(admin,'permit',{received:true,number:'P-1'});
+ await pg.query("UPDATE production.jobs SET payload=jsonb_set(jsonb_set(payload::jsonb,'{stage}','\"Closed\"'),'{scheduleCompletedOn}',to_jsonb($2::text)) WHERE id=$1",[j.id,today]);await reload();
+ const future=addDays(today,3);
+ await act(pa,'schedule',{date:future,period:'AM',installerId:installer.id,stop:1});
+ assert.equal(j.stage,'SVC');assert.equal(j.scheduleCompletedOn,'');
+ const {installAppointments}=await vite.ssrLoadModule('/lib/install-calendar.ts');
+ assert.equal(installAppointments(j,[future]).length,1);assert.equal(aging(j,today).aged,false);
+ await pg.query("UPDATE production.jobs SET payload=jsonb_set(payload::jsonb,'{stage}','\"Incomplete\"') WHERE id=$1",[j.id]);await reload();
+ await act(pa,'schedule',{date:future,period:'PM',installerId:installer.id,stop:1});assert.equal(j.stage,'Incomplete');
+ await assert.rejects(()=>act(admin,'request',{type:'Service',details:'Adjust lock',serviceDate:future,installerId:installer.id,period:'AM'}),/Only a COMP/);
+ await pg.query("UPDATE production.jobs SET payload=jsonb_set(payload::jsonb,'{stage}','\"Closed\"') WHERE id=$1",[j.id]);await reload();
+ await act(fs,'request',{type:'Service',details:'Adjust lock',serviceDate:future,installerId:installer.id,period:'AM'});
+ assert.equal(j.stage,'SVC');assert.equal(j.operations.requests[0].status,'Approved');assert.equal(j.operations.services.length,1);assert.equal(j.operations.services[0].date,future);
+ const view=await operationsData(installer);assert.equal(view.jobs.find(v=>v.id===j.id).operations.services.length,1);
+});
 test.after(async()=>{await vite.close();await pg.close()});
 
 test('multi-day schedules, permit details and payment permissions persist',async()=>{
@@ -248,7 +263,7 @@ test('any status can be scheduled, hourly slots persist, only admin reverses PRO
  await act(fs,'start');
  for(const stage of ['Production','InProgress','Incomplete','Closed','COLL','UTI','SVC']){
   await pg.query("UPDATE production.jobs SET payload=(payload::jsonb || jsonb_build_object('stage',$1::text))::text WHERE id=$2",[stage,j.id]);await reload();
-  await act(fs,'schedule',{date:today,endDate:addDays(today,5),period:'PM',time:'14:00',installerId:installer.id,stop:2});assert.equal(j.stage,stage);assert.equal(j.installTime,'14:00');assert.equal(j.scheduleCompletedOn,'');
+  await act(fs,'schedule',{date:today,endDate:addDays(today,5),period:'PM',time:'14:00',installerId:installer.id,stop:2});assert.equal(j.stage,stage==='Closed'?'SVC':stage);assert.equal(j.installTime,'14:00');assert.equal(j.scheduleCompletedOn,'');
  }
  await assert.rejects(()=>act(fs,'schedule',{date:today,period:'PM',time:'14:30',installerId:installer.id,stop:2}));
 });

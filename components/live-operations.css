@@ -44,7 +44,3 @@ html[data-theme=creamsicle] .op-score{background:linear-gradient(110deg,#a92c16,
 
 html:is([data-theme=lightning],[data-theme=buccaneers],[data-theme=creamsicle]) .op-team-mark{background:#fff;border-radius:14px;padding:12px}
 html:is([data-theme=lightning],[data-theme=buccaneers],[data-theme=creamsicle]) .op-team-mark img{object-fit:contain}
-
-.live-operations .live-permit-choices{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:10px 22px;padding:12px 14px;border:1px solid #d8e2ec;border-radius:10px;background:#f8fbfd}.live-operations .live-permit-choices .op-check{display:inline-flex;align-items:center;gap:8px;font-size:13px;cursor:pointer}.live-operations .live-permit-choices input{margin:0}
-
-.live-operations .live-receipt-toggle,.live-operations .live-initial-receipt{grid-column:1/-1}.live-operations .live-initial-receipt{display:grid;gap:12px;padding:16px;border:1px solid #d8e2ec;border-radius:10px;background:#f8fbfd}.live-operations .live-initial-receipt h3,.live-operations .live-initial-receipt p{margin:0}.live-operations .live-initial-receipt .live-receipt-row{margin:0}

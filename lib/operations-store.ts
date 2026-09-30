@@ -57,27 +57,7 @@ export async function operationsData(m:Member,onStep:(step:DashboardStep)=>void=
  }else metrics=bonusMetrics([],surveys,null,today);
  onStep('settings-history');
  const bonusConfigs=m.role==='admin'?(await db.prepare("SELECT payload FROM production.operations_config WHERE id NOT LIKE 'crew-colors:%' ORDER BY id DESC").all()).results.flatMap((r:any)=>{try{const parsed=configSchema.safeParse(storedObject(r.payload));return parsed.success?[parsed.data]:[]}catch{return []}}):[];
- const bonusHistory=reviewer(m)?(await db.prepare('SELECT payload FROM production.bonus_snapshots ORDER BY period_end DESC').all()).results.map((r:any)=>storedObject(r.payload)):[];
- return {warnings,bonusConfigs,bonusHistory,me:m,jobs,team,today,metrics,surveys,config:reviewer(m)?config:null,crewColors,canEdit:hasJobEditPermission(m),canReview:reviewer(m)};
-}
-// Run from the protected scheduler at 11:59 p.m. New York time on month-end.
-// The primary key makes retries safe and freezes the first completed result.
-export async function saveMonthEndBonusSnapshot(){
- const today=localDay(),period=bonusPeriod(today);
- if(today!==period.end)return {saved:false,reason:'Not month-end'};
- const db=database();
- const prior=await db.prepare('SELECT period_end FROM production.bonus_snapshots WHERE period_end=?').bind(today).first();
- if(prior)return {saved:false,reason:'Already saved'};
- const rows=await db.prepare('SELECT j.payload,c.payload AS record FROM jobs j LEFT JOIN customer_records c ON c.job_id=j.id').all();
- const jobs=rows.results.map((r:any)=>withCustomerRecord(storedObject(r.payload),r.record));
- const surveys=(await db.prepare('SELECT * FROM production.operations_surveys WHERE completed_on BETWEEN ? AND ?').bind(period.start,period.end).all()).results.map(normalizedSurvey);
- const raw=(await db.prepare('SELECT payload FROM production.operations_config WHERE id=?').bind(period.end).first())?.payload;
- const parsed=configSchema.safeParse(raw==null?null:storedObject(raw));
- const config=parsed.success?parsed.data:null;
- const metrics=bonusMetrics(jobs,surveys,config,today);
- const payload={period,closedAt:new Date().toISOString(),metrics,config,status:metrics.estimate===null?'Awaiting valid thresholds or complete metrics':'Final estimate'};
- const result=await db.prepare('INSERT INTO production.bonus_snapshots(period_end,payload) VALUES(?,?) ON CONFLICT(period_end) DO NOTHING').bind(today,JSON.stringify(payload)).run();
- return {saved:!!result.meta.changes,status:payload.status};
+ return {warnings,bonusConfigs,me:m,jobs,team,today,metrics,surveys,config:reviewer(m)?config:null,crewColors,canEdit:hasJobEditPermission(m),canReview:reviewer(m)};
 }
 // All job changes lock the row and compare versions inside one transaction. Side effects are queued with the change.
 export async function operation(m:Member,input:any){
@@ -126,7 +106,6 @@ export async function operation(m:Member,input:any){
    assert(!(await tx.prepare("SELECT id FROM jobs WHERE payload::jsonb->>'number'=?").bind(f.number).first()),'This customer ID already exists. Open its job file.',409);
    j={...f,id:crypto.randomUUID(),attachments:[],history:[],operations:{},install:'',installerId:null};
    assert(f.stage==='Ordered','New customer jobs must begin in ORD status.',400);
-   assert(!f.permitReceived||!!f.permitNumber,'Enter the permit number when Permit Received is checked.',400);
    assert([f.received,f.installed,f.incompleteSince].every(d=>!d||d<=today),'Historical dates cannot be in the future.',400);
   }else{
    const row=await tx.prepare('SELECT payload,version FROM jobs WHERE id=? FOR UPDATE').bind(String(input.jobId||'')).first();assert(row,'Job not found.',404);j=JSON.parse(row.payload);version=row.version;
@@ -142,12 +121,11 @@ export async function operation(m:Member,input:any){
   };
   const installer=async(id:string)=>{const v=await tx.prepare("SELECT id,name FROM members WHERE id=? AND role='installer' AND active=1").bind(id).first();assert(v,'Select an active installer.',400);return v};
   const checkSupervisor=async()=>{if(j.installerId){const crew=await tx.prepare("SELECT supervisor_id FROM members WHERE id=? AND role='installer'").bind(j.installerId).first();assert(crew?.supervisor_id,'Assign a Field Supervisor in the installer profile first.',400);j.supervisorId=crew.supervisor_id;}else if(!j.supervisorId){j.supervisor='';return;}const s=await tx.prepare("SELECT id,name FROM members WHERE id=? AND role IN ('admin','supervisor') AND active=1").bind(j.supervisorId).first();assert(s,'Select an active field supervisor or administrator.',400);j.supervisor=s.name};
-  const confirmSchedule=async(s:any)=>{const i=await installer(s.installerId);j.installerId=i.id;await checkSupervisor();j.install=s.date;j.installEnd=s.endDate||s.date;j.installTime=s.time||'';if(j.stage!=='Closed')j.scheduleCompletedOn='';j.installPeriod=s.time?(Number(s.time.slice(0,2))<12?'AM':'PM'):s.period;j.stopNumber=s.stop;j.installerId=i.id;j.crew=i.name;j.scheduleInstructions=s.additionalInstructions||'';o.pendingSchedule=null;if((s.endDate||s.date)>=today)await alert(i.id,`Job #${j.number} added to your calendar for ${s.date}${s.endDate&&s.endDate!==s.date?' through '+s.endDate:''} ${s.time?hourLabel(s.time):s.period}, stop ${s.stop}: ${j.customer}.`)};
+  const confirmSchedule=async(s:any)=>{if(j.stage==='Closed')j.stage='SVC';const i=await installer(s.installerId);j.installerId=i.id;await checkSupervisor();j.install=s.date;j.installEnd=s.endDate||s.date;j.installTime=s.time||'';if(j.stage!=='Closed')j.scheduleCompletedOn='';j.installPeriod=s.time?(Number(s.time.slice(0,2))<12?'AM':'PM'):s.period;j.stopNumber=s.stop;j.installerId=i.id;j.crew=i.name;j.scheduleInstructions=s.additionalInstructions||'';o.pendingSchedule=null;if((s.endDate||s.date)>=today)await alert(i.id,`Job #${j.number} added to your calendar for ${s.date}${s.endDate&&s.endDate!==s.date?' through '+s.endDate:''} ${s.time?hourLabel(s.time):s.period}, stop ${s.stop}: ${j.customer}.`)};
+  const addService=async(r:any,id:string)=>{assert(j.stage==='Closed','Only a COMP job can move to SVC.',400);const i=await installer(r.installerId||'');o.services=[...(o.services||[]),{id,date:r.serviceDate,period:r.period,installerId:i.id,crew:i.name,details:r.details}];j.stage='SVC';o.pendingSchedule=null;await alert(i.id,`Service for job #${j.number}: ${r.serviceDate} ${r.period}. ${r.details}`)};
   const edit=()=>assert(hasJobEditPermission(m),'Your account needs job editing permission.');
   if(['create','edit'].includes(action)&&input.data.assignedInstallerId){assert(hasJobEditPermission(m),'Job editing permission required.');const id=parse(z.string().uuid(),input.data.assignedInstallerId);const crew=await installer(id);if(j.installerId!==id){j.installerId=id;j.crew=crew.name;if(j.install)await alert(id,`Job #${j.number} assigned to your calendar for ${j.install}.`);}}
-  if(action==='create'){assert(j.product==='Diamond Screens'||!j.screenCount,'Screen quantities require a Diamond Screens account.',400);assert(!(j.product==='Windows'&&j.entryDoorCount>0)&&!(j.product!=='Windows'&&(j.windowCount>0||j.slidingDoors>0))&&!(j.product==='Diamond Screens'&&j.entryDoorCount>0),'Windows/SPD, Entry Doors, and Diamond Screens require separate accounts.',400);await checkSupervisor();history='Customer created manually';
-   if(input.data.initialReceipt){const r=parse(receiveItemsSchema,input.data.initialReceipt);assert(r.received<=today,'Materials received date cannot be in the future.',400);assert(r.materials.every(v=>allowedMaterials(j.product).includes(v.materialType)),'Product types must match the customer account.',400);j.materials=r.materials;j.bay=r.materials.map(v=>v.bay).join(', ');j.brand=r.materials[0].brand;j.materialType=r.materials[0].materialType;j.received=r.received;j.stage='Received';history+=`; materials received ${r.received}: ${r.materials.map(v=>`${v.materialType}, ${v.brand}, bay ${v.bay}`).join('; ')}`;}
-  }
+  if(action==='create'){assert(j.product==='Diamond Screens'||!j.screenCount,'Screen quantities require a Diamond Screens account.',400);assert(!(j.product==='Windows'&&j.entryDoorCount>0)&&!(j.product!=='Windows'&&(j.windowCount>0||j.slidingDoors>0))&&!(j.product==='Diamond Screens'&&j.entryDoorCount>0),'Windows/SPD, Entry Doors, and Diamond Screens require separate accounts.',400);await checkSupervisor();history='Customer created manually';}
   else if(action==='edit'){
    edit();assert(input.data.supervisorId===undefined||input.data.supervisorId===j.supervisorId,'Change Field Supervisor in the installer profile.',400);assert(m.role==='admin'||input.data.paymentMethod===undefined||input.data.paymentMethod===(j.paymentMethod||''),'Only an Administrator may change the payment method.');const schema=fieldsSchema.omit({number:true,stage:true,received:true,installed:true,incompleteSince:true,permitReceived:true,permitNumber:true});
    for(const k of ['contractAmount','amount'])assert(m.role==='admin'||input.data[k]===undefined,'Only an Administrator may edit protected job amounts.');
@@ -226,16 +204,17 @@ export async function operation(m:Member,input:any){
    if(r.type==='UTI')assert(j.amount===0&&r.paymentReference&&j.received,'UTI requires payment in full, a reference, and receipt date.',400);
    if(r.type==='COLL')assert(r.refused,'Confirm that payment was refused.',400);
    if(r.type==='ACCRF')assert(r.amount!==undefined&&j.contractAmount!=null&&j.amount!=null,'Enter the revised contract price. Existing price and amount due must be known.',400);
-   if(r.type==='Service'){assert(r.serviceDate&&r.serviceDate>=today,'Select a future service date.',400);await installer(r.installerId||'')}
-   const adminCollection=m.role==='admin'&&r.type==='COLL';
-   o.requests=[{...r,id,status:adminCollection?'Approved':'Pending',by:m.name,at,...(adminCollection?{reviewedBy:m.name,reviewedAt:at}: {})},...(o.requests||[])];
+   if(r.type==='Service'){assert(j.stage==='Closed','Only a COMP job can move to SVC.',400);assert(r.serviceDate&&r.serviceDate>=today,'Select a future service date.',400);await installer(r.installerId||'')}
+   const adminCollection=m.role==='admin'&&r.type==='COLL',serviceRequest=r.type==='Service',immediate=adminCollection||serviceRequest;
+   o.requests=[{...r,id,status:immediate?'Approved':'Pending',by:m.name,at,...(immediate?{reviewedBy:m.name,reviewedAt:at}: {})},...(o.requests||[])];
    if(adminCollection){j.stage='COLL';o.pendingSchedule=null;j.install='';history=`COLL approved by Administrator: ${r.details}`}
+   else if(serviceRequest){await addService(r,id);history=`Service scheduled and added to calendar: ${r.serviceDate} ${r.period}. ${r.details}`}
    else history=`${r.type} request submitted for administrator approval: ${r.details}`;
   }else if(action==='reviewRequest'){
    assert(m.role==='admin','Administrator approval required.');const r=(o.requests||[]).find((v:any)=>v.id===input.data.id);assert(r&&r.status==='Pending','Request is no longer pending.',409);const approve=parse(z.boolean(),input.data.approve);
    if(approve&&r.type==='UTI'){assert(j.amount===0&&r.paymentReference,'Full payment is required.',400);j.stage='UTI';o.pendingSchedule=null;j.install=''}
    if(approve&&r.type==='COLL'){assert(r.refused,'Refused payment is required.',400);j.stage='COLL';o.pendingSchedule=null;j.install=''}
-   if(approve&&r.type==='Service'){assert(r.serviceDate&&r.serviceDate>=today,'The requested service date has passed. Submit a new request.',400);const i=await installer(r.installerId||'');o.services=[...(o.services||[]),{id:r.id,date:r.serviceDate,period:r.period,installerId:i.id,crew:i.name,details:r.details}];j.stage='SVC';await alert(i.id,`Service for job #${j.number}: ${r.serviceDate} ${r.period}. ${r.details}`)}
+   if(approve&&r.type==='Service'){assert(r.serviceDate&&r.serviceDate>=today,'The requested service date has passed. Submit a new request.',400);await addService(r,r.id)}
    if(approve&&r.type==='ACCRF'){assert(j.contractAmount!=null&&j.amount!=null,'Reconcile price and balance first.',400);const delta=Math.round((r.amount-j.contractAmount)*100)/100;assert(j.amount+delta>=0,'This adjustment would create a credit. Reconcile it with the main system first.',400);j.amount=Math.round((j.amount+delta)*100)/100;j.contractAmount=r.amount}
    r.status=approve?'Approved':'Declined';r.reviewedBy=m.name;r.reviewedAt=at;history=`${r.type} ${r.status.toLowerCase()}`;
   }else if(action==='delete'){

@@ -1,5 +1,0 @@
-{
-  "crons": [
-    {"path": "/api/operations/bonus-snapshot", "schedule": "59 3,4 * * *"}
-  ]
-}

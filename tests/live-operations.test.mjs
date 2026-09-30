@@ -179,6 +179,24 @@ test('bonus payout amounts use the selected category rows, including printed zer
  const m=bonusMetrics([],surveys,config,'2026-09-17');assert.equal(m.score,3.5);assert.equal(m.estimate,5520);
  const score=bonusMetrics([],[...surveys,{completed_on:'2026-08-25',ratings:[1,1,1,1]}],config,'2026-09-17');assert.equal(score.score,3.5);assert.equal(score.surveys,1);
 });
+test('admin may correct job amount and balance with history; other roles may not',async()=>{
+ await act(admin,'create',{number:'MONEY-CORRECTION',customer:'Money Test',address:'123 Test Street',amount:100,contractAmount:500});
+ await act(admin,'edit',{amount:75.25,contractAmount:450});
+ assert.equal(j.amount,75.25);assert.equal(j.contractAmount,450);
+ assert.ok(j.history[0].text.includes('Balance due 100 → 75.25'));
+ await assert.rejects(()=>act(pa,'edit',{amount:1}),/Administrator/);
+ await assert.rejects(()=>act(fs,'edit',{contractAmount:1}),/Administrator/);
+ await assert.rejects(()=>act(admin,'edit',{amount:-1}));
+ await act(admin,'edit',{notes:'Keep financial values'});assert.equal(j.amount,75.25);
+});
+test('Leads parser extracts address, bay and phones; conflicting digits are withheld',async()=>{
+ const {parseLeadsCustomerScan}=await vite.ssrLoadModule('/lib/customer-scan.ts');
+ const {reconcileLeadsScans}=await vite.ssrLoadModule('/lib/scan-consensus.ts');
+ const text='Customer ID#: 506327 Job ID#: 510859\nSullivan, Steven Ph #1:813-765-0556\n4026 Priory Cir Ph #2:813-555-1111\nTampa, FL 33618\nBay:WHB Comp Contractor:C843-BDF Services LLC\nReOrd Date:8/26/2026\nLast Est Ship Date:9/21/2026\nContract Amt: $8,300.00\nBal Due: $0.00';
+ const parsed=parseLeadsCustomerScan(text).values;assert.equal(parsed.address,'4026 Priory Cir');assert.equal(parsed.bay,'WHB');assert.equal(parsed.phone2,'(813)-555-1111');
+ const same=reconcileLeadsScans([text,text,text]);assert.equal(same.values.number,'506327');assert.equal(same.values.reorderDate,'2026-08-26');
+ const conflict=reconcileLeadsScans([text,text.replace('506327','505327'),text]);assert.equal(conflict.values.number,undefined);assert.ok(conflict.warnings.some(w=>w.startsWith('number:')));
+});
 test.after(async()=>{await vite.close();await pg.close()});
 
 test('multi-day schedules, permit details and payment permissions persist',async()=>{

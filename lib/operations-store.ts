@@ -3,7 +3,7 @@ import {remainingWorkdays,hourLabel} from './install-calendar';
 import {storedObject} from './stored-data';
 import {database} from '@/db/raw';
 import {ApiError,Member,hasJobEditPermission,type DashboardStep} from '@/lib/access';
-import {normalizeStoredCustomerFields,fieldsSchema,scheduleSchema,receiveSchema,receiveItemsSchema,allowedMaterials,requestSchema,surveySchema,configSchema,optionalDate,localDay,dayDifference,bonusMetrics,bonusPeriod} from './operations';
+import {normalizeStoredCustomerFields,fieldsSchema,scheduleSchema,receiveSchema,receiveItemsSchema,allowedMaterials,requestSchema,surveySchema,configSchema,optionalDate,localDay,aging,dayDifference,bonusMetrics,bonusPeriod} from './operations';
 import {env} from './server-env';
 import {reportSchema,reportError,installerJob} from './installer-workflow';
 import {deliverPush} from './push';
@@ -57,7 +57,8 @@ export async function operationsData(m:Member,onStep:(step:DashboardStep)=>void=
  }else metrics=bonusMetrics([],surveys,null,today);
  onStep('settings-history');
  const bonusConfigs=m.role==='admin'?(await db.prepare("SELECT payload FROM production.operations_config WHERE id NOT LIKE 'crew-colors:%' ORDER BY id DESC").all()).results.flatMap((r:any)=>{try{const parsed=configSchema.safeParse(storedObject(r.payload));return parsed.success?[parsed.data]:[]}catch{return []}}):[];
- return {warnings,bonusConfigs,me:m,jobs,team,today,metrics,surveys,config:reviewer(m)?config:null,crewColors,canEdit:hasJobEditPermission(m),canReview:reviewer(m)};
+ let bonusSnapshots:any[]=[];if(reviewer(m)){try{bonusSnapshots=(await db.prepare('SELECT payload FROM production.bonus_snapshots ORDER BY period_end DESC').all()).results.map((r:any)=>storedObject(r.payload));}catch{warnings.push('Bonus history is unavailable. Check the bonus snapshot migration.');}}
+ return {bonusSnapshots,warnings,bonusConfigs,me:m,jobs,team,today,metrics,surveys,config:reviewer(m)?config:null,crewColors,canEdit:hasJobEditPermission(m),canReview:reviewer(m)};
 }
 // All job changes lock the row and compare versions inside one transaction. Side effects are queued with the change.
 export async function operation(m:Member,input:any){
@@ -234,4 +235,39 @@ export async function deliverOperationEmail(id:string){
  let status='not_configured';
  if(env.RESEND_API_KEY&&env.ACCOUNT_EMAIL_FROM){try{const response=await fetch('https://api.resend.com/emails',{method:'POST',redirect:'error',signal:AbortSignal.timeout(10000),headers:{Authorization:'Bearer '+env.RESEND_API_KEY,'Content-Type':'application/json','Idempotency-Key':id},body:JSON.stringify({from:`Production Desk <${env.ACCOUNT_EMAIL_FROM}>`,to:[r.recipient],subject:r.subject,text:r.body})});status=response.ok?'accepted':'failed'}catch{status='failed'}}
  await db.prepare('UPDATE production.operations_email SET status=?,updated=? WHERE id=?').bind(status,new Date().toISOString(),id).run();
+}
+
+// Preserve the closing result once; repeated cron invocations cannot overwrite it.
+export async function saveMonthEndBonusSnapshot(now=new Date()){
+ const day=new Intl.DateTimeFormat('en-CA',{timeZone:'America/New_York',year:'numeric',month:'2-digit',day:'2-digit'}).format(now);
+ const tomorrow=new Date(Date.parse(day+'T12:00:00Z')+86400000).toISOString().slice(0,10);
+ if(day.slice(0,7)===tomorrow.slice(0,7))return {saved:false,reason:'Not the last day of the month'};
+ const period=bonusPeriod(day.slice(0,7)+'-01'),db=database();
+ return db.transaction(async tx=>{
+  const existing=await tx.prepare('SELECT payload FROM production.bonus_snapshots WHERE period_end=?').bind(period.end).first();
+  if(existing)return {saved:false,reason:'Already saved',period:period.end};
+  const rows=await tx.prepare('SELECT j.payload,c.payload AS record FROM jobs j LEFT JOIN customer_records c ON c.job_id=j.id').all();
+  const jobs=rows.results.map((r:any)=>withCustomerRecord(storedObject(r.payload),r.record));
+  const surveys=(await tx.prepare('SELECT * FROM production.operations_surveys').all()).results.map(normalizedSurvey);
+  const raw=(await tx.prepare('SELECT payload FROM production.operations_config WHERE id=?').bind(period.end).first())?.payload;
+  const config=raw==null?null:parse(configSchema,storedObject(raw));
+  // Use month-end balances/statuses, and the closing month's survey period.
+  const metrics=bonusMetrics(jobs,surveys,config,period.end);
+  const aged=jobs.filter(j=>aging(j,day).aged);
+  metrics.amount=Math.round(aged.reduce((sum,j)=>sum+(j.amount??0),0)*100)/100;
+  metrics.count=aged.length;metrics.missing=aged.filter(j=>j.amount==null).length;
+  metrics.unknownDates=jobs.filter(j=>aging(j,day).missing).length;
+  const index=(value:number,thresholds:number[])=>value===0?0:((n:number)=>n<0?5:n+1)(thresholds.findIndex(n=>value<=n));
+  const tiers=config?{dollars:index(metrics.amount,config.dollars),jobs:index(metrics.count,config.jobs),quality:((n:number)=>n<0?5:n)(config.quality.findIndex(n=>metrics.score!==null&&metrics.score>=n))}:null;
+  const factor=[1.2,1,.75,.5,.25,0];
+  const breakdown=config&&tiers&&metrics.score!==null&&!metrics.missing&&!metrics.unknownDates?{
+   dollars:config.payouts?.dollars[tiers.dollars]??config.pool*.4*factor[tiers.dollars],
+   jobs:config.payouts?.jobs[tiers.jobs]??config.pool*.2*factor[tiers.jobs],
+   quality:config.payouts?.quality[tiers.quality]??config.pool*.4*factor[tiers.quality]
+  }:null;
+  metrics.estimate=breakdown?Math.round((breakdown.dollars+breakdown.jobs+breakdown.quality)*100)/100:null;
+  const payload={period,capturedAt:now.toISOString(),asOf:day,metrics,config,tiers,breakdown};
+  const result=await tx.prepare('INSERT INTO production.bonus_snapshots(period_end,payload) VALUES(?,?) ON CONFLICT(period_end) DO NOTHING').bind(period.end,JSON.stringify(payload)).run();
+  return {saved:!!result.meta.changes,period:period.end};
+ });
 }

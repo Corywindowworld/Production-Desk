@@ -5,7 +5,7 @@ import {readFileSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {createServer} from 'vite';
 const pg=new PGlite();
-for(const file of ['001_initial','002_installer_quality','003_account_permissions','004_account_profiles','005_account_theme','006_more_themes','007_customer_records','008_live_operations','008_live_operations','009_tampa_themes'])await pg.exec(readFileSync(`supabase/migrations/${file}.sql`,'utf8'));
+for(const file of ['001_initial','002_installer_quality','003_account_permissions','004_account_profiles','005_account_theme','006_more_themes','007_customer_records','008_live_operations','008_live_operations','009_tampa_themes','010_bonus_snapshots'])await pg.exec(readFileSync(`supabase/migrations/${file}.sql`,'utf8'));
 const wrap=c=>({query:async(sql,args)=>{const r=await c.query(sql,args);return {rows:r.rows,changes:r.affectedRows??r.rows.length}},transaction:fn=>c.transaction(tx=>fn(wrap(tx)))});
 const vite=await createServer({configFile:false,resolve:{alias:{'@':resolve('.')}},plugins:[{name:'live-test',enforce:'pre',resolveId(id){if(id==='@/db/raw'||/\/db\/raw(?:\.ts)?$/.test(id))return '\0db';if(/(?:\/|^)server-env(?:\.ts)?$/.test(id)||id==='./server-env')return '\0env';if(id==='./push'||id==='@/lib/push')return '\0push'},load(id){if(id==='\0db')return 'export const database=()=>globalThis.__liveDb';if(id==='\0env')return 'export const env={BUCKET:{head:async key=>({customMetadata:{jobId:globalThis.__jobId,uploadedBy:globalThis.__installerId,sha256:key}})}}';if(id==='\0push')return 'export async function deliverPush(){}'}}],server:{middlewareMode:true,hmr:false}});
 const {createDatabase}=await vite.ssrLoadModule('/db/adapter.ts');globalThis.__liveDb=createDatabase(wrap(pg));
@@ -211,6 +211,14 @@ test('scheduling COMP becomes service, INC remains incomplete, and Other schedul
  await act(fs,'request',{type:'Service',details:'Adjust lock',serviceDate:future,installerId:installer.id,period:'AM'});
  assert.equal(j.stage,'SVC');assert.equal(j.operations.requests[0].status,'Approved');assert.equal(j.operations.services.length,1);assert.equal(j.operations.services[0].date,future);
  const view=await operationsData(installer);assert.equal(view.jobs.find(v=>v.id===j.id).operations.services.length,1);
+});
+test('month-end snapshot export saves once and exposes history only to reviewers',async()=>{
+ const {saveMonthEndBonusSnapshot}=await vite.ssrLoadModule('/lib/operations-store.ts');
+ assert.equal((await saveMonthEndBonusSnapshot(new Date('2026-09-29T20:00:00Z'))).saved,false);
+ assert.equal((await saveMonthEndBonusSnapshot(new Date('2026-10-01T03:59:00Z'))).saved,true);
+ assert.equal((await saveMonthEndBonusSnapshot(new Date('2026-10-01T03:59:30Z'))).saved,false);
+ const snapshots=(await operationsData(admin)).bonusSnapshots;assert.equal(snapshots[0].period.end,'2026-09-29');assert.equal(snapshots[0].asOf,'2026-09-30');
+ assert.ok((await operationsData(fs)).bonusSnapshots.length);assert.equal((await operationsData(pa)).bonusSnapshots.length,0);
 });
 test.after(async()=>{await vite.close();await pg.close()});
 

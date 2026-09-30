@@ -124,8 +124,8 @@ test('Tampa themes persist and reorder editing updates INC aging',async()=>{
  assert.equal(j.incompleteSince,addDays(today,-46));assert.equal(j.reorder,'Replacement sash ordered');assert.equal(aging(j,today).aged,true);
 });
 test('period and aging boundaries',()=>{
- assert.deepEqual(bonusPeriod('2026-09-15'),{start:'2026-08-26',end:'2026-09-29'});
- assert.deepEqual(bonusPeriod('2026-09-30'),{start:'2026-09-30',end:'2026-10-27'});
+ assert.deepEqual(bonusPeriod('2026-09-15'),{start:'2026-09-01',end:'2026-09-30'});
+ assert.deepEqual(bonusPeriod('2026-09-30'),{start:'2026-09-01',end:'2026-09-30'});
  assert.equal(aging({stage:'Received',received:addDays(today,-30),install:today},today).aged,false);
  assert.equal(aging({stage:'Received',received:addDays(today,-31),install:today},today).aged,true);
  assert.equal(aging({stage:'Incomplete',incompleteSince:addDays(today,-45)},today).aged,true);

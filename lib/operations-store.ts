@@ -57,7 +57,27 @@ export async function operationsData(m:Member,onStep:(step:DashboardStep)=>void=
  }else metrics=bonusMetrics([],surveys,null,today);
  onStep('settings-history');
  const bonusConfigs=m.role==='admin'?(await db.prepare("SELECT payload FROM production.operations_config WHERE id NOT LIKE 'crew-colors:%' ORDER BY id DESC").all()).results.flatMap((r:any)=>{try{const parsed=configSchema.safeParse(storedObject(r.payload));return parsed.success?[parsed.data]:[]}catch{return []}}):[];
- return {warnings,bonusConfigs,me:m,jobs,team,today,metrics,surveys,config:reviewer(m)?config:null,crewColors,canEdit:hasJobEditPermission(m),canReview:reviewer(m)};
+ const bonusHistory=reviewer(m)?(await db.prepare('SELECT payload FROM production.bonus_snapshots ORDER BY period_end DESC').all()).results.map((r:any)=>storedObject(r.payload)):[];
+ return {warnings,bonusConfigs,bonusHistory,me:m,jobs,team,today,metrics,surveys,config:reviewer(m)?config:null,crewColors,canEdit:hasJobEditPermission(m),canReview:reviewer(m)};
+}
+// Run from the protected scheduler at 11:59 p.m. New York time on month-end.
+// The primary key makes retries safe and freezes the first completed result.
+export async function saveMonthEndBonusSnapshot(){
+ const today=localDay(),period=bonusPeriod(today);
+ if(today!==period.end)return {saved:false,reason:'Not month-end'};
+ const db=database();
+ const prior=await db.prepare('SELECT period_end FROM production.bonus_snapshots WHERE period_end=?').bind(today).first();
+ if(prior)return {saved:false,reason:'Already saved'};
+ const rows=await db.prepare('SELECT j.payload,c.payload AS record FROM jobs j LEFT JOIN customer_records c ON c.job_id=j.id').all();
+ const jobs=rows.results.map((r:any)=>withCustomerRecord(storedObject(r.payload),r.record));
+ const surveys=(await db.prepare('SELECT * FROM production.operations_surveys WHERE completed_on BETWEEN ? AND ?').bind(period.start,period.end).all()).results.map(normalizedSurvey);
+ const raw=(await db.prepare('SELECT payload FROM production.operations_config WHERE id=?').bind(period.end).first())?.payload;
+ const parsed=configSchema.safeParse(raw==null?null:storedObject(raw));
+ const config=parsed.success?parsed.data:null;
+ const metrics=bonusMetrics(jobs,surveys,config,today);
+ const payload={period,closedAt:new Date().toISOString(),metrics,config,status:metrics.estimate===null?'Awaiting valid thresholds or complete metrics':'Final estimate'};
+ const result=await db.prepare('INSERT INTO production.bonus_snapshots(period_end,payload) VALUES(?,?) ON CONFLICT(period_end) DO NOTHING').bind(today,JSON.stringify(payload)).run();
+ return {saved:!!result.meta.changes,status:payload.status};
 }
 // All job changes lock the row and compare versions inside one transaction. Side effects are queued with the change.
 export async function operation(m:Member,input:any){
@@ -106,6 +126,7 @@ export async function operation(m:Member,input:any){
    assert(!(await tx.prepare("SELECT id FROM jobs WHERE payload::jsonb->>'number'=?").bind(f.number).first()),'This customer ID already exists. Open its job file.',409);
    j={...f,id:crypto.randomUUID(),attachments:[],history:[],operations:{},install:'',installerId:null};
    assert(f.stage==='Ordered','New customer jobs must begin in ORD status.',400);
+   assert(!f.permitReceived||!!f.permitNumber,'Enter the permit number when Permit Received is checked.',400);
    assert([f.received,f.installed,f.incompleteSince].every(d=>!d||d<=today),'Historical dates cannot be in the future.',400);
   }else{
    const row=await tx.prepare('SELECT payload,version FROM jobs WHERE id=? FOR UPDATE').bind(String(input.jobId||'')).first();assert(row,'Job not found.',404);j=JSON.parse(row.payload);version=row.version;

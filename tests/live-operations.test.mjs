@@ -220,6 +220,21 @@ test('month-end snapshot export saves once and exposes history only to reviewers
  const snapshots=(await operationsData(admin)).bonusSnapshots;assert.equal(snapshots[0].period.end,'2026-09-29');assert.equal(snapshots[0].asOf,'2026-09-30');
  assert.ok((await operationsData(fs)).bonusSnapshots.length);assert.equal((await operationsData(pa)).bonusSnapshots.length,0);
 });
+test('installer days off persist, stay private and block job and service assignments',async()=>{
+ const day='2030-04-08';
+ await operation(installer,{action:'dayOff',data:{installerId:installer.id,date:day,off:true}});
+ assert.ok((await operationsData(installer)).daysOff.some(r=>r.date===day));
+ await assert.rejects(()=>operation(installer,{action:'dayOff',data:{installerId:fs.id,date:day,off:true}}),/own/);
+ await act(admin,'create',{number:'DAY-OFF',customer:'Test',address:'123 Main',amount:0});
+ await act(admin,'permit',{received:true,number:'P'});
+ await assert.rejects(()=>act(pa,'schedule',{date:day,period:'AM',installerId:installer.id,stop:1}),/NOT WORKING/);
+ await assert.rejects(()=>act(fs,'schedule',{date:'2030-04-05',endDate:'2030-04-09',period:'AM',installerId:installer.id,stop:1}),/NOT WORKING/);
+ await pg.query("UPDATE production.jobs SET payload=jsonb_set(payload::jsonb,'{stage}','\"Closed\"') WHERE id=$1",[j.id]);await reload();
+ await assert.rejects(()=>act(admin,'request',{type:'Service',details:'Fix',serviceDate:day,installerId:installer.id,period:'AM'}),/NOT WORKING/);
+ await operation(installer,{action:'dayOff',data:{installerId:installer.id,date:day,off:false}});
+ await act(pa,'schedule',{date:day,period:'AM',installerId:installer.id,stop:1});
+ await assert.rejects(()=>operation(installer,{action:'dayOff',data:{installerId:installer.id,date:day,off:true}}),/already scheduled/);
+});
 test.after(async()=>{await vite.close();await pg.close()});
 
 test('multi-day schedules, permit details and payment permissions persist',async()=>{

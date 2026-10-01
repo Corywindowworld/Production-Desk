@@ -1,5 +1,5 @@
 import {isPurchaseOrder,resolvedPaymentMethod} from './payment-status';
-import {remainingWorkdays,hourLabel} from './install-calendar';
+import {remainingWorkdays,hourLabel,installAppointments} from './install-calendar';
 import {storedObject} from './stored-data';
 import {database} from '@/db/raw';
 import {ApiError,Member,hasJobEditPermission,type DashboardStep} from '@/lib/access';
@@ -58,12 +58,26 @@ export async function operationsData(m:Member,onStep:(step:DashboardStep)=>void=
  onStep('settings-history');
  const bonusConfigs=m.role==='admin'?(await db.prepare("SELECT payload FROM production.operations_config WHERE id NOT LIKE 'crew-colors:%' ORDER BY id DESC").all()).results.flatMap((r:any)=>{try{const parsed=configSchema.safeParse(storedObject(r.payload));return parsed.success?[parsed.data]:[]}catch{return []}}):[];
  let bonusSnapshots:any[]=[];if(reviewer(m)){try{bonusSnapshots=(await db.prepare('SELECT payload FROM production.bonus_snapshots ORDER BY period_end DESC').all()).results.map((r:any)=>storedObject(r.payload));}catch{warnings.push('Bonus history is unavailable. Check the bonus snapshot migration.');}}
- return {bonusSnapshots,warnings,bonusConfigs,me:m,jobs,team,today,metrics,surveys,config:reviewer(m)?config:null,crewColors,canEdit:hasJobEditPermission(m),canReview:reviewer(m)};
+ const daysOff=(await db.prepare("SELECT payload FROM production.operations_config WHERE id LIKE 'day-off:%'").all()).results.map((r:any)=>storedObject(r.payload)).filter((r:any)=>m.role!=='installer'||r.installerId===m.id);
+ return {daysOff,bonusSnapshots,warnings,bonusConfigs,me:m,jobs,team,today,metrics,surveys,config:reviewer(m)?config:null,crewColors,canEdit:hasJobEditPermission(m),canReview:reviewer(m)};
 }
 // All job changes lock the row and compare versions inside one transaction. Side effects are queued with the change.
 export async function operation(m:Member,input:any){
  const db=database(),at=new Date().toISOString(),today=localDay(),push:string[]=[],emails:string[]=[];
  const action=String(input.action||'');
+ if(action==='dayOff'){
+  assert(m.role==='installer'||hasJobEditPermission(m),'Job editing permission required.');
+  const v=parse(z.object({installerId:z.string(),date:optionalDate,off:z.boolean()}),input.data);assert(v.date,'Choose a date.',400);assert(m.role!=='installer'||v.installerId===m.id,'You may only change your own days off.');
+  await db.transaction(async tx=>{
+   const crew=await tx.prepare("SELECT name FROM members WHERE id=? AND role='installer' AND active=1 FOR UPDATE").bind(v.installerId).first();assert(crew,'Select an active installer.',400);
+   if(v.off){const jobs=(await tx.prepare('SELECT payload FROM jobs').all()).results.map((r:any)=>storedObject(r.payload));
+    assert(!jobs.some((j:any)=>(j.installerId===v.installerId&&installAppointments(j,[v.date!]).length)||(j.operations?.services||[]).some((s:any)=>s.installerId===v.installerId&&s.date===v.date)),'A job is already scheduled on this date. Have the office reschedule it before marking the day off.',409);
+   }
+   const key=`day-off:${v.installerId}:${v.date}`;
+   if(v.off)await tx.prepare('INSERT INTO production.operations_config(id,payload,updated_by,updated) VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET payload=EXCLUDED.payload,updated_by=EXCLUDED.updated_by,updated=EXCLUDED.updated').bind(key,JSON.stringify({installerId:v.installerId,date:v.date,crew:crew.name}),m.id,at).run();
+   else await tx.prepare('DELETE FROM production.operations_config WHERE id=?').bind(key).run();
+  });return;
+ }
  if(action==='configure'){
   assert(m.role==='admin','Administrator access required.');const c=parse(configSchema,input.data);
   await db.prepare('INSERT INTO production.operations_config (id,payload,updated_by,updated) VALUES (?,?,?,?) ON CONFLICT(id) DO UPDATE SET payload=EXCLUDED.payload,updated_by=EXCLUDED.updated_by,updated=EXCLUDED.updated').bind(c.period,JSON.stringify(c),m.id,at).run();return;
@@ -120,12 +134,16 @@ export async function operation(m:Member,input:any){
    await alert(j.supervisorId,message);
    if(j.salesRepEmail){const id=crypto.randomUUID();await tx.prepare('INSERT INTO production.operations_email(id,recipient,subject,body,status,created,updated) VALUES(?,?,?,?,?,?,?)').bind(id,j.salesRepEmail,`Production Desk · Job ${j.number}`,message+'\n\nContact the field supervisor for details.','pending',at,at).run();emails.push(id)}
   };
-  const installer=async(id:string)=>{const v=await tx.prepare("SELECT id,name FROM members WHERE id=? AND role='installer' AND active=1").bind(id).first();assert(v,'Select an active installer.',400);return v};
+  const installer=async(id:string)=>{const v=await tx.prepare("SELECT id,name FROM members WHERE id=? AND role='installer' AND active=1 FOR UPDATE").bind(id).first();assert(v,'Select an active installer.',400);return v};
   const checkSupervisor=async()=>{if(j.installerId){const crew=await tx.prepare("SELECT supervisor_id FROM members WHERE id=? AND role='installer'").bind(j.installerId).first();assert(crew?.supervisor_id,'Assign a Field Supervisor in the installer profile first.',400);j.supervisorId=crew.supervisor_id;}else if(!j.supervisorId){j.supervisor='';return;}const s=await tx.prepare("SELECT id,name FROM members WHERE id=? AND role IN ('admin','supervisor') AND active=1").bind(j.supervisorId).first();assert(s,'Select an active field supervisor or administrator.',400);j.supervisor=s.name};
-  const confirmSchedule=async(s:any)=>{if(j.stage==='Closed')j.stage='SVC';const i=await installer(s.installerId);j.installerId=i.id;await checkSupervisor();j.install=s.date;j.installEnd=s.endDate||s.date;j.installTime=s.time||'';if(j.stage!=='Closed')j.scheduleCompletedOn='';j.installPeriod=s.time?(Number(s.time.slice(0,2))<12?'AM':'PM'):s.period;j.stopNumber=s.stop;j.installerId=i.id;j.crew=i.name;j.scheduleInstructions=s.additionalInstructions||'';o.pendingSchedule=null;if((s.endDate||s.date)>=today)await alert(i.id,`Job #${j.number} added to your calendar for ${s.date}${s.endDate&&s.endDate!==s.date?' through '+s.endDate:''} ${s.time?hourLabel(s.time):s.period}, stop ${s.stop}: ${j.customer}.`)};
-  const addService=async(r:any,id:string)=>{assert(j.stage==='Closed','Only a COMP job can move to SVC.',400);const i=await installer(r.installerId||'');o.services=[...(o.services||[]),{id,date:r.serviceDate,period:r.period,installerId:i.id,crew:i.name,details:r.details}];j.stage='SVC';o.pendingSchedule=null;await alert(i.id,`Service for job #${j.number}: ${r.serviceDate} ${r.period}. ${r.details}`)};
+  const checkAvailability=async(id:string,start:string,end=start)=>{
+   const off=(await tx.prepare("SELECT payload FROM production.operations_config WHERE id LIKE ?").bind(`day-off:${id}:%`).all()).results.map((r:any)=>storedObject(r.payload));
+   assert(!off.some((r:any)=>installAppointments({install:start,installEnd:end},[r.date]).length),'This installer is marked NOT WORKING on one of the selected dates. Choose another day or installer.',409);
+  };
+  const confirmSchedule=async(s:any)=>{if(j.stage==='Closed')j.stage='SVC';const i=await installer(s.installerId);await checkAvailability(i.id,s.date,s.endDate||s.date);j.installerId=i.id;await checkSupervisor();j.install=s.date;j.installEnd=s.endDate||s.date;j.installTime=s.time||'';if(j.stage!=='Closed')j.scheduleCompletedOn='';j.installPeriod=s.time?(Number(s.time.slice(0,2))<12?'AM':'PM'):s.period;j.stopNumber=s.stop;j.installerId=i.id;j.crew=i.name;j.scheduleInstructions=s.additionalInstructions||'';o.pendingSchedule=null;if((s.endDate||s.date)>=today)await alert(i.id,`Job #${j.number} added to your calendar for ${s.date}${s.endDate&&s.endDate!==s.date?' through '+s.endDate:''} ${s.time?hourLabel(s.time):s.period}, stop ${s.stop}: ${j.customer}.`)};
+  const addService=async(r:any,id:string)=>{assert(j.stage==='Closed','Only a COMP job can move to SVC.',400);const i=await installer(r.installerId||'');await checkAvailability(i.id,r.serviceDate);o.services=[...(o.services||[]),{id,date:r.serviceDate,period:r.period,installerId:i.id,crew:i.name,details:r.details}];j.stage='SVC';o.pendingSchedule=null;await alert(i.id,`Service for job #${j.number}: ${r.serviceDate} ${r.period}. ${r.details}`)};
   const edit=()=>assert(hasJobEditPermission(m),'Your account needs job editing permission.');
-  if(['create','edit'].includes(action)&&input.data.assignedInstallerId){assert(hasJobEditPermission(m),'Job editing permission required.');const id=parse(z.string().uuid(),input.data.assignedInstallerId);const crew=await installer(id);if(j.installerId!==id){j.installerId=id;j.crew=crew.name;if(j.install)await alert(id,`Job #${j.number} assigned to your calendar for ${j.install}.`);}}
+  if(['create','edit'].includes(action)&&input.data.assignedInstallerId){assert(hasJobEditPermission(m),'Job editing permission required.');const id=parse(z.string().uuid(),input.data.assignedInstallerId);const crew=await installer(id);if(j.installerId!==id){if(j.install)await checkAvailability(id,j.install,j.installEnd||j.install);j.installerId=id;j.crew=crew.name;if(j.install)await alert(id,`Job #${j.number} assigned to your calendar for ${j.install}.`);}}
   if(action==='create'){assert(j.product==='Diamond Screens'||!j.screenCount,'Screen quantities require a Diamond Screens account.',400);assert(!(j.product==='Windows'&&j.entryDoorCount>0)&&!(j.product!=='Windows'&&(j.windowCount>0||j.slidingDoors>0))&&!(j.product==='Diamond Screens'&&j.entryDoorCount>0),'Windows/SPD, Entry Doors, and Diamond Screens require separate accounts.',400);await checkSupervisor();history='Customer created manually';}
   else if(action==='edit'){
    edit();assert(input.data.supervisorId===undefined||input.data.supervisorId===j.supervisorId,'Change Field Supervisor in the installer profile.',400);assert(m.role==='admin'||input.data.paymentMethod===undefined||input.data.paymentMethod===(j.paymentMethod||''),'Only an Administrator may change the payment method.');const schema=fieldsSchema.omit({number:true,stage:true,received:true,installed:true,incompleteSince:true,permitReceived:true,permitNumber:true});

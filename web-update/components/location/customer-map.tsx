@@ -1,5 +1,0 @@
-'use client';
-import {useEffect,useState} from 'react';
-import dynamic from 'next/dynamic';
-const MapCanvas=dynamic(()=>import('./map-canvas'),{ssr:false});
-export default function CustomerMap(){const [point,setPoint]=useState<any>(null),[message,setMessage]=useState('Loading your installer’s location…');useEffect(()=>{const token=location.hash.slice(1);let active=true;const load=async()=>{try{const r=await fetch('/api/location/public?token='+encodeURIComponent(token),{cache:'no-store',referrerPolicy:'no-referrer'}),d=await r.json();if(!r.ok)throw Error(d.error);if(active){setPoint(d);setMessage(d.stale?'Updates paused — showing the last known location.':'Your installer is on the way.')}}catch(e){if(active){setPoint(null);setMessage((e as Error).message)}}};void load();const t=setInterval(load,15000);return()=>{active=false;clearInterval(t)}},[]);return <main style={{maxWidth:900,margin:'auto',padding:24}}><h1>Track your installer</h1><p role="status">{message}</p>{point&&<><p>Last updated: {new Date(point.observedAt).toLocaleString()} · Accuracy approximately {Math.round(point.accuracy)} meters</p><MapCanvas points={[point]}/></>}</main>}

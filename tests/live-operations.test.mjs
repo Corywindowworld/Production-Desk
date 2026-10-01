@@ -235,6 +235,15 @@ test('installer days off persist, stay private and block job and service assignm
  await act(pa,'schedule',{date:day,period:'AM',installerId:installer.id,stop:1});
  await assert.rejects(()=>operation(installer,{action:'dayOff',data:{installerId:installer.id,date:day,off:true}}),/already scheduled/);
 });
+test('PA can schedule unassigned; office roles can assign later without changing date',async()=>{
+ await act(pa,'create',{number:'UNASSIGNED-TEST',customer:'Unassigned Test',address:'123 Main',amount:0});
+ await act(pa,'permit',{received:true,number:'U1'});
+ await act(pa,'schedule',{date:'2031-04-07',period:'AM',installerId:'',stop:1});
+ assert.equal(j.installerId,'');assert.equal(j.crew,'Unassigned');assert.equal(j.install,'2031-04-07');
+ assert.ok(!(await operationsData(installer)).jobs.some(x=>x.id===j.id));
+ await act(fs,'edit',{assignedInstallerId:installer.id});assert.equal(j.installerId,installer.id);assert.equal(j.install,'2031-04-07');
+ const {displayDate}=await vite.ssrLoadModule('/lib/display-date.ts');assert.equal(displayDate('2026-10-01'),'10-01-2026');assert.equal(displayDate(''),'');
+});
 test.after(async()=>{await vite.close();await pg.close()});
 
 test('multi-day schedules, permit details and payment permissions persist',async()=>{

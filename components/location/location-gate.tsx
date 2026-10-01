@@ -21,5 +21,6 @@ export function LocationGate({children}:{children:React.ReactNode}){
  // Tracking callbacks deliberately retain the current watch refs across renders.
  // eslint-disable-next-line react-hooks/exhaustive-deps
  },[]);
- return <><section style={{padding:16,background:ready?'#eaf6ee':'#fff4dd',color:'#172c24'}} aria-live="polite"><strong>{ready?'LOCATION SHARING ON':'Location sharing required'}</strong><p>{message}</p>{!native&&<small>Web version: updates may pause when this page is closed or the phone is locked.</small>}<div>{!ready&&<button disabled={busy} onClick={start}>{busy?'Connecting…':'Enable location & continue'}</button>} <button onClick={stop}>Stop sharing & sign out</button></div></section>{ready&&children}</>;
+ if(ready)return <>{children}</>;
+ return <><section style={{padding:16,background:'#fff4dd',color:'#172c24'}} aria-live="polite"><strong>Location sharing required</strong><p>{message}</p>{!native&&<small>Web version: updates may pause when this page is closed or the phone is locked.</small>}<div><button disabled={busy} onClick={start}>{busy?'Connecting…':'Enable location & continue'}</button> <button onClick={stop}>Stop sharing & sign out</button></div></section></>;
 }

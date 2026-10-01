@@ -1,0 +1,33 @@
+{
+  "expo": {
+    "name": "Production Desk",
+    "slug": "production-desk-installer",
+    "version": "1.0.0",
+    "orientation": "default",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "app.productiondesk.installer",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Take installation photos and documents for assigned jobs.",
+        "NSPhotoLibraryUsageDescription": "Attach installation photos and certificates to assigned jobs."
+      }
+    },
+    "android": {
+      "package": "app.productiondesk.installer"
+    },
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Production Desk shares your location with your Admin and Field Supervisor while signed in, including when your phone is locked. Customers only see your location through a trip link. Stop sharing in the app to sign out.",
+          "locationWhenInUsePermission": "Production Desk requires your location while signed in so your office can coordinate scheduled work.",
+          "isIosBackgroundLocationEnabled": true,
+          "isAndroidBackgroundLocationEnabled": true,
+          "isAndroidForegroundServiceEnabled": true
+        }
+      ],
+      "expo-secure-store"
+    ]
+  }
+}

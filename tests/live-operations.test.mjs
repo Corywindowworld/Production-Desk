@@ -466,10 +466,10 @@ test('location permissions, scoped maps, private links and session revocation',a
 });
 
 test('customer creation records optional permit and material intake atomically',async()=>{
- const base={buildingDepartment:'Test County Building',number:'INTAKE-NEW',customer:'Intake Customer',address:'1 Test Lane',amount:0,permitReceived:true,permitNumber:'P-123',privateProvider:true,customerSuppliedPermit:true,materialReceipt:{received:today,materials:[{materialType:'Window',brand:'Simonton',bay:'A1'},{materialType:'SPD',brand:'Plygem',bay:'A2'}]}};
+ const base={buildingDepartment:'Test County Building',city:'Palmetto',number:'INTAKE-NEW',customer:'Intake Customer',address:'1 Test Lane',amount:0,permitReceived:true,permitNumber:'P-123',privateProvider:true,customerSuppliedPermit:true,materialReceipt:{received:today,materials:[{materialType:'Window',brand:'Simonton',bay:'A1'},{materialType:'SPD',brand:'Plygem',bay:'A2'}]}};
  await operation(pa,{action:'create',data:base});
  const created=(await operationsData(admin)).jobs.find(v=>v.number===base.number);
- assert.ok((await operationsData(pa)).buildingDepartments.includes('Test County Building'));assert.deepEqual((await operationsData(installer)).buildingDepartments,[]);assert.equal(created.stage,'Received');assert.equal(created.received,today);assert.equal(created.materials.length,2);assert.equal(created.bay,'A1, A2');assert.equal(created.permitReceived,true);assert.equal(created.privateProvider,true);assert.equal(created.customerSuppliedPermit,true);
+ assert.ok((await operationsData(pa)).buildingDepartments.includes('Test County Building'));assert.ok((await operationsData(pa)).cities.includes('Palmetto'));assert.deepEqual((await operationsData(installer)).buildingDepartments,[]);assert.equal(created.stage,'Received');assert.equal(created.received,today);assert.equal(created.materials.length,2);assert.equal(created.bay,'A1, A2');assert.equal(created.permitReceived,true);assert.equal(created.privateProvider,true);assert.equal(created.customerSuppliedPermit,true);
  await assert.rejects(()=>operation(pa,{action:'create',data:{...base,number:'BAD-PERMIT',permitNumber:''}}),/permit number/i);
  await assert.rejects(()=>operation(pa,{action:'create',data:{...base,number:'BAD-MATERIAL',materialReceipt:{received:today,materials:[{materialType:'Entry Door',brand:'Thermatru',bay:'D1'}]}}}),/separate accounts/i);
  assert.ok(!(await operationsData(admin)).jobs.some(v=>v.number==='BAD-MATERIAL'||v.number==='BAD-PERMIT'));
@@ -499,7 +499,7 @@ test('intake scheduling and reusable sales contacts are atomic and permission ch
 test('weekly print includes Sunday through Saturday, scopes dates and escapes customer text',async()=>{
  const {weeklyScheduleHtml}=await vite.ssrLoadModule('/lib/print-schedule.ts');
  const html=weeklyScheduleHtml({day:'2026-10-02',daysOff:[{date:'2026-09-30',crew:'Crew off'}],jobs:[{id:'x',number:'PRINT-1',customer:'<script>bad</script>',install:'2026-09-28',installEnd:'2026-09-29',crew:'Crew A',stage:'Production'},{id:'y',customer:'OUTSIDE WEEK',install:'2026-10-05'}]});
- assert.ok(html.includes('Sep 27, 2026'));assert.ok(html.includes('Oct 3, 2026'));assert.ok(!html.includes('OUTSIDE WEEK'));assert.ok(!html.includes('<script>bad</script>'));assert.equal((html.match(/#PRINT-1/g)||[]).length,2);assert.ok(html.includes('Crew off'));assert.ok(html.includes('size:letter landscape'));
+ assert.ok(html.includes('Sep 27, 2026'));assert.ok(html.includes('Oct 3, 2026'));assert.ok(!html.includes('OUTSIDE WEEK'));assert.ok(!html.includes('<script>bad</script>'));assert.equal((html.match(/#PRINT-1/g)||[]).length,2);assert.ok(html.includes('Crew off'));assert.ok(html.includes('size:letter landscape'));assert.ok(html.includes('width:100%'));assert.ok(!html.includes("sheet.style.zoom"));
 });
 
 test.after(async()=>{await vite.close();await pg.close()});

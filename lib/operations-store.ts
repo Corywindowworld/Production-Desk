@@ -61,6 +61,8 @@ export async function operationsData(m:Member,onStep:(step:DashboardStep)=>void=
  const daysOff=(await db.prepare("SELECT payload FROM production.operations_config WHERE id LIKE 'day-off:%'").all()).results.map((r:any)=>storedObject(r.payload)).filter((r:any)=>m.role!=='installer'||r.installerId===m.id);
  const savedDepartments=m.role==='installer'?[]:(await db.prepare("SELECT payload FROM production.operations_config WHERE id LIKE 'building-department:%'").all()).results.map((r:any)=>storedObject(r.payload).name);
  const buildingDepartments=m.role==='installer'?[]:Array.from(new Set([...savedDepartments,...all.map((j:any)=>j.buildingDepartment)].filter((v:any)=>typeof v==='string'&&v.trim()).map((v:string)=>v.trim()))).sort();
+ const savedCities=m.role==='installer'?[]:(await db.prepare("SELECT payload FROM production.operations_config WHERE id LIKE 'city:%'").all()).results.map((r:any)=>storedObject(r.payload).name);
+ const cities=m.role==='installer'?[]:Array.from(new Set([...savedCities,...all.map((j:any)=>j.city)].filter((v:any)=>typeof v==='string'&&v.trim()).map((v:string)=>v.trim()))).sort();
  const salesReps:any[]=[];
  if(m.role!=='installer'){
   const saved=(await db.prepare("SELECT payload FROM production.operations_config WHERE id LIKE 'sales-rep:%'").all()).results.map((r:any)=>storedObject(r.payload));
@@ -69,7 +71,7 @@ export async function operationsData(m:Member,onStep:(step:DashboardStep)=>void=
   for(const rep of saved)if(rep.name)byName.set(rep.name.toLowerCase(),rep);
   salesReps.push(...Array.from(byName.values()).sort((a,b)=>a.name.localeCompare(b.name)));
  }
- return {salesReps,buildingDepartments,daysOff,bonusSnapshots,warnings,bonusConfigs,me:m,jobs,team,today,metrics,surveys,config:reviewer(m)?config:null,crewColors,canEdit:hasJobEditPermission(m),canReview:reviewer(m)};
+ return {cities,salesReps,buildingDepartments,daysOff,bonusSnapshots,warnings,bonusConfigs,me:m,jobs,team,today,metrics,surveys,config:reviewer(m)?config:null,crewColors,canEdit:hasJobEditPermission(m),canReview:reviewer(m)};
 }
 // All job changes lock the row and compare versions inside one transaction. Side effects are queued with the change.
 export async function operation(m:Member,input:any){
@@ -264,6 +266,7 @@ export async function operation(m:Member,input:any){
    await tx.prepare('DELETE FROM jobs WHERE id=?').bind(j.id).run();return;
   }else if(action!=='create')throw new ApiError(400,'Unknown action.');
   if(['create','edit'].includes(action)&&input.data.scheduleWork){const previousHistory=history;await scheduleJob(input.data.scheduleWork);history=previousHistory+'; '+history;}
+  if(['create','edit'].includes(action)&&j.city?.trim()){const name=j.city.trim();await tx.prepare('INSERT INTO production.operations_config(id,payload,updated_by,updated) VALUES(?,?,?,?) ON CONFLICT(id) DO NOTHING').bind('city:'+name.toLowerCase(),JSON.stringify({name}),m.id,at).run();}
   if(['create','edit'].includes(action)&&j.salesRep?.trim()){const rep={name:j.salesRep.trim(),phone:j.salesRepPhone||'',email:j.salesRepEmail||''};await tx.prepare('INSERT INTO production.operations_config(id,payload,updated_by,updated) VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET payload=EXCLUDED.payload,updated_by=EXCLUDED.updated_by,updated=EXCLUDED.updated').bind('sales-rep:'+rep.name.toLowerCase(),JSON.stringify(rep),m.id,at).run();}
   if(['create','permit','edit'].includes(action)&&j.buildingDepartment?.trim()){const name=j.buildingDepartment.trim();await tx.prepare('INSERT INTO production.operations_config(id,payload,updated_by,updated) VALUES(?,?,?,?) ON CONFLICT(id) DO NOTHING').bind('building-department:'+name.toLowerCase(),JSON.stringify({name}),m.id,at).run();}
   j.history=[{at,by:m.name,text:history},...(j.history||[])];

@@ -1,4 +1,6 @@
-import {redirect} from 'next/navigation';import Home from '@/components/production-desk';import {pageMember,AccessPending} from '@/lib/page-access';import {InstallApp} from '@/components/install-app';
+import {LocationGate} from '@/components/location/location-gate';
+import LiveOperations from '@/components/live-operations';
+import {pageMember,AccessPending} from '@/lib/page-access';
+import {InstallApp} from '@/components/install-app';
 export const dynamic='force-dynamic';
-
-export default async function Page(){const m=await pageMember('/');if(!m)return <AccessPending/>;if(m.role==='installer')redirect('/installers/');return <><link rel="manifest" href="/manifest.webmanifest" crossOrigin="use-credentials"/><Home/><InstallApp/></>}
+export default async function Page(){const m=await pageMember('/');if(!m)return <AccessPending/>;return <><link rel="manifest" href="/manifest.webmanifest" crossOrigin="use-credentials"/>{m.role==='installer'?<LocationGate><LiveOperations/></LocationGate>:<LiveOperations/>}<InstallApp/></>}

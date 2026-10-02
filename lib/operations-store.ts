@@ -157,7 +157,7 @@ export async function operation(m:Member,input:any){
    const i=s.installerId?await installer(s.installerId):null;
    if(i){await checkAvailability(i.id,s.date,s.endDate||s.date);j.installerId=i.id;await checkSupervisor();}
    else {j.installerId='';j.supervisorId='';j.supervisor='';}
-   j.install=s.date;j.installEnd=s.endDate||s.date;j.installTime=s.time||'';j.scheduleCompletedOn='';j.installPeriod=s.time?(Number(s.time.slice(0,2))<12?'AM':'PM'):s.period;j.stopNumber=s.stop;j.crew=i?.name||'Unassigned';j.scheduleInstructions=s.additionalInstructions||'';o.pendingSchedule=null;
+   j.install=s.date;j.installEnd=s.endDate||s.date;j.installTime=s.time||'';j.scheduleCompletedOn='';j.installPeriod=s.time?(Number(s.time.slice(0,2))<12?'AM':'PM'):s.period;j.stopNumber=s.stop;j.crew=i?.name||'Unassigned';j.scheduleInstructions=s.additionalInstructions||'';if(s.instructions!==undefined)j.instructions=s.instructions;o.pendingSchedule=null;
    if(i&&(s.endDate||s.date)>=today)await alert(i.id,`Job #${j.number} added to your calendar for ${s.date}${s.endDate&&s.endDate!==s.date?' through '+s.endDate:''} ${s.time?hourLabel(s.time):s.period}, stop ${s.stop}: ${j.customer}.`);
   };
   const addService=async(r:any,id:string)=>{assert(j.stage==='Closed','Only a COMP job can move to SVC.',400);const i=await installer(r.installerId||'');await checkAvailability(i.id,r.serviceDate);o.services=[...(o.services||[]),{id,date:r.serviceDate,period:r.period,installerId:i.id,crew:i.name,details:r.details}];j.stage='SVC';o.pendingSchedule=null;await alert(i.id,`Service for job #${j.number}: ${r.serviceDate} ${r.period}. ${r.details}`)};

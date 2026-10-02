@@ -482,10 +482,10 @@ test('Leads customer column parses attached phone labels and address',async()=>{
 });
 
 test('intake scheduling and reusable sales contacts are atomic and permission checked',async()=>{
- const base={number:'SCHEDULE-INTAKE',customer:'Schedule Intake',address:'2 Test Street',amount:100,permitReceived:true,permitNumber:'P2',salesRep:'Rep Example',salesRepPhone:'(813)-555-1234',salesRepEmail:'rep@example.com',scheduleWork:{date:today,period:'AM',installerId:installer.id,stop:1}};
+ const base={number:'SCHEDULE-INTAKE',customer:'Schedule Intake',address:'2 Test Street',amount:100,permitReceived:true,permitNumber:'P2',salesRep:'Rep Example',salesRepPhone:'(813)-555-1234',salesRepEmail:'rep@example.com',scheduleWork:{date:today,period:'AM',installerId:installer.id,stop:1,instructions:'Use side entrance; protect floors.'}};
  await operation(pa,{action:'create',data:base});
  const data=await operationsData(admin),created=data.jobs.find(v=>v.number===base.number);
- assert.equal(created.install,today);assert.equal(created.installerId,installer.id);assert.equal(created.stage,'Ordered');
+ assert.equal(created.instructions,'Use side entrance; protect floors.');assert.equal((await operationsData(installer)).jobs.find(v=>v.id===created.id).instructions,created.instructions);assert.equal(created.install,today);assert.equal(created.installerId,installer.id);assert.equal(created.stage,'Ordered');
  assert.deepEqual(data.salesReps.find(v=>v.name==='Rep Example'),{name:'Rep Example',phone:'(813)-555-1234',email:'rep@example.com'});
  assert.deepEqual((await operationsData(installer)).salesReps,[]);
  await assert.rejects(()=>operation(pa,{action:'create',data:{...base,number:'SCHEDULE-NO-PERMIT',permitReceived:false}}),/permit/i);
@@ -494,6 +494,12 @@ test('intake scheduling and reusable sales contacts are atomic and permission ch
  assert.equal((await operationsData(admin)).jobs.find(v=>v.number==='SCHEDULE-UNASSIGNED').install,today);
  await assert.rejects(()=>operation(fs,{action:'create',data:{...base,number:'FS-UNASSIGNED',scheduleWork:{...base.scheduleWork,installerId:''}}}),/installer/i);
  const {displayBonusDate}=await vite.ssrLoadModule('/lib/display-date.ts');assert.equal(displayBonusDate('2026-09-29'),'September 29 2026');
+});
+
+test('weekly print includes Sunday through Saturday, scopes dates and escapes customer text',async()=>{
+ const {weeklyScheduleHtml}=await vite.ssrLoadModule('/lib/print-schedule.ts');
+ const html=weeklyScheduleHtml({day:'2026-10-02',daysOff:[{date:'2026-09-30',crew:'Crew off'}],jobs:[{id:'x',number:'PRINT-1',customer:'<script>bad</script>',install:'2026-09-28',installEnd:'2026-09-29',crew:'Crew A',stage:'Production'},{id:'y',customer:'OUTSIDE WEEK',install:'2026-10-05'}]});
+ assert.ok(html.includes('Sep 27, 2026'));assert.ok(html.includes('Oct 3, 2026'));assert.ok(!html.includes('OUTSIDE WEEK'));assert.ok(!html.includes('<script>bad</script>'));assert.equal((html.match(/#PRINT-1/g)||[]).length,2);assert.ok(html.includes('Crew off'));assert.ok(html.includes('size:letter landscape'));
 });
 
 test.after(async()=>{await vite.close();await pg.close()});

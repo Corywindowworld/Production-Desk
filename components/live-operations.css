@@ -54,3 +54,5 @@ html:is([data-theme=lightning],[data-theme=buccaneers],[data-theme=creamsicle]) 
 .live-received-options>label:last-child{flex:1;min-width:160px;max-width:270px}
 .live-building-department{min-width:0;display:grid;gap:8px}
 @media(max-width:540px){.live-operations .op-form fieldset.live-intake-section{grid-template-columns:1fr}.live-permit-options{gap:12px}}
+
+.live-approval-card{padding:20px 0;border-bottom:1px solid var(--line)}.live-approval-card section{padding:12px 0}.live-approval-card h4{font-weight:700}

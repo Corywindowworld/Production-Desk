@@ -481,4 +481,19 @@ test('Leads customer column parses attached phone labels and address',async()=>{
  assert.equal(v.address,'6647 Summer Cove Dr');assert.equal(v.city,'Riverview');assert.equal(v.phone,'(813)-956-3247');assert.equal(v.phone2,'(813)-295-2895');
 });
 
+test('intake scheduling and reusable sales contacts are atomic and permission checked',async()=>{
+ const base={number:'SCHEDULE-INTAKE',customer:'Schedule Intake',address:'2 Test Street',amount:100,permitReceived:true,permitNumber:'P2',salesRep:'Rep Example',salesRepPhone:'(813)-555-1234',salesRepEmail:'rep@example.com',scheduleWork:{date:today,period:'AM',installerId:installer.id,stop:1}};
+ await operation(pa,{action:'create',data:base});
+ const data=await operationsData(admin),created=data.jobs.find(v=>v.number===base.number);
+ assert.equal(created.install,today);assert.equal(created.installerId,installer.id);assert.equal(created.stage,'Ordered');
+ assert.deepEqual(data.salesReps.find(v=>v.name==='Rep Example'),{name:'Rep Example',phone:'(813)-555-1234',email:'rep@example.com'});
+ assert.deepEqual((await operationsData(installer)).salesReps,[]);
+ await assert.rejects(()=>operation(pa,{action:'create',data:{...base,number:'SCHEDULE-NO-PERMIT',permitReceived:false}}),/permit/i);
+ assert.ok(!(await operationsData(admin)).jobs.some(v=>v.number==='SCHEDULE-NO-PERMIT'));
+ await operation(pa,{action:'create',data:{...base,number:'SCHEDULE-UNASSIGNED',scheduleWork:{...base.scheduleWork,installerId:''}}});
+ assert.equal((await operationsData(admin)).jobs.find(v=>v.number==='SCHEDULE-UNASSIGNED').install,today);
+ await assert.rejects(()=>operation(fs,{action:'create',data:{...base,number:'FS-UNASSIGNED',scheduleWork:{...base.scheduleWork,installerId:''}}}),/installer/i);
+ const {displayBonusDate}=await vite.ssrLoadModule('/lib/display-date.ts');assert.equal(displayBonusDate('2026-09-29'),'September 29 2026');
+});
+
 test.after(async()=>{await vite.close();await pg.close()});

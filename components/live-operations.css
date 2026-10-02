@@ -44,3 +44,13 @@ html[data-theme=creamsicle] .op-score{background:linear-gradient(110deg,#a92c16,
 
 html:is([data-theme=lightning],[data-theme=buccaneers],[data-theme=creamsicle]) .op-team-mark{background:#fff;border-radius:14px;padding:12px}
 html:is([data-theme=lightning],[data-theme=buccaneers],[data-theme=creamsicle]) .op-team-mark img{object-fit:contain}
+
+/* Keep intake options together instead of inheriting display:contents. */
+.live-operations .op-form fieldset.live-intake-section{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));grid-column:1/-1;gap:16px;min-width:0;border:0;padding:12px 0;margin:0}
+.live-intake-section legend{font-weight:700;padding:0 0 8px}
+.live-permit-options,.live-received-options{grid-column:1/-1;display:flex;align-items:center;gap:20px;flex-wrap:wrap}
+.live-operations .op-form .live-permit-options>label,.live-operations .op-form .live-inline-check{display:inline-flex;align-items:center;gap:8px;white-space:nowrap}
+.live-operations .op-form .live-permit-options input[type=checkbox],.live-operations .op-form .live-inline-check input[type=checkbox]{width:18px;height:18px;min-height:0;margin:0;flex:0 0 18px}
+.live-received-options>label:last-child{flex:1;min-width:160px;max-width:270px}
+.live-building-department{min-width:0;display:grid;gap:8px}
+@media(max-width:540px){.live-operations .op-form fieldset.live-intake-section{grid-template-columns:1fr}.live-permit-options{gap:12px}}

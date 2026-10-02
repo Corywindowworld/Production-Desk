@@ -466,10 +466,10 @@ test('location permissions, scoped maps, private links and session revocation',a
 });
 
 test('customer creation records optional permit and material intake atomically',async()=>{
- const base={number:'INTAKE-NEW',customer:'Intake Customer',address:'1 Test Lane',amount:0,permitReceived:true,permitNumber:'P-123',privateProvider:true,customerSuppliedPermit:true,materialReceipt:{received:today,materials:[{materialType:'Window',brand:'Simonton',bay:'A1'},{materialType:'SPD',brand:'Plygem',bay:'A2'}]}};
+ const base={buildingDepartment:'Test County Building',number:'INTAKE-NEW',customer:'Intake Customer',address:'1 Test Lane',amount:0,permitReceived:true,permitNumber:'P-123',privateProvider:true,customerSuppliedPermit:true,materialReceipt:{received:today,materials:[{materialType:'Window',brand:'Simonton',bay:'A1'},{materialType:'SPD',brand:'Plygem',bay:'A2'}]}};
  await operation(pa,{action:'create',data:base});
  const created=(await operationsData(admin)).jobs.find(v=>v.number===base.number);
- assert.equal(created.stage,'Received');assert.equal(created.received,today);assert.equal(created.materials.length,2);assert.equal(created.bay,'A1, A2');assert.equal(created.permitReceived,true);assert.equal(created.privateProvider,true);assert.equal(created.customerSuppliedPermit,true);
+ assert.ok((await operationsData(pa)).buildingDepartments.includes('Test County Building'));assert.deepEqual((await operationsData(installer)).buildingDepartments,[]);assert.equal(created.stage,'Received');assert.equal(created.received,today);assert.equal(created.materials.length,2);assert.equal(created.bay,'A1, A2');assert.equal(created.permitReceived,true);assert.equal(created.privateProvider,true);assert.equal(created.customerSuppliedPermit,true);
  await assert.rejects(()=>operation(pa,{action:'create',data:{...base,number:'BAD-PERMIT',permitNumber:''}}),/permit number/i);
  await assert.rejects(()=>operation(pa,{action:'create',data:{...base,number:'BAD-MATERIAL',materialReceipt:{received:today,materials:[{materialType:'Entry Door',brand:'Thermatru',bay:'D1'}]}}}),/separate accounts/i);
  assert.ok(!(await operationsData(admin)).jobs.some(v=>v.number==='BAD-MATERIAL'||v.number==='BAD-PERMIT'));

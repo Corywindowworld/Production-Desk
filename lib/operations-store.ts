@@ -59,7 +59,9 @@ export async function operationsData(m:Member,onStep:(step:DashboardStep)=>void=
  const bonusConfigs=m.role==='admin'?(await db.prepare("SELECT payload FROM production.operations_config WHERE id NOT LIKE 'crew-colors:%' ORDER BY id DESC").all()).results.flatMap((r:any)=>{try{const parsed=configSchema.safeParse(storedObject(r.payload));return parsed.success?[parsed.data]:[]}catch{return []}}):[];
  let bonusSnapshots:any[]=[];if(reviewer(m)){try{bonusSnapshots=(await db.prepare('SELECT payload FROM production.bonus_snapshots ORDER BY period_end DESC').all()).results.map((r:any)=>storedObject(r.payload));}catch{warnings.push('Bonus history is unavailable. Check the bonus snapshot migration.');}}
  const daysOff=(await db.prepare("SELECT payload FROM production.operations_config WHERE id LIKE 'day-off:%'").all()).results.map((r:any)=>storedObject(r.payload)).filter((r:any)=>m.role!=='installer'||r.installerId===m.id);
- return {daysOff,bonusSnapshots,warnings,bonusConfigs,me:m,jobs,team,today,metrics,surveys,config:reviewer(m)?config:null,crewColors,canEdit:hasJobEditPermission(m),canReview:reviewer(m)};
+ const savedDepartments=m.role==='installer'?[]:(await db.prepare("SELECT payload FROM production.operations_config WHERE id LIKE 'building-department:%'").all()).results.map((r:any)=>storedObject(r.payload).name);
+ const buildingDepartments=m.role==='installer'?[]:Array.from(new Set([...savedDepartments,...all.map((j:any)=>j.buildingDepartment)].filter((v:any)=>typeof v==='string'&&v.trim()).map((v:string)=>v.trim()))).sort();
+ return {buildingDepartments,daysOff,bonusSnapshots,warnings,bonusConfigs,me:m,jobs,team,today,metrics,surveys,config:reviewer(m)?config:null,crewColors,canEdit:hasJobEditPermission(m),canReview:reviewer(m)};
 }
 // All job changes lock the row and compare versions inside one transaction. Side effects are queued with the change.
 export async function operation(m:Member,input:any){
@@ -250,6 +252,7 @@ export async function operation(m:Member,input:any){
    for(const table of ['customer_events','customer_records','installer_reports','job_visits','notifications','attachment_uploads'])await tx.prepare(`DELETE FROM ${table} WHERE job_id=?`).bind(j.id).run();
    await tx.prepare('DELETE FROM jobs WHERE id=?').bind(j.id).run();return;
   }else if(action!=='create')throw new ApiError(400,'Unknown action.');
+  if(['create','permit','edit'].includes(action)&&j.buildingDepartment?.trim()){const name=j.buildingDepartment.trim();await tx.prepare('INSERT INTO production.operations_config(id,payload,updated_by,updated) VALUES(?,?,?,?) ON CONFLICT(id) DO NOTHING').bind('building-department:'+name.toLowerCase(),JSON.stringify({name}),m.id,at).run();}
   j.history=[{at,by:m.name,text:history},...(j.history||[])];
   if(version)await tx.prepare('UPDATE jobs SET payload=?,version=version+1,updated=? WHERE id=?').bind(JSON.stringify(j),at,j.id).run();
   else await tx.prepare('INSERT INTO jobs(id,payload,version,updated) VALUES(?,?,1,?)').bind(j.id,JSON.stringify(j),at).run();

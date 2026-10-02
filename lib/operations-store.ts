@@ -121,6 +121,8 @@ export async function operation(m:Member,input:any){
    assert(!(await tx.prepare("SELECT id FROM jobs WHERE payload::jsonb->>'number'=?").bind(f.number).first()),'This customer ID already exists. Open its job file.',409);
    j={...f,id:crypto.randomUUID(),attachments:[],history:[],operations:{},install:'',installerId:null};
    assert(f.stage==='Ordered','New customer jobs must begin in ORD status.',400);
+   assert(!f.permitReceived||!!f.permitNumber,'Enter a permit number when Permit Received is checked.',400);
+   if(input.data.materialReceipt){const receipt=parse(receiveItemsSchema,input.data.materialReceipt);assert(receipt.received<=today,'Materials received date cannot be in the future.',400);assert(receipt.materials.every(v=>allowedMaterials(f.product||'Windows').includes(v.materialType)),'Windows/SPD, Entry Doors, and Diamond Screens must be received on separate accounts.',400);Object.assign(j,{received:receipt.received,stage:'Received',materials:receipt.materials,bay:receipt.materials.map(v=>v.bay).join(', '),brand:receipt.materials[0].brand,materialType:receipt.materials[0].materialType});}else{j.received='';}
    assert([f.received,f.installed,f.incompleteSince].every(d=>!d||d<=today),'Historical dates cannot be in the future.',400);
   }else{
    const row=await tx.prepare('SELECT payload,version FROM jobs WHERE id=? FOR UPDATE').bind(String(input.jobId||'')).first();assert(row,'Job not found.',404);j=JSON.parse(row.payload);version=row.version;

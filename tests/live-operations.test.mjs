@@ -244,7 +244,7 @@ test('PA can schedule unassigned; office roles can assign later without changing
  await act(fs,'edit',{assignedInstallerId:installer.id});assert.equal(j.installerId,installer.id);assert.equal(j.install,'2031-04-07');
  const {displayDate}=await vite.ssrLoadModule('/lib/display-date.ts');assert.equal(displayDate('2026-10-01'),'10-01-2026');assert.equal(displayDate(''),'');
 });
-test.after(async()=>{await vite.close();await pg.close()});
+
 
 test('multi-day schedules, permit details and payment permissions persist',async()=>{
  await act(pa,'create',{number:'MULTI',supervisorId:fs.id,customer:'Multi day customer',address:'123 Test',amount:100,permitNumber:'OPT',buildingDepartment:'Tampa',permitExpiration:'2027-01-01'});
@@ -464,3 +464,21 @@ test('location permissions, scoped maps, private links and session revocation',a
  await assert.rejects(()=>location.publicLocation(next.token),/ended/);
  const stopped=(await location.mapLocations(admin)).find(x=>x.id===installer.id);assert.equal(stopped.status,'Not sharing');assert.equal(stopped.latitude,null);
 });
+
+test('customer creation records optional permit and material intake atomically',async()=>{
+ const base={number:'INTAKE-NEW',customer:'Intake Customer',address:'1 Test Lane',amount:0,permitReceived:true,permitNumber:'P-123',privateProvider:true,customerSuppliedPermit:true,materialReceipt:{received:today,materials:[{materialType:'Window',brand:'Simonton',bay:'A1'},{materialType:'SPD',brand:'Plygem',bay:'A2'}]}};
+ await operation(pa,{action:'create',data:base});
+ const created=(await operationsData(admin)).jobs.find(v=>v.number===base.number);
+ assert.equal(created.stage,'Received');assert.equal(created.received,today);assert.equal(created.materials.length,2);assert.equal(created.bay,'A1, A2');assert.equal(created.permitReceived,true);assert.equal(created.privateProvider,true);assert.equal(created.customerSuppliedPermit,true);
+ await assert.rejects(()=>operation(pa,{action:'create',data:{...base,number:'BAD-PERMIT',permitNumber:''}}),/permit number/i);
+ await assert.rejects(()=>operation(pa,{action:'create',data:{...base,number:'BAD-MATERIAL',materialReceipt:{received:today,materials:[{materialType:'Entry Door',brand:'Thermatru',bay:'D1'}]}}}),/separate accounts/i);
+ assert.ok(!(await operationsData(admin)).jobs.some(v=>v.number==='BAD-MATERIAL'||v.number==='BAD-PERMIT'));
+});
+
+test('Leads customer column parses attached phone labels and address',async()=>{
+ const {parseLeadsCustomerScan}=await vite.ssrLoadModule('/lib/customer-scan.ts');
+ const v=parseLeadsCustomerScan('Customer ID#: 227190\nBozeman, David Phone #1:813-956-3247\n6647 Summer Cove Dr Ph#2:813-295-2895\nRiverview, FL 33578\nProduct: WIND').values;
+ assert.equal(v.address,'6647 Summer Cove Dr');assert.equal(v.city,'Riverview');assert.equal(v.phone,'(813)-956-3247');assert.equal(v.phone2,'(813)-295-2895');
+});
+
+test.after(async()=>{await vite.close();await pg.close()});

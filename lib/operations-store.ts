@@ -1,3 +1,4 @@
+import {linkedAccountValues} from './linked-account';
 import {isPurchaseOrder,resolvedPaymentMethod} from './payment-status';
 import {remainingWorkdays,hourLabel,installAppointments} from './install-calendar';
 import {storedObject} from './stored-data';
@@ -95,9 +96,19 @@ export async function operation(m:Member,input:any){
     const job=storedObject(rows[i].payload),other=ids[1-i];
     const links=new Set<string>(Array.isArray(job.linkedAccountIds)?job.linkedAccountIds:[]);
     if(action==='linkAccount')links.add(other);else links.delete(other);
+    if(action==='linkAccount'&&ids[i]===source){
+     const sourceRecord=(await tx.prepare('SELECT payload FROM customer_records WHERE job_id=?').bind(target).first())?.payload;
+     const from=withCustomerRecord(storedObject(rows[1-i].payload),sourceRecord);
+     const copied=linkedAccountValues(from,['admin','production_assistant'].includes(m.role));
+     // Validate only copied fields so legacy workflow status codes remain intact.
+     for(const [key,value] of Object.entries(copied)){
+      const field=(fieldsSchema.shape as any)[key];
+      job[key]=parse(field,value===null&&key!=='amount'&&key!=='contractAmount'?undefined:value);
+     }
+    }
     job.linkedAccountIds=[...links];
     const otherJob=storedObject(rows[1-i].payload);
-    job.history=[{at,by:m.name,text:`${action==='linkAccount'?'Linked':'Unlinked'} customer account #${otherJob.number}`},...(job.history||[])];
+    job.history=[{at,by:m.name,text:`${action==='linkAccount'?'Linked':'Unlinked'} customer account #${otherJob.number}${action==='linkAccount'&&ids[i]===source?'; copied account information from this account (product and workflow unchanged)':''}`},...(job.history||[])];
     await tx.prepare('UPDATE jobs SET payload=?,version=version+1,updated=? WHERE id=?').bind(JSON.stringify(job),at,ids[i]).run();
    }
   });return;
@@ -153,7 +164,16 @@ export async function operation(m:Member,input:any){
  await db.transaction(async tx=>{
   let j:any,version=0;
   if(action==='create'){
-   assert(hasJobEditPermission(m),'Your account needs job editing permission.');const f=parse(fieldsSchema,input.data);
+   assert(hasJobEditPermission(m),'Your account needs job editing permission.');
+   const requestedLink=parse(z.string().trim().max(80).default(''),input.data.linkedCustomerId);
+   let inherited:any={};
+   if(requestedLink){
+    const matches=(await tx.prepare("SELECT j.payload,c.payload AS record FROM jobs j LEFT JOIN customer_records c ON c.job_id=j.id WHERE j.payload::jsonb->>'number'=?").bind(requestedLink).all()).results;
+    assert(matches.length===1,matches.length?'More than one account has that Customer ID. Link the specific job after saving.':'Customer ID not found. Correct it or leave the link field blank.',400);
+    inherited=linkedAccountValues(withCustomerRecord(storedObject(matches[0].payload),matches[0].record));
+   }
+   // Submitted form values win, allowing review and corrections before saving.
+   const f=parse(fieldsSchema,normalizeStoredCustomerFields({...inherited,...input.data}));
    // Serialize manual customer creation; older duplicate IDs remain readable for reconciliation.
    await tx.prepare('LOCK TABLE jobs IN SHARE ROW EXCLUSIVE MODE').run();
    assert(!(await tx.prepare("SELECT id FROM jobs WHERE payload::jsonb->>'number'=?").bind(f.number).first()),'This customer ID already exists. Open its job file.',409);

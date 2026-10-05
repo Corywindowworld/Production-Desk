@@ -533,3 +533,20 @@ test('Add Customer links by exact customer ID and rolls back invalid links',asyn
  const jobs=(await operationsData(pa)).jobs;
  assert.ok(jobs.find(x=>x.id===parent).linkedAccountIds.includes(child));assert.ok(jobs.find(x=>x.id===child).linkedAccountIds.includes(parent));
 });
+test('linked accounts copy details but preserve destination products, identity and workflow',async()=>{
+ await act(admin,'create',{number:'COPY-FROM',customer:'Jane Example',firstName:'Jane',lastName:'Example',address:'88 Example St',phone:'(813)-555-1234',phone2:'(813)-555-1235',city:'Tampa',state:'FL',zip:'33618',amount:450,contractAmount:900,paymentMethod:'CHK',noPermitRequired:true,privateProvider:true,customerSuppliedPermit:true,salesRep:'Rep One',salesRepPhone:'(813)-555-4444',notes:'Call ahead',instructions:'Use side entrance',windowCount:8,product:'Windows'});
+ const from=(await operationsData(admin)).jobs.find(x=>x.number==='COPY-FROM');
+ await act(pa,'create',{number:'COPY-NEW',product:'Entry Doors',entryDoorCount:2,linkedCustomerId:'COPY-FROM'});
+ let to=(await operationsData(pa)).jobs.find(x=>x.number==='COPY-NEW');
+ assert.equal(to.address,from.address);assert.equal(to.amount,450);assert.equal(to.customer,from.customer);assert.equal(to.windowCount,0);assert.equal(to.entryDoorCount,2);assert.equal(to.product,'Entry Doors');assert.equal(to.stage,'Ordered');assert.equal(to.noPermitRequired,true);
+ await operation(pa,{action:'edit',jobId:to.id,version:to.version,data:{address:'Different',amount:1}});
+ to=(await operationsData(pa)).jobs.find(x=>x.id===to.id);
+ await operation(pa,{action:'linkAccount',jobId:to.id,version:to.version,data:{targetId:from.id}});
+ to=(await operationsData(pa)).jobs.find(x=>x.id===to.id);
+ assert.equal(to.address,from.address);assert.equal(to.amount,450);assert.equal(to.paymentMethod,'CHK');assert.equal(to.phone2,from.phone2);assert.equal(to.instructions,from.instructions);assert.equal(to.entryDoorCount,2);assert.equal(to.number,'COPY-NEW');assert.equal(to.install,'');
+ await operation(fs,{action:'linkAccount',jobId:to.id,version:to.version,data:{targetId:from.id}});
+ const {linkedAccountValues}=await vite.ssrLoadModule('/lib/linked-account.ts');
+ const values=linkedAccountValues({...from,materials:[{bay:'A'}],reorder:'product reorder',received:today,installerId:installer.id});
+ for(const key of ['number','id','version','product','windowCount','entryDoorCount','materials','reorder','received','installerId','stage','history'])assert.equal(values[key],undefined,key);
+ assert.equal(linkedAccountValues(from,false).amount,undefined);
+});

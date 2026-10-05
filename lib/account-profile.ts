@@ -1,5 +1,6 @@
 import {z} from 'zod';
 export const profileDetails=z.object({
+ leadInstallerName:z.string().trim().max(150).default(''),contactEmail:z.union([z.string().email(),z.literal('')]).default(''),
  jobTitle:z.string().trim().max(100).default(''),
  startDate:z.string().max(10).refine(v=>!v||(/^\d{4}-\d{2}-\d{2}$/.test(v)&&!Number.isNaN(Date.parse(v))&&new Date(v).toISOString().slice(0,10)===v),'Enter a valid date.').default(''),
  address:z.string().trim().max(500).default(''),

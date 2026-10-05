@@ -6,7 +6,9 @@ export function compileQuery(sql:string){
  // SQL string literals are left untouched; query values are always separate parameters.
  return sql.replace(/'(?:''|[^'])*'|\?|\b[a-z_][a-z_0-9]*\b/gi,token=>token.startsWith("'")?token:token==='?'?'$'+(++index):tables.has(token)?'production.'+token:token);
 }
-export function createDatabase(driver:Driver){
+export interface QueryStatement {readonly sql:string;readonly params:unknown[];bind(...params:unknown[]):QueryStatement;execute(d?:Driver):Promise<{rows:any[];changes:number}>;first():Promise<any>;all():Promise<{results:any[]}>;run():Promise<{meta:{changes:number}}>}
+export interface Database {prepare(sql:string):QueryStatement;transaction<T>(fn:(db:Database)=>Promise<T>):Promise<T>;batch(statements:QueryStatement[]):Promise<{meta:{changes:number}}[]>}
+export function createDatabase(driver:Driver):Database{
  class Statement{
   constructor(readonly sql:string,readonly params:unknown[]=[]){ }
   bind(...params:unknown[]){return new Statement(this.sql,params)}
@@ -15,5 +17,5 @@ export function createDatabase(driver:Driver){
   async all(){return {results:(await this.execute()).rows}}
   async run(){return {meta:{changes:(await this.execute()).changes}}}
  }
- return {prepare:(sql:string)=>new Statement(sql),async batch(statements:Statement[]){return driver.transaction(async tx=>{const results=[];for(const s of statements)results.push({meta:{changes:(await s.execute(tx)).changes}});return results})}};
+ return {prepare:(sql:string)=>new Statement(sql),transaction:<T>(fn:(db:Database)=>Promise<T>):Promise<T>=>driver.transaction(tx=>fn(createDatabase(tx))),async batch(statements:QueryStatement[]){return driver.transaction(async tx=>{const results=[];for(const s of statements)results.push({meta:{changes:(await s.execute(tx)).changes}});return results})}};
 }

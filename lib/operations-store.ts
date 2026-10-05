@@ -14,6 +14,10 @@ function normalizedSurvey(row:any){let ratings=row?.ratings;try{if(typeof rating
 function withCustomerRecord(j:any,r:any){const record=r==null?{}:storedObject(r);const permitNumber=j.permitNumber??record.permitNumber??'';const permitReceived=j.permitReceived??(['received','issued','approved'].includes(String(record.permitStatus||'').toLowerCase())&&!!permitNumber);return {...j,paymentMethod:resolvedPaymentMethod(j,record),amount:typeof j.amount==='number'&&Number.isFinite(j.amount)?j.amount:null,incompleteSince:j.incompleteSince||incompleteSince(j)||'',salesRep:j.salesRep||record.salesRep||'',salesRepPhone:j.salesRepPhone||record.salesRepPhone||'',bay:j.bay||record.warehouseBay||'',customerEmail:j.customerEmail||record.email||'',permitNumber,permitReceived,buildingDepartment:j.buildingDepartment??record.permitAuthority??'',permitExpiration:j.permitExpiration??record.permitExpiration??'',buildingDepartmentPhone:j.buildingDepartmentPhone??record.buildingDepartmentPhone??'',privateProvider:j.privateProvider??record.privateProvider??false}}
 const assert=(yes:unknown,message:string,status=403)=>{if(!yes)throw new ApiError(status,message)};
 const parse=<T>(schema:z.ZodType<T>,value:unknown):T=>{const p=schema.safeParse(value);if(!p.success)throw new ApiError(400,p.error.issues[0]?`${p.error.issues[0].path.join('.')||'Form'}: ${p.error.issues[0].message}`:'Check the form.');return p.data};
+const choiceKey=(value:string)=>value.trim().replace(/\s+/g,' ').toLocaleLowerCase();
+const cleanChoice=(value:string)=>value.trim().replace(/\s+/g,' ');
+function choiceName(current:string|undefined,next:string){const clean=cleanChoice(next);if(!current)return clean;const score=(v:string)=>(/[a-z]/.test(v)?1:0)+(/[A-Z]/.test(v)?1:0);return score(clean)>score(current)?clean:current;}
+function uniqueChoices(values:any[]){const choices=new Map<string,string>();for(const raw of values)if(typeof raw==='string'&&raw.trim()){const key=choiceKey(raw);choices.set(key,choiceName(choices.get(key),raw));}return [...choices.values()].sort((a,b)=>a.localeCompare(b));}
 export function installerVisible(m:Member,j:any,today=localDay()) {return j.installerId===m.id||j.operations?.services?.some((s:any)=>s.installerId===m.id&&s.date>=today)}
 export function publicJob(m:Member,j:any){
  if(m.role!=='installer')return j;
@@ -60,15 +64,15 @@ export async function operationsData(m:Member,onStep:(step:DashboardStep)=>void=
  let bonusSnapshots:any[]=[];if(reviewer(m)){try{bonusSnapshots=(await db.prepare('SELECT payload FROM production.bonus_snapshots ORDER BY period_end DESC').all()).results.map((r:any)=>storedObject(r.payload));}catch{warnings.push('Bonus history is unavailable. Check the bonus snapshot migration.');}}
  const daysOff=(await db.prepare("SELECT payload FROM production.operations_config WHERE id LIKE 'day-off:%'").all()).results.map((r:any)=>storedObject(r.payload)).filter((r:any)=>m.role!=='installer'||r.installerId===m.id);
  const savedDepartments=m.role==='installer'?[]:(await db.prepare("SELECT payload FROM production.operations_config WHERE id LIKE 'building-department:%'").all()).results.map((r:any)=>storedObject(r.payload).name);
- const buildingDepartments=m.role==='installer'?[]:Array.from(new Set([...savedDepartments,...all.map((j:any)=>j.buildingDepartment)].filter((v:any)=>typeof v==='string'&&v.trim()).map((v:string)=>v.trim()))).sort();
+ const buildingDepartments=m.role==='installer'?[]:uniqueChoices([...savedDepartments,...all.map((j:any)=>j.buildingDepartment)]);
  const savedCities=m.role==='installer'?[]:(await db.prepare("SELECT payload FROM production.operations_config WHERE id LIKE 'city:%'").all()).results.map((r:any)=>storedObject(r.payload).name);
- const cities=m.role==='installer'?[]:Array.from(new Set([...savedCities,...all.map((j:any)=>j.city)].filter((v:any)=>typeof v==='string'&&v.trim()).map((v:string)=>v.trim()))).sort();
+ const cities=m.role==='installer'?[]:uniqueChoices([...savedCities,...all.map((j:any)=>j.city)]);
  const salesReps:any[]=[];
  if(m.role!=='installer'){
   const saved=(await db.prepare("SELECT payload FROM production.operations_config WHERE id LIKE 'sales-rep:%'").all()).results.map((r:any)=>storedObject(r.payload));
   const byName=new Map<string,any>();
-  for(const j of all){if(j.salesRep?.trim()){const name=j.salesRep.trim(),key=name.toLowerCase(),previous=byName.get(key);byName.set(key,{name,phone:previous?.phone||j.salesRepPhone||'',email:previous?.email||j.salesRepEmail||''});}}
-  for(const rep of saved)if(rep.name)byName.set(rep.name.toLowerCase(),rep);
+  for(const j of all){if(j.salesRep?.trim()){const name=cleanChoice(j.salesRep),key=choiceKey(name),previous=byName.get(key);byName.set(key,{name:choiceName(previous?.name,name),phone:previous?.phone||j.salesRepPhone||'',email:previous?.email||j.salesRepEmail||''});}}
+  for(const rep of saved)if(rep.name){const name=cleanChoice(rep.name),key=choiceKey(name),previous=byName.get(key);byName.set(key,{name:choiceName(previous?.name,name),phone:rep.phone||previous?.phone||'',email:rep.email||previous?.email||''});}
   salesReps.push(...Array.from(byName.values()).sort((a,b)=>a.name.localeCompare(b.name)));
  }
  return {cities,salesReps,buildingDepartments,daysOff,bonusSnapshots,warnings,bonusConfigs,me:m,jobs,team,today,metrics,surveys,config:reviewer(m)?config:null,crewColors,canEdit:hasJobEditPermission(m),canReview:reviewer(m)};
@@ -97,7 +101,8 @@ export async function operation(m:Member,input:any){
  if(action==='survey'){
   assert(reviewer(m),'Field supervisor or administrator access required.');const s=parse(surveySchema,input.data);assert(s.completedOn<=today,'Survey date cannot be in the future.',400);
   assert(await db.prepare("SELECT id FROM members WHERE id=? AND role='installer'").bind(s.installerId).first(),'Select an installer.',400);
-  const r=await db.prepare('INSERT INTO production.operations_surveys (id,external_id,installer_id,completed_on,ratings,entered_by,created) VALUES (?,?,?,?,?,?,?) ON CONFLICT(external_id) DO NOTHING').bind(crypto.randomUUID(),s.externalId,s.installerId,s.completedOn,JSON.stringify(s.ratings),m.id,at).run();assert(r.meta.changes,'That survey reference has already been recorded.',409);return;
+  assert(await db.prepare("SELECT id FROM jobs WHERE (payload::jsonb)->>'number'=? LIMIT 1").bind(s.customerId).first(),'No job matches that Customer ID.',400);
+  const r=await db.prepare('INSERT INTO production.operations_surveys (id,external_id,customer_id,installer_id,completed_on,ratings,entered_by,created) VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(external_id) DO NOTHING').bind(crypto.randomUUID(),s.externalId,s.customerId,s.installerId,s.completedOn,JSON.stringify(s.ratings),m.id,at).run();assert(r.meta.changes,'That survey reference has already been recorded.',409);return;
  }
  if(action==='crewColors'){
   assert(m.role!=='installer','Installer accounts cannot change crew colors.');
@@ -244,7 +249,7 @@ export async function operation(m:Member,input:any){
    assert(reviewer(m),'Supervisor or administrator access required.');assert(j.stage==='Production'&&o.report?.approved&&!o.report?.confirmed,'Approve an installer report while the job is in production first.',409);assert(!reportError(o.report),reportError(o.report),400);if(o.report.status==='Incomplete')assert(String(j.reorder||'').trim(),'Enter reorder information before approving INC.',400);j.stage=o.report.status==='Complete'?'Closed':'Incomplete';if(j.stage==='Closed')j.scheduleCompletedOn=o.report.installed||today;if(j.stage==='Incomplete')j.incompleteSince=j.reorderDate||at;o.report.confirmed=true;history=`Official status confirmed: ${j.stage}`;
   }else if(action==='request'){
    edit();const r=parse(requestSchema,input.data);const id=crypto.randomUUID();
-   if(r.type==='UTI')assert(j.amount===0&&r.paymentReference&&j.received,'UTI requires payment in full, a reference, and receipt date.',400);
+   if(r.type==='UTI')assert(j.amount===0&&j.received,'UTI requires a $0 balance and receipt date.',400);
    if(r.type==='COLL')assert(r.refused,'Confirm that payment was refused.',400);
    if(r.type==='ACCRF')assert(r.amount!==undefined&&j.contractAmount!=null&&j.amount!=null,'Enter the revised contract price. Existing price and amount due must be known.',400);
    if(r.type==='Service'){assert(j.stage==='Closed','Only a COMP job can move to SVC.',400);assert(r.serviceDate&&r.serviceDate>=today,'Select a future service date.',400);await installer(r.installerId||'')}
@@ -255,7 +260,7 @@ export async function operation(m:Member,input:any){
    else history=`${r.type} request submitted for administrator approval: ${r.details}`;
   }else if(action==='reviewRequest'){
    assert(m.role==='admin','Administrator approval required.');const r=(o.requests||[]).find((v:any)=>v.id===input.data.id);assert(r&&r.status==='Pending','Request is no longer pending.',409);const approve=parse(z.boolean(),input.data.approve);
-   if(approve&&r.type==='UTI'){assert(j.amount===0&&r.paymentReference,'Full payment is required.',400);j.stage='UTI';o.pendingSchedule=null;j.install=''}
+   if(approve&&r.type==='UTI'){assert(j.amount===0,'A $0 balance is required.',400);j.stage='UTI';o.pendingSchedule=null;j.install=''}
    if(approve&&r.type==='COLL'){assert(r.refused,'Refused payment is required.',400);j.stage='COLL';o.pendingSchedule=null;j.install=''}
    if(approve&&r.type==='Service'){assert(r.serviceDate&&r.serviceDate>=today,'The requested service date has passed. Submit a new request.',400);await addService(r,r.id)}
    if(approve&&r.type==='ACCRF'){assert(j.contractAmount!=null&&j.amount!=null,'Reconcile price and balance first.',400);const delta=Math.round((r.amount-j.contractAmount)*100)/100;assert(j.amount+delta>=0,'This adjustment would create a credit. Reconcile it with the main system first.',400);j.amount=Math.round((j.amount+delta)*100)/100;j.contractAmount=r.amount}
@@ -266,9 +271,9 @@ export async function operation(m:Member,input:any){
    await tx.prepare('DELETE FROM jobs WHERE id=?').bind(j.id).run();return;
   }else if(action!=='create')throw new ApiError(400,'Unknown action.');
   if(['create','edit'].includes(action)&&input.data.scheduleWork){const previousHistory=history;await scheduleJob(input.data.scheduleWork);history=previousHistory+'; '+history;}
-  if(['create','edit'].includes(action)&&j.city?.trim()){const name=j.city.trim();await tx.prepare('INSERT INTO production.operations_config(id,payload,updated_by,updated) VALUES(?,?,?,?) ON CONFLICT(id) DO NOTHING').bind('city:'+name.toLowerCase(),JSON.stringify({name}),m.id,at).run();}
-  if(['create','edit'].includes(action)&&j.salesRep?.trim()){const rep={name:j.salesRep.trim(),phone:j.salesRepPhone||'',email:j.salesRepEmail||''};await tx.prepare('INSERT INTO production.operations_config(id,payload,updated_by,updated) VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET payload=EXCLUDED.payload,updated_by=EXCLUDED.updated_by,updated=EXCLUDED.updated').bind('sales-rep:'+rep.name.toLowerCase(),JSON.stringify(rep),m.id,at).run();}
-  if(['create','permit','edit'].includes(action)&&j.buildingDepartment?.trim()){const name=j.buildingDepartment.trim();await tx.prepare('INSERT INTO production.operations_config(id,payload,updated_by,updated) VALUES(?,?,?,?) ON CONFLICT(id) DO NOTHING').bind('building-department:'+name.toLowerCase(),JSON.stringify({name}),m.id,at).run();}
+  if(['create','edit'].includes(action)&&j.city?.trim()){const name=cleanChoice(j.city);await tx.prepare('INSERT INTO production.operations_config(id,payload,updated_by,updated) VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET payload=EXCLUDED.payload,updated_by=EXCLUDED.updated_by,updated=EXCLUDED.updated').bind('city:'+choiceKey(name),JSON.stringify({name}),m.id,at).run();}
+  if(['create','edit'].includes(action)&&j.salesRep?.trim()){const rep={name:cleanChoice(j.salesRep),phone:j.salesRepPhone||'',email:j.salesRepEmail||''};await tx.prepare('INSERT INTO production.operations_config(id,payload,updated_by,updated) VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET payload=EXCLUDED.payload,updated_by=EXCLUDED.updated_by,updated=EXCLUDED.updated').bind('sales-rep:'+choiceKey(rep.name),JSON.stringify(rep),m.id,at).run();}
+  if(['create','permit','edit'].includes(action)&&j.buildingDepartment?.trim()){const name=cleanChoice(j.buildingDepartment);await tx.prepare('INSERT INTO production.operations_config(id,payload,updated_by,updated) VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET payload=EXCLUDED.payload,updated_by=EXCLUDED.updated_by,updated=EXCLUDED.updated').bind('building-department:'+choiceKey(name),JSON.stringify({name}),m.id,at).run();}
   j.history=[{at,by:m.name,text:history},...(j.history||[])];
   if(version)await tx.prepare('UPDATE jobs SET payload=?,version=version+1,updated=? WHERE id=?').bind(JSON.stringify(j),at,j.id).run();
   else await tx.prepare('INSERT INTO jobs(id,payload,version,updated) VALUES(?,?,1,?)').bind(j.id,JSON.stringify(j),at).run();

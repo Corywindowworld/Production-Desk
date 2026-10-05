@@ -31,9 +31,9 @@ export async function importGuild(m:Member,input:unknown){
     mapped.set(r.code,id);
    }
    const key=`gq:${r.code}:${r.customerId}:${r.completedOn}`,ratings=r.ratings.map(n=>n+1),id=mapped.get(r.code)!;
-   const old=await tx.prepare('SELECT installer_id,ratings FROM production.operations_surveys WHERE external_id=?').bind(key).first();
-   if(old){if(JSON.stringify(decodedRatings(old.ratings))!==JSON.stringify(ratings))throw new ApiError(409,`Conflicting survey ${key}. Review the existing record before importing.`);if(old.installer_id!==id){await tx.prepare('UPDATE production.operations_surveys SET installer_id=? WHERE external_id=?').bind(id,key).run();result.reassigned++;}else result.skipped++;continue}
-   await tx.prepare('INSERT INTO production.operations_surveys(id,external_id,installer_id,completed_on,ratings,entered_by,created) VALUES(?,?,?,?,?,?,?)').bind(crypto.randomUUID(),key,id,r.completedOn,JSON.stringify(ratings),m.id,at).run();result.inserted++;
+   const old=await tx.prepare('SELECT installer_id,customer_id,ratings FROM production.operations_surveys WHERE external_id=?').bind(key).first();
+   if(old){if(JSON.stringify(decodedRatings(old.ratings))!==JSON.stringify(ratings))throw new ApiError(409,`Conflicting survey ${key}. Review the existing record before importing.`);if(old.installer_id!==id||old.customer_id!==r.customerId){await tx.prepare('UPDATE production.operations_surveys SET installer_id=?,customer_id=? WHERE external_id=?').bind(id,r.customerId,key).run();if(old.installer_id!==id)result.reassigned++;else result.skipped++;}else result.skipped++;continue}
+   await tx.prepare('INSERT INTO production.operations_surveys(id,external_id,customer_id,installer_id,completed_on,ratings,entered_by,created) VALUES(?,?,?,?,?,?,?,?)').bind(crypto.randomUUID(),key,r.customerId,id,r.completedOn,JSON.stringify(ratings),m.id,at).run();result.inserted++;
   }
  });return result;
 }

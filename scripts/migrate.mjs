@@ -9,7 +9,9 @@ try{
   await tx`REVOKE ALL ON SCHEMA production FROM PUBLIC`;
   for(const file of (await readdir('supabase/migrations')).filter(f=>f.endsWith('.sql')).sort()){
    if((await tx`SELECT name FROM production.schema_migrations WHERE name=${file}`).length)continue;
-   await tx.unsafe(await readFile('supabase/migrations/'+file,'utf8'));
+   // The runner owns the transaction; dashboard SQL files may have their own wrappers.
+   const source=await readFile('supabase/migrations/'+file,'utf8');
+   await tx.unsafe(source.replace(/^\s*(BEGIN|COMMIT);\s*$/gmi,''));
    await tx`INSERT INTO production.schema_migrations(name) VALUES (${file})`;
    console.log('Applied '+file);
   }

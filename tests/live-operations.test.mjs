@@ -79,7 +79,7 @@ test('admin override and payment permissions',async()=>{
  await assert.rejects(()=>act(admin,'adminResult',{target:'Closed',confirmed:false,reason:'Legacy closeout'}));
  await assert.rejects(()=>act(admin,'adminResult',{target:'Incomplete',confirmed:true,reason:''}),/reason|characters/i);
  await assert.rejects(()=>act(admin,'adminResult',{target:'Incomplete',confirmed:true,reason:'Legacy incomplete'}),/reorder/i);
- for(const member of [fs,pa])await assert.rejects(()=>act(member,'edit',{paymentMethod:'PO'}),/Administrator/);
+ for(const member of [fs])await assert.rejects(()=>act(member,'edit',{paymentMethod:'PO'}),/Administrator/);
  await act(fs,'edit',{notes:'No payment change'});assert.equal(j.paymentMethod,'CHK');
  await act(admin,'edit',{paymentMethod:'PO'});assert.equal(j.paymentMethod,'PO');
  await assert.rejects(()=>act(admin,'adminResult',{target:'Incomplete',confirmed:true,reason:'Historical job missing photos',reorder:'Replacement sash needed'}),/reorder date/i);
@@ -177,12 +177,12 @@ test('bonus payout amounts use the selected category rows, including printed zer
  const m=bonusMetrics([],surveys,config,'2026-09-17');assert.equal(m.score,3.5);assert.equal(m.estimate,5520);
  const score=bonusMetrics([],[...surveys,{completed_on:'2026-08-25',ratings:[1,1,1,1]}],config,'2026-09-17');assert.equal(score.score,3.5);assert.equal(score.surveys,1);
 });
-test('admin may correct job amount and balance with history; other roles may not',async()=>{
+test('admin and PA may correct job amounts; supervisors may not',async()=>{
  await act(admin,'create',{number:'MONEY-CORRECTION',customer:'Money Test',address:'123 Test Street',amount:100,contractAmount:500});
  await act(admin,'edit',{amount:75.25,contractAmount:450});
  assert.equal(j.amount,75.25);assert.equal(j.contractAmount,450);
  assert.ok(j.history[0].text.includes('Balance due 100 → 75.25'));
- await assert.rejects(()=>act(pa,'edit',{amount:1}),/Administrator/);
+ await act(pa,'edit',{amount:75.25});assert.equal(j.amount,75.25);
  await assert.rejects(()=>act(fs,'edit',{contractAmount:1}),/Administrator/);
  await assert.rejects(()=>act(admin,'edit',{amount:-1}));
  await act(admin,'edit',{notes:'Keep financial values'});assert.equal(j.amount,75.25);
@@ -419,7 +419,7 @@ test('legacy null optional fields do not prevent customer edits or change protec
  assert.equal(j.notes,'Customer supplied permit delayed');assert.equal(j.supervisorId,'');assert.equal(j.brand,'');assert.equal(j.phone,'');assert.equal(j.reportedUnits,null);assert.equal(j.amount,null);assert.equal(j.contractAmount,null);assert.equal(j.stage,'Ordered');
  await assert.rejects(()=>act(pa,'edit',{salesRepEmail:'not-an-email'}),/salesRepEmail/);
  await assert.rejects(()=>act(pa,'edit',{customer:null}),/customer/);
- await assert.rejects(()=>act(pa,'edit',{amount:0}),/protected/);
+ await act(pa,'edit',{amount:0});assert.equal(j.amount,0);
 });
 
 test('location permissions, scoped maps, private links and session revocation',async()=>{
@@ -507,3 +507,29 @@ test('weekly print includes Sunday through Saturday, scopes dates and escapes cu
 });
 
 test.after(async()=>{await vite.close();await pg.close()});
+
+test('permit exemption, PA amount edits, and reciprocal customer links',async()=>{
+ await act(pa,'create',{number:'NO-PERMIT-A',customer:'Linked Customer',address:'123 Example',amount:100,contractAmount:200,noPermitRequired:true});
+ const a=j.id;
+ await act(pa,'schedule',{date:today,period:'AM',installerId:'',stop:1});assert.equal(j.install,today);
+ await act(pa,'edit',{amount:80,contractAmount:250,paymentMethod:'PO'});assert.equal(j.amount,80);assert.equal(j.contractAmount,250);assert.equal(j.paymentMethod,'PO');assert.equal(j.noPermitRequired,true);
+ await assert.rejects(()=>act(pa,'permit',{noPermitRequired:true,received:true,number:'X'}),/not both/);
+ await act(pa,'permit',{noPermitRequired:false,received:false,number:''});
+ await assert.rejects(()=>act(pa,'schedule',{date:today,period:'AM',installerId:'',stop:1}),/permit/i);
+ await act(pa,'create',{number:'NO-PERMIT-B',customer:'Linked Customer',address:'123 Example',amount:50});const b=j.id;
+ await act(pa,'linkAccount',{targetId:a});
+ let jobs=(await operationsData(pa)).jobs;assert.ok(jobs.find(x=>x.id===a).linkedAccountIds.includes(b));assert.ok(jobs.find(x=>x.id===b).linkedAccountIds.includes(a));
+ j=jobs.find(x=>x.id===a);await assert.rejects(()=>act(installer,'linkAccount',{targetId:b}),/permission/);
+ await assert.rejects(()=>act(pa,'linkAccount',{targetId:a}),/different/);
+ await act(pa,'unlinkAccount',{targetId:b});jobs=(await operationsData(pa)).jobs;
+ assert.deepEqual(jobs.find(x=>x.id===a).linkedAccountIds,[]);assert.deepEqual(jobs.find(x=>x.id===b).linkedAccountIds,[]);
+});
+
+test('Add Customer links by exact customer ID and rolls back invalid links',async()=>{
+ await act(pa,'create',{number:'LINK-PARENT',customer:'Same customer',address:'1 Test',amount:5});const parent=j.id;
+ await assert.rejects(()=>act(pa,'create',{number:'LINK-INVALID',customer:'Same customer',address:'1 Test',amount:5,linkedCustomerId:'MISSING'}),/not found/);
+ assert.ok(!(await operationsData(pa)).jobs.some(x=>x.number==='LINK-INVALID'));
+ await act(pa,'create',{number:'LINK-CHILD',customer:'Same customer',address:'1 Test',amount:10,linkedCustomerId:'LINK-PARENT'});const child=(await operationsData(pa)).jobs.find(x=>x.number==='LINK-CHILD').id;
+ const jobs=(await operationsData(pa)).jobs;
+ assert.ok(jobs.find(x=>x.id===parent).linkedAccountIds.includes(child));assert.ok(jobs.find(x=>x.id===child).linkedAccountIds.includes(parent));
+});

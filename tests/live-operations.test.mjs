@@ -5,7 +5,7 @@ import {readFileSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {createServer} from 'vite';
 const pg=new PGlite();
-for(const file of ['001_initial','002_installer_quality','003_account_permissions','004_account_profiles','005_account_theme','006_more_themes','007_customer_records','008_live_operations','008_live_operations','009_tampa_themes','010_bonus_snapshots','011_installer_location','011_installer_location'])await pg.exec(readFileSync(`supabase/migrations/${file}.sql`,'utf8'));
+for(const file of ['001_initial','002_installer_quality','003_account_permissions','004_account_profiles','005_account_theme','006_more_themes','007_customer_records','008_live_operations','008_live_operations','009_tampa_themes','010_bonus_snapshots','011_installer_location','011_installer_location','012_survey_customer_id','013_customer_tracking','013_customer_tracking'])await pg.exec(readFileSync(`supabase/migrations/${file}.sql`,'utf8'));
 const wrap=c=>({query:async(sql,args)=>{const r=await c.query(sql,args);return {rows:r.rows,changes:r.affectedRows??r.rows.length}},transaction:fn=>c.transaction(tx=>fn(wrap(tx)))});
 const vite=await createServer({configFile:false,resolve:{alias:{'@':resolve('.')}},plugins:[{name:'live-test',enforce:'pre',resolveId(id){if(id==='@/db/raw'||/\/db\/raw(?:\.ts)?$/.test(id))return '\0db';if(/(?:\/|^)server-env(?:\.ts)?$/.test(id)||id==='./server-env')return '\0env';if(id==='./push'||id==='@/lib/push')return '\0push'},load(id){if(id==='\0db')return 'export const database=()=>globalThis.__liveDb';if(id==='\0env')return 'export const env={BUCKET:{head:async key=>({customMetadata:{jobId:globalThis.__jobId,uploadedBy:globalThis.__installerId,sha256:key}})}}';if(id==='\0push')return 'export async function deliverPush(){}'}}],server:{middlewareMode:true,hmr:false}});
 const {createDatabase}=await vite.ssrLoadModule('/db/adapter.ts');globalThis.__liveDb=createDatabase(wrap(pg));
@@ -52,7 +52,7 @@ test('live approvals, persistence, scopes and money',async()=>{
  await act(fs,'request',{type:'UTI',details:'Customer unavailable',paymentReference:'Final payment'});
  const uti=j.operations.requests[0];await assert.rejects(()=>act(pa,'reviewRequest',{id:uti.id,approve:true}),/Administrator/);
  await act(admin,'reviewRequest',{id:uti.id,approve:true});assert.equal(j.stage,'UTI');assert.equal(aging(j,today).aged,false);
- const survey={externalId:'guild-survey-1',installerId:installer.id,completedOn:today,ratings:[5,5,5,5]};
+ const survey={externalId:'guild-survey-1',customerId:j.number,installerId:installer.id,completedOn:today,ratings:[5,5,5,5]};
  await operation(fs,{action:'survey',data:survey});await assert.rejects(()=>operation(fs,{action:'survey',data:survey}),/already/);
  assert.equal((await operationsData(fs)).metrics.score,4);
  const installerQuality=await operationsData(installer);assert.equal(installerQuality.metrics.score,4);assert.equal(installerQuality.surveys.length,1);assert.equal(installerQuality.surveys[0].installer_id,installer.id);
@@ -448,10 +448,14 @@ test('location permissions, scoped maps, private links and session revocation',a
  await pg.query('INSERT INTO production.jobs(id,payload,updated) VALUES($1,$2,$3)',[jobId,JSON.stringify({installerId:installer.id,customer:'Private name',address:'Private address'}),new Date().toISOString()]);
  await assert.rejects(()=>location.createShare(pa,jobId),/assigned/);
  await assert.rejects(()=>location.createShare({...fs,id:'different-supervisor'},jobId),/assigned/);
- const share=await location.createShare(fs,jobId);
+ const share=await location.createShare(fs,jobId,30);
+ assert.equal(share.greeting,'Hi, this is Supervisor, our team is on the way to you now!');
  const visible=await location.publicLocation(share.token);
- assert.deepEqual(Object.keys(visible).sort(),['accuracy','expires','latitude','longitude','observedAt','stale'].sort());
- assert.equal(visible.latitude,27.9);
+ assert.deepEqual(Object.keys(visible).sort(),['accuracy','expires','latitude','longitude','observedAt','stale','name','photo','arrivalAt','stopNumber'].sort());
+ assert.equal(visible.latitude,27.9);assert.ok(visible.arrivalAt>Date.now()+29*60000);assert.ok(!('payload' in visible));
+ await pg.query('UPDATE production.installer_locations SET observed_at=$2 WHERE member_id=$1',[installer.id,now-180000]);
+ const stale=await location.publicLocation(share.token);assert.equal(stale.stale,true);assert.equal(stale.latitude,27.9);
+ await pg.query('UPDATE production.installer_locations SET observed_at=$2 WHERE member_id=$1',[installer.id,now]);
  await location.revokeShare(installer,jobId);
  await assert.rejects(()=>location.publicLocation(share.token),/ended/);
  const next=await location.createShare(installer,jobId);
@@ -462,7 +466,7 @@ test('location permissions, scoped maps, private links and session revocation',a
  await assert.rejects(()=>location.locationIdentity(req),/Sign in/);
  await assert.rejects(()=>location.locationIdentity(bearer),/Sign in/);
  await assert.rejects(()=>location.publicLocation(next.token),/ended/);
- const stopped=(await location.mapLocations(admin)).find(x=>x.id===installer.id);assert.equal(stopped.status,'Not sharing');assert.equal(stopped.latitude,null);
+ const stopped=(await location.mapLocations(admin)).find(x=>x.id===installer.id);assert.equal(stopped.status,'Not sharing');assert.equal(stopped.latitude,27.9);assert.equal(stopped.stale,true);
 });
 
 test('customer creation records optional permit and material intake atomically',async()=>{

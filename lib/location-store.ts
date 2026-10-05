@@ -43,18 +43,22 @@ export async function requireLocation(request:Request,m:Member){
 export async function mapLocations(m:Member){
  if(!['admin','supervisor'].includes(m.role))throw new ApiError(403,'Admin or Field Supervisor access required.');
  const rows=(await database().prepare("SELECT m.id,m.name,l.latitude,l.longitude,l.accuracy,l.observed_at,l.updated_at,l.sharing,EXISTS(SELECT 1 FROM sessions s JOIN credentials c ON c.member_id=s.member_id WHERE s.token_hash=l.session_hash AND s.expires>? AND s.generation=c.generation) AS signed_in FROM members m LEFT JOIN production.installer_locations l ON l.member_id=m.id WHERE m.role='installer' AND m.active=1"+(m.role==='supervisor'?' AND m.supervisor_id=?':'')+' ORDER BY m.name').bind(Date.now(),...(m.role==='supervisor'?[m.id]:[])).all()).results;
- return rows.map((r:any)=>{const status=!r.sharing||!r.signed_in?'Not sharing':Date.now()-Number(r.observed_at)>FRESH?'Stale':'Sharing';return {id:r.id,name:r.name,status,latitude:status==='Not sharing'?null:r.latitude,longitude:status==='Not sharing'?null:r.longitude,accuracy:status==='Not sharing'?null:r.accuracy,observed_at:status==='Not sharing'?null:r.observed_at}});
+ return rows.map((r:any)=>{const status=!r.sharing||!r.signed_in?'Not sharing':Date.now()-Number(r.observed_at)>FRESH?'Stale':'Sharing';return {id:r.id,name:r.name,status,latitude:r.latitude,longitude:r.longitude,accuracy:r.accuracy,observed_at:r.observed_at,stale:status!=='Sharing'}});
 }
-export async function createShare(m:Member,jobId:string){
+export async function createShare(m:Member,jobId:string,etaMinutes?:number){
+ if(etaMinutes!==undefined&&(!Number.isInteger(etaMinutes)||etaMinutes<5||etaMinutes>240))throw new ApiError(400,'Enter an estimated travel time from 5 to 240 minutes.');
  const row=await database().prepare('SELECT payload FROM jobs WHERE id=?').bind(jobId).first();if(!row)throw new ApiError(404,'Job not found.');const j=storedObject(row.payload);
- const crew=await database().prepare('SELECT supervisor_id FROM members WHERE id=? AND active=1').bind(j.installerId||'').first();
+ const crew=await database().prepare('SELECT supervisor_id,name,profile_details FROM members WHERE id=? AND active=1').bind(j.installerId||'').first();
  if(!(m.role==='admin'||m.role==='supervisor'&&crew?.supervisor_id===m.id||m.role==='installer'&&j.installerId===m.id))throw new ApiError(403,'This job is not assigned to you.');
  if(!j.installerId)throw new ApiError(400,'Assign an installer first.');
  const loc=await database().prepare('SELECT * FROM production.installer_locations WHERE member_id=?').bind(j.installerId).first();if(!loc?.sharing||Date.now()-Number(loc.observed_at)>FRESH)throw new ApiError(409,'Installer needs a fresh location before sharing a customer link.');
  const active=await database().prepare('SELECT s.token_hash FROM sessions s JOIN credentials c ON c.member_id=s.member_id WHERE s.token_hash=? AND s.expires>? AND s.generation=c.generation').bind(loc.session_hash,Date.now()).first();if(!active)throw new ApiError(409,'Installer must sign in and share location first.');
  const token=randomToken(),expires=Date.now()+2*60*60*1000;
- await database().transaction(async tx=>{await tx.prepare('UPDATE production.location_shares SET revoked=true WHERE member_id=?').bind(j.installerId).run();await tx.prepare('INSERT INTO production.location_shares(token_hash,member_id,job_id,expires) VALUES(?,?,?,?)').bind(await digest(token),j.installerId,jobId,expires).run();});
- return {token,expires};
+ const arrivalAt=etaMinutes?Date.now()+etaMinutes*60000:null,stopNumber=Number.isInteger(j.stopNumber)&&j.stopNumber>0?j.stopNumber:null;
+ await database().transaction(async tx=>{await tx.prepare('UPDATE production.location_shares SET revoked=true WHERE member_id=?').bind(j.installerId).run();await tx.prepare('INSERT INTO production.location_shares(token_hash,member_id,job_id,expires,arrival_at,stop_number) VALUES(?,?,?,?,?,?)').bind(await digest(token),j.installerId,jobId,expires,arrivalAt,stopNumber).run();});
+ const name=storedObject(crew?.profile_details||{}).leadInstallerName||crew?.name||m.name;
+ const greeting=m.role==='installer'?`Hi, this is ${String(name).trim().split(/\s+/)[0]} with Window World. I am on the way to you now!`:`Hi, this is ${m.name}, our team is on the way to you now!`;
+ return {token,expires,greeting};
 }
 export async function revokeShare(m:Member,jobId:string){
  const row=await database().prepare('SELECT payload FROM jobs WHERE id=?').bind(jobId).first();if(!row)throw new ApiError(404,'Job not found.');const j=storedObject(row.payload);
@@ -64,9 +68,10 @@ export async function revokeShare(m:Member,jobId:string){
 }
 export async function publicLocation(token:string){
  if(!/^[A-Za-z0-9_-]{43}$/.test(token))throw new ApiError(404,'Tracking link is unavailable.');
- const r=await database().prepare('SELECT l.latitude,l.longitude,l.accuracy,l.observed_at,l.sharing,l.session_hash,s.member_id,s.expires,j.payload FROM production.location_shares s JOIN production.installer_locations l ON l.member_id=s.member_id JOIN jobs j ON j.id=s.job_id JOIN members m ON m.id=s.member_id WHERE s.token_hash=? AND s.revoked=false AND s.expires>? AND m.active=1').bind(await digest(token),Date.now()).first();
+ const r=await database().prepare('SELECT l.latitude,l.longitude,l.accuracy,l.observed_at,l.sharing,l.session_hash,s.member_id,s.expires,s.arrival_at,s.stop_number,m.name,m.profile_details,j.payload FROM production.location_shares s JOIN production.installer_locations l ON l.member_id=s.member_id JOIN jobs j ON j.id=s.job_id JOIN members m ON m.id=s.member_id WHERE s.token_hash=? AND s.revoked=false AND s.expires>? AND m.active=1').bind(await digest(token),Date.now()).first();
  if(!r||storedObject(r.payload).installerId!==r.member_id)throw new ApiError(404,'This trip has ended or the link has expired.');
  const active=await database().prepare('SELECT s.token_hash FROM sessions s JOIN credentials c ON c.member_id=s.member_id WHERE s.token_hash=? AND s.expires>? AND s.generation=c.generation').bind(r.session_hash,Date.now()).first();
  if(!r.sharing||!active)throw new ApiError(404,'Location sharing has stopped.');
- return {latitude:r.latitude,longitude:r.longitude,accuracy:r.accuracy,observedAt:Number(r.observed_at),stale:Date.now()-Number(r.observed_at)>FRESH,expires:Number(r.expires)};
+ const profile=storedObject(r.profile_details||{});
+ return {latitude:r.latitude,longitude:r.longitude,accuracy:r.accuracy,observedAt:Number(r.observed_at),stale:Date.now()-Number(r.observed_at)>FRESH,expires:Number(r.expires),name:profile.leadInstallerName||r.name,photo:profile.photoDataUrl||'',arrivalAt:r.arrival_at==null?null:Number(r.arrival_at),stopNumber:r.stop_number};
 }

@@ -291,7 +291,8 @@ test('any status can be scheduled, hourly slots persist, only admin reverses PRO
  await act(pa,'schedule',{date:today,period:'AM',time:'09:00',installerId:installer.id,stop:1});assert.equal(j.stage,'Ordered');assert.equal(j.installTime,'09:00');
  await act(pa,'receive',{received:today,materials:[{bay:'B1',brand:'CWS',materialType:'Window'}]});await act(fs,'start');
  await assert.rejects(()=>act(fs,'status',{target:'Received'}),/Administrator/i);
- await act(admin,'status',{target:'Received'});assert.equal(j.stage,'Received');assert.equal(j.received,today);
+ await act(admin,'status',{target:'Received'});assert.equal(j.stage,'Received');assert.equal(j.received,today);assert.equal(j.install,'');
+ await act(pa,'schedule',{date:today,period:'AM',time:'09:00',installerId:installer.id,stop:1});
  await act(fs,'start');
  for(const stage of ['Production','InProgress','Incomplete','Closed','COLL','UTI','SVC']){
   await pg.query("UPDATE production.jobs SET payload=(payload::jsonb || jsonb_build_object('stage',$1::text))::text WHERE id=$2",[stage,j.id]);await reload();
@@ -307,6 +308,42 @@ test('multi-day calendar skips weekends, counts inclusively and cuts off approve
  assert.equal(remainingWorkdays('2026-09-18','2026-09-25'),6);
  assert.equal(installAppointments({...job,scheduleCompletedOn:'2026-09-18'},dates).length,1);
  assert.equal(installAppointments({...job,operations:{report:{pending:true,status:'Complete'}}},dates).length,2);
+});
+test('admin cancels production including pending reports and preserves received aging',async()=>{
+ await act(pa,'create',{number:'CANCEL-PROD',customer:'Canceled install',address:'1 Main',amount:100,noPermitRequired:true});
+ const received=addDays(today,-35);
+ await act(pa,'receive',{received,materials:[{bay:'B1',brand:'CWS',materialType:'Window'}]});
+ await act(pa,'schedule',{date:today,endDate:addDays(today,4),period:'AM',installerId:installer.id,stop:1});await act(fs,'start');await act(fs,'status',{target:'InProgress'});
+ await pg.query("UPDATE production.jobs SET payload=(payload::jsonb||$2::jsonb)::text WHERE id=$1",[j.id,JSON.stringify({operations:{report:{pending:true,status:'Complete',id:'prior'}}})]);await reload();
+ await assert.rejects(()=>act(pa,'status',{target:'Received'}),/supervisor or administrator/i);
+ await assert.rejects(()=>act(fs,'status',{target:'Received'}),/Administrator/);
+ await act(admin,'status',{target:'Received',reason:'Customer canceled appointment'});
+ assert.equal(j.stage,'Received');assert.equal(j.received,received);assert.equal(j.installed,'');assert.equal(j.install,'');assert.equal(j.installEnd,'');assert.equal(j.operations.report,null);assert.equal(j.operations.previousReports[0].id,'prior');assert.equal(j.operations.previousReports[0].superseded,true);assert.equal(aging(j,today).aged,true);
+ assert.ok(j.history[0].text.includes('Customer canceled appointment'));
+ await assert.rejects(()=>act(fs,'reviewReport',{approve:true}),/No report/);
+});
+test('payments need no reference and remain admin-only',async()=>{
+ await act(admin,'create',{number:'PAY-NO-REFERENCE',customer:'Payment',address:'1 Main',amount:100});
+ await assert.rejects(()=>act(pa,'payment',{paymentAmount:10,paymentType:'CHK'}),/Administrator/);
+ await act(admin,'payment',{paymentAmount:25,paymentType:'CHK'});assert.equal(j.amount,75);assert.ok(!j.history[0].text.includes('undefined'));
+ await act(admin,'balance',{amount:70});assert.equal(j.amount,70);
+});
+test('assigned installers save standalone photos in production and follow-up statuses',async()=>{
+ const {canAddJobPhotos}=await vite.ssrLoadModule('/lib/job-photo-access.ts');
+ await act(pa,'create',{number:'FOLLOWUP-PHOTOS',customer:'Photos',address:'1 Main',amount:0,assignedInstallerId:installer.id});
+ for(const stage of ['Production','InProgress','Incomplete','SVC','COLL','UTI']){
+  await pg.query("UPDATE production.jobs SET payload=(payload::jsonb||jsonb_build_object('stage',$2::text))::text WHERE id=$1",[j.id,stage]);await reload();
+  const a={key:`jobs/${j.id}/photos/${crypto.randomUUID()}`,name:'followup.jpg',kind:'photos'};
+  await pg.query("INSERT INTO production.attachment_uploads(key,staging_key,job_id,kind,member_id,name,expires,status,sha256) VALUES($1,$1,$2,$3,$4,$5,0,'ready',$1)",[a.key,j.id,a.kind,installer.id,a.name]);
+  assert.equal(canAddJobPhotos(installer,j),true);
+  await act(installer,'jobPhotos',{attachments:[a]});assert.equal(j.stage,stage);assert.ok(j.attachments.some(x=>x.key===a.key&&x.source==='job'));assert.equal(j.operations.report,undefined);
+  await assert.rejects(()=>act(fs,'jobPhotos',{attachments:[a]}),/Upload each photo/);
+  assert.equal(canAddJobPhotos({...installer,id:'unassigned'},j),false);
+ }
+ assert.equal(canAddJobPhotos(installer,{...j,stage:'Closed'}),false);
+ assert.equal(canAddJobPhotos(installer,{...j,stage:'Received'}),false);
+ assert.equal(canAddJobPhotos(installer,{...j,stage:'SVC',installerId:'other',operations:{services:[{installerId:installer.id,date:today}]}}),true);
+ await assert.rejects(()=>act(installer,'jobPhotos',{attachments:[{key:`jobs/${j.id}/photos/${crypto.randomUUID()}`,name:'missing.jpg',kind:'photos'}]}),/Upload each photo/);
 });
 test('stored objects support text and JSONB without silently dropping bad jobs',async()=>{
  const {storedObject}=await vite.ssrLoadModule('/lib/stored-data.ts');

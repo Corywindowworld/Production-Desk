@@ -1,3 +1,4 @@
+import {canAddJobPhotos,jobPhotoKinds} from './job-photo-access';
 import {linkedAccountValues} from './linked-account';
 import {isPurchaseOrder,resolvedPaymentMethod} from './payment-status';
 import {remainingWorkdays,hourLabel,installAppointments} from './install-calendar';
@@ -240,10 +241,10 @@ export async function operation(m:Member,input:any){
    const key=j.stage==='Incomplete'?'incompleteSince':['Production','InProgress'].includes(j.stage)?'installed':j.stage==='Received'?'received':null;
    assert(key&&!j[key],'Only an unconfirmed aging date can be entered here.',400);j[key!]=d.date;history=`Verified ${key}: ${d.date}. Source: ${d.reference}`;
   }else if(action==='payment'){
-   assert(m.role==='admin','Only an Administrator may record payments.');const paymentType=parse(z.enum(['FNC','CHK','CC','AQUA','PO']),input.data.paymentType);const amount=parse(z.number().finite().positive().multipleOf(.01),input.data.paymentAmount),reference=parse(z.string().trim().min(1).max(300),input.data.reference);
-   assert(j.amount!=null&&amount<=j.amount,'Enter a payment no greater than the balance due. Reconcile an unknown balance first.',400);const remaining=Math.round((j.amount-amount)*100)/100;history=`Payment ${amount}. Amount due ${j.amount} → ${remaining}. Payment type: ${paymentType}. Payment reference: ${reference}`;j.amount=remaining;j.paymentMethod=paymentType;
+   assert(m.role==='admin','Only an Administrator may record payments.');const paymentType=parse(z.enum(['FNC','CHK','CC','AQUA','PO']),input.data.paymentType);const amount=parse(z.number().finite().positive().multipleOf(.01),input.data.paymentAmount),reference=parse(z.string().trim().max(300).default(''),input.data.reference);
+   assert(j.amount!=null&&amount<=j.amount,'Enter a payment no greater than the balance due. Reconcile an unknown balance first.',400);const remaining=Math.round((j.amount-amount)*100)/100;history=`Payment ${amount}. Amount due ${j.amount} → ${remaining}. Payment type: ${paymentType}.${reference?' Payment reference: '+reference:''}`;j.amount=remaining;j.paymentMethod=paymentType;
   }else if(action==='balance'){
-   assert(m.role==='admin','Administrator access required.');const amount=parse(z.number().finite().min(0).multipleOf(.01),input.data.amount);const reference=parse(z.string().trim().min(1).max(300),input.data.reference);history=`Balance reconciled ${j.amount??'unknown'} → ${amount}. Source: ${reference}`;j.amount=amount;
+   assert(m.role==='admin','Administrator access required.');const amount=parse(z.number().finite().min(0).multipleOf(.01),input.data.amount);const reference=parse(z.string().trim().max(300).default(''),input.data.reference);history=`Balance reconciled ${j.amount??'unknown'} → ${amount}. ${reference?'Source: '+reference:'Updated by Administrator'}`;j.amount=amount;
   }else if(action==='schedule'){
    await scheduleJob(input.data);
   }else if(action==='approveSchedule'||action==='rejectSchedule'){
@@ -275,11 +276,32 @@ export async function operation(m:Member,input:any){
    await notifyReport(`Job #${j.number}: Administrator ${m.name} moved this job to ${result.target==='Closed'?'COMP':'INC'}. ${result.reason}`);
    await alert(j.installerId,`Job #${j.number}: Administrator moved this job to ${result.target==='Closed'?'COMP':'INC'}.`);
   }else if(action==='status'){
-   assert(reviewer(m),'Field supervisor or administrator access required.');assert(!o.report?.pending,'Review the installer submission before changing status.',409);
+   assert(reviewer(m),'Field supervisor or administrator access required.');
    const target=parse(z.enum(['Production','InProgress','Received']),input.data.target);
-   if(target==='Received'){assert(m.role==='admin','Only an Administrator may return PROD to RCVD.');assert(j.stage==='Production','Only a PROD job can return to RCVD.',400);assert(j.received,'Record a received date first.',400);j.stage='Received';history='Administrator returned PROD to RCVD; original received date retained'}
-   else if(target==='Production'){assert(j.stage==='Received'&&j.install,'Schedule the RCVD job before moving it to PROD.',400);j.stage='Production';j.installed=today;o.report=null;history='Job moved to PROD; production aging started'}
-   else{assert(['Production','InProgress'].includes(j.stage),'Only a PROD job can be marked IN PROGRESS.',400);j.stage='InProgress';history='Multi-day installation marked IN PROGRESS'}
+   if(target==='Received'){
+    assert(m.role==='admin','Only an Administrator may return a job to RCVD.');
+    assert(['Production','InProgress'].includes(j.stage),'Only a PROD or IN PROGRESS job can return to RCVD.',400);
+    assert(j.received,'Record a received date first.',400);
+    const reason=parse(z.string().trim().max(1000).default(''),input.data.reason);
+    const previous=j.stage,dates=j.install?`${j.install} through ${j.installEnd||j.install}`:'none';
+    if(o.report)o.previousReports=[...(o.previousReports||[]),{...o.report,pending:false,superseded:true,supersededAt:at,supersededBy:m.name}];
+    o.report=null;o.pendingSchedule=null;
+    j.stage='Received';j.installed='';j.install='';j.installEnd='';j.installTime='';j.installPeriod='';j.scheduleCompletedOn='';
+    history=`Administrator returned ${previous} to RCVD; canceled installation ${dates}; original received date ${j.received} retained.${reason?' Reason: '+reason:''}`;
+    await alert(j.installerId,`Job #${j.number}: installation canceled and returned to RCVD.${reason?' '+reason:''}`);
+   }
+   else if(target==='Production'){assert(!o.report?.pending,'Review the installer submission before changing status.',409);assert(j.stage==='Received'&&j.install,'Schedule the RCVD job before moving it to PROD.',400);j.stage='Production';j.installed=today;o.report=null;history='Job moved to PROD; production aging started'}
+   else{assert(!o.report?.pending,'Review the installer submission before changing status.',409);assert(['Production','InProgress'].includes(j.stage),'Only a PROD job can be marked IN PROGRESS.',400);j.stage='InProgress';history='Multi-day installation marked IN PROGRESS'}
+  }else if(action==='jobPhotos'){
+   assert(canAddJobPhotos(m,j,today),'Only an assigned installer, Field Supervisor or Administrator may add photos to this job in its current status.');
+   const attachments=parse(z.array(z.object({key:z.string().max(250),name:z.string().min(1).max(255),kind:z.enum(jobPhotoKinds)})).min(1).max(100),input.data.attachments);
+   for(const a of attachments){
+    const file=await tx.prepare("SELECT * FROM attachment_uploads WHERE key=? AND status='ready'").bind(a.key).first();
+    assert(a.key.startsWith(`jobs/${j.id}/${a.kind}/`)&&file?.job_id===j.id&&file?.kind===a.kind&&file?.member_id===m.id,'Upload each photo to this job before saving it.',400);
+   }
+   const keys=new Set(attachments.map(a=>a.key));
+   j.attachments=[...(j.attachments||[]).filter((a:any)=>!keys.has(a.key)),...attachments.map(a=>({...a,source:'job',uploadedBy:m.name,uploadedAt:at}))];
+   history=`Added ${attachments.length} job photo(s) in ${j.stage} status`;
   }else if(action==='attach'){
    edit();const a=parse(z.object({key:z.string(),name:z.string().max(255),kind:z.literal('photos')}),input.data);const file=await tx.prepare("SELECT * FROM attachment_uploads WHERE key=? AND status='ready'").bind(a.key).first();assert(a.key.startsWith(`jobs/${j.id}/photos/`)&&file?.job_id===j.id,'Upload the file before saving it.',400);j.attachments=[...(j.attachments||[]).filter((v:any)=>v.key!==a.key),a];o.salesKeys=[...new Set([...(o.salesKeys||[]),a.key])];history='Sales handoff file added';
   }else if(action==='issue'){

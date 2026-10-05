@@ -1,3 +1,4 @@
+import {canAddJobPhotos,jobPhotoKinds} from '@/lib/job-photo-access';
 import {actor,apiError,jobFor,sameOrigin,ApiError,canEditJob,type Member} from '@/lib/access';
 import {visitJobFor} from '@/lib/job-visit-access';
 import {database} from '@/db/raw';
@@ -12,7 +13,7 @@ async function uploadAccess(member:Member,jobId:string,kind:string){
  if(kind==='visit'&&member.role!=='supervisor'&&member.role!=='admin')throw new ApiError(403,'Only supervisors and administrators can upload visit photos.');
  const job=kind==='visit'?await visitJobFor(member,jobId):await jobFor(member,jobId);
  if(kind!=='visit'&&member.role!=='installer'&&member.role!=='supervisor'&&member.role!=='admin'&&!canEditJob(member,job))throw new ApiError(403,'You do not have permission to update job attachments.');
- if(member.role==='installer'&&!['Production','InProgress'].includes(job.stage))throw new ApiError(400,'This job must be in PROD or IN PROGRESS.');
+ if(member.role==='installer'&&!(['Production','InProgress'].includes(job.stage)||(jobPhotoKinds.includes(kind as any)&&canAddJobPhotos(member,job))))throw new ApiError(400,'Photos can be added to assigned PROD, IN PROGRESS, INC, SVC, COLL or UTI jobs.');
 }
 export async function POST(request:Request){try{
  sameOrigin(request);const member=await actor(request),db=database();

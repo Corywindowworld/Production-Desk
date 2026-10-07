@@ -328,6 +328,23 @@ test('payments need no reference and remain admin-only',async()=>{
  await act(admin,'payment',{paymentAmount:25,paymentType:'CHK'});assert.equal(j.amount,75);assert.ok(!j.history[0].text.includes('undefined'));
  await act(admin,'balance',{amount:70});assert.equal(j.amount,70);
 });
+test('completion reports work in every assigned status and after a previous approved result',async()=>{
+ for(const stage of ['Ordered','Received','Production','InProgress','Incomplete','SVC','COLL','UTI','Closed']){
+  await act(pa,'create',{number:'REPORT-ANY-'+stage,customer:'Result test',address:'1 Main',amount:0,assignedInstallerId:installer.id});
+  const operations={report:{id:'old-report',status:'Incomplete',approved:true,pending:false},...(stage==='SVC'?{services:[{installerId:installer.id,date:addDays(today,-1)}]}:{})};
+  await pg.query("UPDATE production.jobs SET payload=(payload::jsonb||$2::jsonb)::text WHERE id=$1",[j.id,JSON.stringify({stage,operations,...(stage==='SVC'?{installerId:null}:{}),reorder:'Replacement sash',reorderDate:today})]);await reload();
+  assert.equal((await operationsData(installer)).jobs.find(x=>x.id===j.id).canReport,true);
+  const status=stage==='Incomplete'?'Incomplete':'Complete';
+  const kinds=status==='Incomplete'?['front','rear','left','right','issue','incomplete']:['front','rear','left','right','completion'];
+  const attachments=kinds.map(kind=>({kind,name:kind+'.jpg',key:`jobs/${j.id}/${kind}/${crypto.randomUUID()}`}));
+  for(const a of attachments)await pg.query("INSERT INTO production.attachment_uploads(key,staging_key,job_id,kind,member_id,name,expires,status,sha256) VALUES($1,$1,$2,$3,$4,$5,0,'ready',$1)",[a.key,j.id,a.kind,installer.id,a.name]);
+  const report={id:crypto.randomUUID(),status,reason:'Visit result',notes:'Follow-up',installed:today,attachments};
+  await assert.rejects(()=>act({...installer,id:'not-assigned'},'report',report),/assigned/);
+  await act(installer,'report',report);assert.equal(j.stage,stage);assert.equal(j.operations.report.pending,true);assert.equal(j.operations.report.installerId,installer.id);assert.equal(j.operations.previousReports[0].id,'old-report');
+  await assert.rejects(()=>act(installer,'report',{...report,id:crypto.randomUUID()}),/awaiting/);
+  await act(fs,'reviewReport',{approve:true});assert.equal(j.stage,status==='Complete'?'Closed':'Incomplete');
+ }
+});
 test('assigned installers save standalone photos in production and follow-up statuses',async()=>{
  const {canAddJobPhotos}=await vite.ssrLoadModule('/lib/job-photo-access.ts');
  await act(pa,'create',{number:'FOLLOWUP-PHOTOS',customer:'Photos',address:'1 Main',amount:0,assignedInstallerId:installer.id});
@@ -340,8 +357,8 @@ test('assigned installers save standalone photos in production and follow-up sta
   await assert.rejects(()=>act(fs,'jobPhotos',{attachments:[a]}),/Upload each photo/);
   assert.equal(canAddJobPhotos({...installer,id:'unassigned'},j),false);
  }
- assert.equal(canAddJobPhotos(installer,{...j,stage:'Closed'}),false);
- assert.equal(canAddJobPhotos(installer,{...j,stage:'Received'}),false);
+ assert.equal(canAddJobPhotos(installer,{...j,stage:'Closed'}),true);
+ assert.equal(canAddJobPhotos(installer,{...j,stage:'Received'}),true);
  assert.equal(canAddJobPhotos(installer,{...j,stage:'SVC',installerId:'other',operations:{services:[{installerId:installer.id,date:today}]}}),true);
  await assert.rejects(()=>act(installer,'jobPhotos',{attachments:[{key:`jobs/${j.id}/photos/${crypto.randomUUID()}`,name:'missing.jpg',kind:'photos'}]}),/Upload each photo/);
 });

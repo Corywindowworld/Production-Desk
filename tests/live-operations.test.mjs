@@ -604,3 +604,15 @@ test('linked accounts copy details but preserve destination products, identity a
  for(const key of ['number','id','version','product','windowCount','entryDoorCount','materials','reorder','received','installerId','stage','history'])assert.equal(values[key],undefined,key);
  assert.equal(linkedAccountValues(from,false).amount,undefined);
 });
+
+test('daily print scopes installs, service visits and days off to selected day',async()=>{
+ const {weeklyScheduleHtml}=await vite.ssrLoadModule('/lib/print-schedule.ts');
+ const html=weeklyScheduleHtml({daily:true,day:'2026-10-07',daysOff:[{date:'2026-10-07',crew:'OFF TODAY'},{date:'2026-10-08',crew:'OFF TOMORROW'}],jobs:[
+ {id:'a',customer:'TODAY INSTALL',stage:'Production',install:'2026-10-06',installEnd:'2026-10-08'},
+ {id:'b',customer:'TOMORROW ONLY',stage:'Production',install:'2026-10-08'},
+ {id:'c',customer:'SERVICE TODAY',stage:'Incomplete',operations:{services:[{date:'2026-10-07',crew:'Service Crew'}]}}
+ ]});
+ assert.ok(html.includes('Daily Schedule'));assert.equal((html.match(/class="day"/g)||[]).length,1);
+ for(const text of ['TODAY INSTALL','SERVICE TODAY','OFF TODAY'])assert.ok(html.includes(text));
+ for(const text of ['TOMORROW ONLY','OFF TOMORROW'])assert.ok(!html.includes(text));
+});

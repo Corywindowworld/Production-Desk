@@ -612,7 +612,7 @@ test('daily print scopes installs, service visits and days off to selected day',
  {id:'b',customer:'TOMORROW ONLY',stage:'Production',install:'2026-10-08'},
  {id:'c',customer:'SERVICE TODAY',stage:'Incomplete',operations:{services:[{date:'2026-10-07',crew:'Service Crew'}]}}
  ]});
- assert.ok(html.includes('Daily Schedule'));assert.equal((html.match(/class="day"/g)||[]).length,1);
+ assert.ok(html.includes('Daily Schedule'));assert.ok(html.includes('@page{size:letter landscape;margin:0}'));assert.ok(html.includes('margin:14mm 14mm 14mm!important'));assert.ok(!html.includes('letter portrait'));assert.equal((html.match(/class="day"/g)||[]).length,1);
  for(const text of ['TODAY INSTALL','SERVICE TODAY','OFF TODAY'])assert.ok(html.includes(text));
  for(const text of ['TOMORROW ONLY','OFF TOMORROW'])assert.ok(!html.includes(text));
 });

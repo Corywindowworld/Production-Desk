@@ -1,5 +1,5 @@
 'use client';
-import {ReorderRequests} from './reorder-requests';
+import {ReorderRequests} from '@/components/reorder-requests';
 import {canAddJobPhotos,jobPhotoKinds} from '@/lib/job-photo-access';
 import {linkedAccountValues} from '@/lib/linked-account';
 import {MapDashboard} from './location/map-dashboard';

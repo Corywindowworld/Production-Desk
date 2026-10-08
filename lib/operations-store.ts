@@ -132,6 +132,20 @@ export async function operation(m:Member,input:any){
   assert(m.role==='admin','Administrator access required.');const c=parse(configSchema,input.data);
   await db.prepare('INSERT INTO production.operations_config (id,payload,updated_by,updated) VALUES (?,?,?,?) ON CONFLICT(id) DO UPDATE SET payload=EXCLUDED.payload,updated_by=EXCLUDED.updated_by,updated=EXCLUDED.updated').bind(c.period,JSON.stringify(c),m.id,at).run();return;
  }
+ if(action==='editSurvey'){
+  assert(m.role==='admin','Administrator access required.');
+  const v=parse(z.object({id:z.string().min(1),completedOn:optionalDate,ratings:z.array(z.number().int().min(1).max(5).nullable()).length(4),reason:z.string().trim().min(1).max(1000),expectedDate:z.string(),expectedRatings:z.array(z.number().nullable()).length(4)}),input.data);
+  assert(v.completedOn&&v.completedOn<=today,'Enter a valid survey date that is not in the future.',400);
+  assert(v.ratings.some(x=>x!==null),'Enter at least one rating.',400);
+  await db.transaction(async tx=>{
+   const old=await tx.prepare('SELECT * FROM production.operations_surveys WHERE id=? FOR UPDATE').bind(v.id).first();
+   assert(old,'Survey not found.',404);
+   const previous=normalizedSurvey(old);
+   assert(previous.completed_on===v.expectedDate&&JSON.stringify(previous.ratings)===JSON.stringify(v.expectedRatings),'This survey changed. Refresh and review the latest values.',409);
+   await tx.prepare('UPDATE production.operations_surveys SET ratings=?::jsonb,completed_on=? WHERE id=?').bind(JSON.stringify(v.ratings),v.completedOn,v.id).run();
+   await tx.prepare('INSERT INTO account_audit(id,actor_id,member_id,action,created) VALUES(?,?,?,?,?)').bind(crypto.randomUUID(),m.id,old.installer_id,JSON.stringify({action:'GQ survey edited',surveyId:v.id,reason:v.reason,before:{ratings:previous.ratings,completedOn:previous.completed_on},after:{ratings:v.ratings,completedOn:v.completedOn}}),at).run();
+  });return;
+ }
  if(action==='survey'){
   assert(reviewer(m),'Field supervisor or administrator access required.');const s=parse(surveySchema,input.data);assert(s.completedOn<=today,'Survey date cannot be in the future.',400);
   assert(await db.prepare("SELECT id FROM members WHERE id=? AND role='installer'").bind(s.installerId).first(),'Select an installer.',400);

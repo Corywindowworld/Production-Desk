@@ -4,12 +4,14 @@ import {localDay} from './operations';
 export const reorderTypes=['Whole Window','Screen Frame','Sash','Frame','SPD','Entry Door','Other Part'] as const;
 export const chargeParties=['Factory','Installer','Sales Rep','Customer','Window World'] as const;
 const text=z.string().trim().max(4000).default('');
+const validSize=(value:string)=>{const dimensions=value.split(/\s*x\s*/i);return dimensions.length===2&&dimensions.every(d=>{const m=d.trim().match(/^(\d+)(?:\s+(\d+)\/(\d+))?$/);if(!m)return false;const inches=Number(m[1]),num=Number(m[2]||0),den=Number(m[3]||1);return inches<=300&&[1,2,4,8,16].includes(den)&&num<den&&inches+num/den>0;});};
 const photo=z.object({key:z.string().max(250),name:z.string().max(255),kind:z.literal('issue')});
-const item=z.object({type:z.enum(reorderTypes),window:text,quantity:z.number().int().min(1).max(999),orderedSize:text,actualSize:text,reorderSize:text,serial:text,position:text,description:text,photos:z.array(photo).min(1).max(20)}).superRefine((v,c)=>{
+const item=z.object({type:z.enum(reorderTypes),window:text,quantity:z.number().int().min(1).max(999),orderedSize:text,actualSize:text,reorderSize:text,serial:text,position:text,panelSide:text,panelOperation:text,description:text,photos:z.array(photo).max(20)}).superRefine((v,c)=>{
  if(!v.window)c.addIssue({code:'custom',message:'Enter a window number or location.'});
- if(v.type==='Whole Window'&&(!v.orderedSize||!v.actualSize||!v.reorderSize))c.addIssue({code:'custom',message:'Enter ordered, actual and reorder sizes.'});
+ if(v.type==='Whole Window'&&![v.orderedSize,v.actualSize,v.reorderSize].every(s=>validSize(s||'')))c.addIssue({code:'custom',message:'Enter ordered, actual and reorder sizes in inches and fractions down to 1/16.'});
  if(['Screen Frame','Sash','Frame'].includes(v.type)&&!v.serial)c.addIssue({code:'custom',message:'Enter the serial number.'});
- if(v.type==='Sash'&&!v.position)c.addIssue({code:'custom',message:'Enter sash position.'});
+ if(v.type==='Sash'&&!['Top','Bottom','Left','Right','Middle'].includes(v.position))c.addIssue({code:'custom',message:'Enter sash position.'});
+ if(v.type==='SPD'&&(!['Left','Right'].includes(v.panelSide)||!['Inactive','Active'].includes(v.panelOperation)))c.addIssue({code:'custom',message:'Select patio panel side and Active or Inactive.'});
 });
 export const reorderSubmission=z.object({id:z.string().uuid().optional(),reason:z.string().trim().min(1).max(4000),remaining:text,acknowledged:z.literal(true),items:z.array(item).min(1).max(50)});
 const check=(yes:unknown,msg:string)=>{if(!yes)throw new ApiError(400,msg)};
@@ -21,6 +23,7 @@ export async function reorderOperation({tx,j,m,data,at,alert,assigned}:any){
  const event=(r:any,message:string)=>{r.events=[...(r.events||[]),{at,by:m.name,message}];r.updatedAt=at;};
  if(data.command==='submit'){
   const v=read(reorderSubmission,data);
+  if(m.role==='installer')check(v.items.every(i=>i.photos.length>0),'Installers must upload at least one photo for each reorder item.');
   const old=v.id?o.reorders.find((r:any)=>r.id===v.id):null;
   if(v.id)check(old&&old.status==='Correction requested'&&(review||old.submittedBy===m.id),'Only a returned request can be resubmitted.');
   for(const i of v.items)for(const a of i.photos){
@@ -37,6 +40,12 @@ export async function reorderOperation({tx,j,m,data,at,alert,assigned}:any){
  }
  check(review,'Field Supervisor or Administrator review required.');
  const r=o.reorders.find((r:any)=>r.id===data.id);check(r,'Reorder request not found.');
+ if(data.command==='delete'){
+  check(m.role==='admin','Only Administrators can delete reorders.');
+  o.deletedReorders=[...(o.deletedReorders||[]),{...r,deletedAt:at,deletedBy:m.id}];
+  o.reorders=o.reorders.filter((x:any)=>x.id!==r.id);
+  return 'Reorder deleted: '+r.reason;
+ }
  if(data.command==='review'){
   check(r.status==='Submitted','This request has already been reviewed.');
   const v=read(z.object({decision:z.enum(['Approved','Correction requested','Declined']),chargebacks:z.array(z.enum(chargeParties)).max(5),chargebackNote:text,comment:text,reviewAcknowledged:z.literal(true)}),data);

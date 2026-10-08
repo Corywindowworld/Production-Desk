@@ -20,7 +20,7 @@ export function bonusPeriod(day:string){
  const month=day>lastTuesday(m)?m+1:m;
  return {start:addDays(lastTuesday(month-1),1),end:lastTuesday(month)};
 }
-export const materialSchema=z.object({materialType:z.enum(['Window','SPD','Entry Door','Diamond Screen']),brand:z.enum(['Simonton','Plygem','Wincore','Thermatru','Diamond Screens','AMI','CWS']),bay:z.string().trim().min(1).max(100)});
+export const materialSchema=z.object({materialType:z.enum(['Window','SPD','Entry Door','Diamond Screen']),brand:z.enum(['Simonton','Plygem','Wincore','Thermatru','Therma-Tru','Eastern Architectural Systems','Diamond Screens','AMI','CWS']),bay:z.string().trim().min(1).max(100)});
 export const allowedMaterials=(product:string)=>product==='Entry Doors'?['Entry Door']:product==='Diamond Screens'?['Diamond Screen']:['Window','SPD'];
 export const fieldsSchema=z.object({
  serviceCompletionJob:z.boolean().default(false),inspectionComplete:z.boolean().default(false),noPermitRequired:z.boolean().default(false),deliveryOnly:z.boolean().default(false),
@@ -31,7 +31,7 @@ export const fieldsSchema=z.object({
  city:z.string().trim().max(120).default(''),state:z.string().trim().max(50).default(''),zip:z.string().trim().regex(/^$|^\d{5}(-\d{4})?$/).default(''),
  number:z.string().trim().min(1).max(80),customer:z.string().trim().min(1).max(160),address:z.string().trim().min(1).max(300),phone:z.string().max(50).default(''),
  customerEmail:z.union([z.string().email(),z.literal('')]).default(''),product:z.enum(['Windows','Entry Doors','Diamond Screens']).default('Windows'),windowCount:z.number().int().min(0).max(999).default(0),slidingDoors:z.number().int().min(0).max(999).default(0),entryDoorCount:z.number().int().min(0).max(999).default(0),
- brand:z.enum(['','Simonton','Plygem','Wincore','Thermatru','Diamond Screens','AMI','CWS']).default(''),materialType:z.enum(['','Window','SPD','Entry Door','Diamond Screen']).default(''),permitReceived:z.boolean().default(false),permitNumber:z.string().trim().max(150).default(''),
+ brand:z.enum(['','Simonton','Plygem','Wincore','Thermatru','Therma-Tru','Eastern Architectural Systems','Diamond Screens','AMI','CWS']).default(''),materialType:z.enum(['','Window','SPD','Entry Door','Diamond Screen']).default(''),permitReceived:z.boolean().default(false),permitNumber:z.string().trim().max(150).default(''),
  received:optionalDate,installed:optionalDate,incompleteSince:optionalDate,stage:z.enum(['Received','Production','InProgress','Incomplete','Closed','Ordered']).default('Ordered'),
  amount:money.nullable(),contractAmount:money.nullable().default(null),supervisorId:z.string().default(''),
  salesRep:z.string().max(160).default(''),salesRepPhone:z.string().max(50).default(''),salesRepEmail:z.union([z.string().email(),z.literal('')]).default(''),
@@ -47,7 +47,7 @@ export function normalizeStoredCustomerFields(job:Record<string,unknown>){
  return normalized;
 }
 export const scheduleSchema=z.object({instructions:z.string().trim().max(4000).optional(),time:z.union([z.string().regex(/^(?:[01]\d|2[0-3]):00$/),z.literal('')]).default(''),endDate:optionalDate,salesPhotos:z.array(z.object({key:z.string().max(250),name:z.string().max(255),kind:z.literal('photos')})).max(50).default([]),date,period:z.enum(['AM','PM']),installerId:z.union([z.string().uuid(),z.literal('')]).default(''),stop:z.number().int().min(1).max(99),adminOverride:z.boolean().default(false),paymentReference:z.string().trim().max(300).default(''),additionalInstructions:z.string().trim().max(4000).default('')}).refine(s=>!s.endDate||s.endDate>=s.date,'End date must be on or after start date.');
-export const receiveSchema=z.object({received:date,bay:z.string().trim().min(1).max(100),brand:z.enum(['Simonton','Plygem','Wincore','Thermatru','Diamond Screens','AMI','CWS']),materialType:z.enum(['Window','SPD','Entry Door','Diamond Screen'])});
+export const receiveSchema=z.object({received:date,bay:z.string().trim().min(1).max(100),brand:z.enum(['Simonton','Plygem','Wincore','Thermatru','Therma-Tru','Eastern Architectural Systems','Diamond Screens','AMI','CWS']),materialType:z.enum(['Window','SPD','Entry Door','Diamond Screen'])});
 export const receiveItemsSchema=z.object({received:date,materials:z.array(materialSchema).min(1).max(50)});
 export const requestSchema=z.object({type:z.enum(['UTI','COLL','Service','ACCRF']),details:z.string().trim().min(1).max(4000),paymentReference:z.string().trim().max(300).default(''),refused:z.boolean().default(false),serviceDate:optionalDate,period:z.enum(['AM','PM']).default('AM'),installerId:z.string().default(''),amount:money.optional()});
 export const surveySchema=z.object({externalId:z.string().trim().min(1).max(150),customerId:z.string().trim().min(1).max(80),installerId:z.string().uuid(),completedOn:date,ratings:z.array(z.number().int().min(1).max(5).nullable()).length(4)}).refine(s=>s.ratings.some(r=>r!==null),'Enter at least one rating.');

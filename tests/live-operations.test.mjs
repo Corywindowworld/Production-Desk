@@ -674,3 +674,34 @@ test('digital reorder submissions, chargebacks, corrections, tracking and photo 
  const {reorderPrintHtml}=await vite.ssrLoadModule('/lib/print-reorder.ts');
  const html=reorderPrintHtml(j,j.operations.reorders[0]);assert.ok(html.includes('Contractor Reorder Form'));assert.ok(html.includes('Wrong size shipped'));assert.ok(html.includes(encodeURIComponent(photoKey)));
 });
+
+test('FS reorders allow no photos; installer photos and Admin deletion are enforced',async()=>{
+ await act(pa,'create',{number:'REORDER-OPTIONS',customer:'Options',address:'123 Test',amount:0,noPermitRequired:true,assignedInstallerId:installer.id});
+ const data={command:'submit',reason:'Service replacement',acknowledged:true,items:[{type:'SPD',window:'Patio',quantity:1,panelSide:'Left',panelOperation:'Inactive',photos:[]}]};
+ await assert.rejects(()=>act(installer,'reorderRequest',data),/photo/i);
+ await assert.rejects(()=>act(fs,'reorderRequest',{...data,items:[{...data.items[0],panelSide:'Middle'}]}),/panel side/i);
+ await act(fs,'reorderRequest',data);
+ let r=j.operations.reorders[0];assert.equal(r.items[0].panelSide,'Left');assert.equal(r.items[0].panelOperation,'Inactive');
+ const {reorderPrintHtml}=await vite.ssrLoadModule('/lib/print-reorder.ts');
+ const html=reorderPrintHtml(j,r);assert.ok(html.includes('Inactive'));assert.ok(html.includes('margin:0.6in'));assert.ok(html.includes('class="customer-header"'));assert.ok(html.includes('class="check-box"'));
+ await assert.rejects(()=>act(fs,'reorderRequest',{command:'delete',id:r.id}),/Administrators/);
+ await assert.rejects(()=>act(installer,'reorderRequest',{command:'delete',id:r.id}),/Supervisor/);
+ await act(admin,'reorderRequest',{command:'delete',id:r.id});
+ assert.equal(j.operations.reorders.length,0);assert.equal(j.operations.deletedReorders[0].id,r.id);
+ await act(fs,'reorderRequest',{...data,items:[{type:'Sash',window:'1',quantity:1,serial:'ABC',position:'Middle',photos:[]}]});
+ assert.equal(j.operations.reorders[0].items[0].position,'Middle');
+});
+test('EAS and Therma-Tru brands save to material receipts',async()=>{
+ const {materialSchema,fieldsSchema}=await vite.ssrLoadModule('/lib/operations.ts');
+ assert.equal(materialSchema.parse({materialType:'Window',brand:'Eastern Architectural Systems',bay:'A1'}).brand,'Eastern Architectural Systems');
+ assert.equal(materialSchema.parse({materialType:'Entry Door',brand:'Therma-Tru',bay:'D1'}).brand,'Therma-Tru');
+ assert.equal(fieldsSchema.shape.brand.parse('Therma-Tru'),'Therma-Tru');
+});
+
+test('whole window sizes preserve sixteenth fractions and reject invalid dimensions',async()=>{
+ const {reorderSubmission}=await vite.ssrLoadModule('/lib/reorder-requests.ts');
+ const item={type:'Whole Window',window:'1',quantity:1,orderedSize:'36 1/16 x 48 15/16',actualSize:'36 x 48',reorderSize:'35 7/8 x 47 1/2',photos:[]};
+ const data={reason:'Size check',acknowledged:true,items:[item]};
+ assert.equal(reorderSubmission.parse(data).items[0].orderedSize,item.orderedSize);
+ for(const invalid of ['36 1/32 x 48','0 x 48','36 x','36 17/16 x 48'])assert.equal(reorderSubmission.safeParse({...data,items:[{...item,reorderSize:invalid}]}).success,false);
+});

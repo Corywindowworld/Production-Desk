@@ -1,25 +1,62 @@
-import {actor,ApiError,apiError,sameOrigin} from '@/lib/access';
+import {actor,apiError,jobFor,sameOrigin,ApiError,canEditJob,type Member} from '@/lib/access';
+import {visitJobFor} from '@/lib/job-visit-access';
 import {database} from '@/db/raw';
-import {canEditAccount} from '@/lib/account-roles';
-import {profileInput} from '@/lib/account-profile';
-export async function GET(request:Request){try{
- const m=await actor(request);
- const id=new URL(request.url).searchParams.get('id')||m.id;if(m.role!=='admin'&&id!==m.id)throw new ApiError(403,'You can only view your own profile.');
- const target:any=await database().prepare('SELECT id,name,email,role,phone,active,supervisor_id,installer_code,can_edit_jobs,can_score_all_installers,quality_score,profile_details FROM members WHERE id=?').bind(id).first();
- if(!target)throw new ApiError(404,'Account not found.');
- return Response.json({member:target,canEdit:m.id===target.id||canEditAccount(m,target,target.role),isSelf:m.id===target.id,canManage:canEditAccount(m,target,target.role)},{headers:{'Cache-Control':'no-store'}});
- }catch(e){return apiError(e)}}
+import {storage,bucket} from '@/lib/storage';
+import {uploadKinds,MAX_UPLOAD_BYTES,fileType} from '@/lib/upload-validation';
+import {z} from 'zod';
+export const runtime='nodejs';
+export const maxDuration=60;
+const beginSchema=z.object({action:z.literal('begin'),jobId:z.string().uuid(),kind:z.enum(uploadKinds),name:z.string().min(1).max(255),size:z.number().int().positive().max(MAX_UPLOAD_BYTES)});
+const finishSchema=z.object({action:z.literal('finish'),key:z.string().max(250)});
+async function uploadAccess(member:Member,jobId:string,kind:string){
+ if(kind==='visit'&&member.role!=='supervisor'&&member.role!=='admin')throw new ApiError(403,'Only supervisors and administrators can upload visit photos.');
+ const job=kind==='visit'?await visitJobFor(member,jobId):await jobFor(member,jobId);
+ if(kind!=='visit'&&member.role!=='installer'&&member.role!=='supervisor'&&member.role!=='admin'&&!canEditJob(member,job))throw new ApiError(403,'You do not have permission to update job attachments.');
+}
 export async function POST(request:Request){try{
- sameOrigin(request);const m=await actor(request);
- const input=profileInput.safeParse(await request.json());if(!input.success)throw new ApiError(400,'Check profile fields, dates and additional information.');
- const d=input.data;if(m.role!=='admin'&&d.id!==m.id)throw new ApiError(403,'You can only edit your own profile.');const db=database(),target:any=await db.prepare('SELECT id,name,role FROM members WHERE id=?').bind(d.id).first();
- if(!target)throw new ApiError(404,'Account not found.');
- if(m.id!==target.id&&!canEditAccount(m,target,target.role))throw new ApiError(403,'You cannot edit this profile.');
- const at=new Date().toISOString(),statements=[db.prepare('UPDATE members SET name=?,phone=?,profile_details=?::jsonb WHERE id=?').bind(d.name,d.phone,JSON.stringify(d.details),d.id)];
- if(d.name!==target.name){
-  statements.push(db.prepare("UPDATE jobs SET payload=(payload::jsonb || jsonb_build_object('crew',?::text))::text,version=version+1,updated=? WHERE payload::jsonb->>'installerId'=?").bind(d.name,at,d.id));
-  statements.push(db.prepare("UPDATE jobs SET payload=(payload::jsonb || jsonb_build_object('supervisor',?::text))::text,version=version+1,updated=? WHERE payload::jsonb->>'supervisorId'=?").bind(d.name,at,d.id));
+ sameOrigin(request);const member=await actor(request),db=database();
+ const text=await request.text();if(text.length>4000)throw new ApiError(400,'Invalid upload request.');
+ const parsed=z.union([beginSchema,finishSchema]).safeParse(JSON.parse(text));if(!parsed.success)throw new ApiError(400,'Choose a nonempty job photo or document up to 15 MB.');
+ const input=parsed.data;
+ if(input.action==='begin'){
+  await uploadAccess(member,input.jobId,input.kind);
+  const pending=await db.prepare("SELECT count(*)::integer AS count FROM attachment_uploads WHERE member_id=? AND status='pending' AND expires>?").bind(member.id,Date.now()).first();
+  if(pending.count>=100)throw new ApiError(429,'Too many unfinished uploads. Try again later.');
+  const key=`jobs/${input.jobId}/${input.kind}/${crypto.randomUUID()}`,stagingKey='pending/'+crypto.randomUUID();
+  await db.prepare('INSERT INTO attachment_uploads (key,staging_key,job_id,kind,member_id,name,expires) VALUES (?,?,?,?,?,?,?)').bind(key,stagingKey,input.jobId,input.kind,member.id,input.name,Date.now()+2*3600000).run();
+  let data:{signedUrl:string}|null=null;
+  try{const result=await storage().createSignedUploadUrl(stagingKey,{upsert:false});if(result.error||!result.data)throw Error('Storage preparation failed');data=result.data;}catch{
+   await db.prepare("DELETE FROM attachment_uploads WHERE key=? AND member_id=? AND status='pending'").bind(key,member.id).run();
+   throw new ApiError(503,'Photo storage could not start the upload. Ask an administrator to open Account management → Photo storage and check or repair storage.');
+  }
+  return Response.json({key,uploadUrl:data.signedUrl},{headers:{'Cache-Control':'no-store'}});
  }
- statements.push(db.prepare('INSERT INTO account_audit (id,actor_id,member_id,action,created) VALUES (?,?,?,?,?)').bind(crypto.randomUUID(),m.id,d.id,'Profile information updated',at));await db.batch(statements);
- return Response.json({ok:true},{headers:{'Cache-Control':'no-store'}});
- }catch(e){return apiError(e)}}
+ const row=await db.prepare('SELECT * FROM attachment_uploads WHERE key=? AND member_id=?').bind(input.key,member.id).first();
+ if(!row)throw new ApiError(404,'Upload not found.');
+ await uploadAccess(member,row.job_id,row.kind);
+ if(row.status==='ready')return Response.json({attachment:{key:row.key,kind:row.kind,name:row.name}});
+ if(Number(row.expires)<Date.now())throw new ApiError(410,'Upload expired. Select the file again.');
+ const {data,error}=await storage().download(row.staging_key);if(error||!data)throw new ApiError(400,'The uploaded file could not be read from storage. Retry the file; if this repeats, check Photo storage in Account management.');
+ if(!data.size||data.size>MAX_UPLOAD_BYTES)throw new ApiError(400,'Choose a nonempty file up to 15 MB.');
+ const bytes=new Uint8Array(await data.arrayBuffer()),type=fileType(bytes,row.kind);if(!type)throw new ApiError(400,'Upload a JPG, PNG, WebP, GIF, or HEIC image. Paperwork may also be a PDF.');
+ const sha=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes))).map(n=>n.toString(16).padStart(2,'0')).join('');
+ // Publish verified bytes at an immutable path that no upload token can overwrite.
+ const uploaded=await storage().upload(row.key,bytes,{contentType:type,upsert:false,cacheControl:'0'});
+ if(uploaded.error){
+  const final=await storage().download(row.key);if(final.error||!final.data)throw new ApiError(503,'The photo could not be saved to permanent storage. Check Photo storage in Account management, then retry.');
+  const existing=new Uint8Array(await final.data.arrayBuffer());
+  const existingSha=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',existing))).map(n=>n.toString(16).padStart(2,'0')).join('');
+  if(existingSha!==sha)throw new ApiError(409,'Upload changed. Select the file again.');
+ }
+ await db.prepare("UPDATE attachment_uploads SET status='ready',content_type=?,sha256=?,size_bytes=? WHERE key=? AND member_id=?").bind(type,sha,bytes.length,row.key,member.id).run();
+ await storage().remove([row.staging_key]);
+ return Response.json({attachment:{key:row.key,kind:row.kind,name:row.name}},{headers:{'Cache-Control':'no-store'}});
+}catch(e){return apiError(e)}}
+export async function GET(request:Request){try{
+ const member=await actor(request),key=new URL(request.url).searchParams.get('key')||'';
+ if(!/^jobs\/[0-9a-f-]+\/(completion|incomplete|reorder|photos|front|rear|left|right|issue|visit)\/[0-9a-f-]+$/.test(key))throw new ApiError(404,'File not found.');
+ if(key.split('/')[2]==='visit')await visitJobFor(member,key.split('/')[1]);else await jobFor(member,key.split('/')[1]);
+ if(!await bucket.head(key))throw new ApiError(404,'File not found.');
+ const {data,error}=await storage().createSignedUrl(key,60);if(error||!data)throw new ApiError(404,'File not found.');
+ return new Response(null,{status:302,headers:{Location:data.signedUrl,'Cache-Control':'private, no-store','Referrer-Policy':'no-referrer'}});
+}catch(e){return apiError(e)}}

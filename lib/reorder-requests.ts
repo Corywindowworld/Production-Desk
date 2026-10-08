@@ -6,11 +6,12 @@ export const chargeParties=['Factory','Installer','Sales Rep','Customer','Window
 const text=z.string().trim().max(4000).default('');
 const validSize=(value:string)=>{const dimensions=value.split(/\s*x\s*/i);return dimensions.length===2&&dimensions.every(d=>{const m=d.trim().match(/^(\d+)(?:\s+(\d+)\/(\d+))?$/);if(!m)return false;const inches=Number(m[1]),num=Number(m[2]||0),den=Number(m[3]||1);return inches<=300&&[1,2,4,8,16].includes(den)&&num<den&&inches+num/den>0;});};
 const photo=z.object({key:z.string().max(250),name:z.string().max(255),kind:z.literal('issue')});
-const item=z.object({type:z.enum(reorderTypes),window:text,quantity:z.number().int().min(1).max(999),orderedSize:text,actualSize:text,reorderSize:text,serial:text,position:text,panelSide:text,panelOperation:text,description:text,photos:z.array(photo).max(20)}).superRefine((v,c)=>{
+const item=z.object({type:z.enum(reorderTypes),window:text,quantity:z.number().int().min(1).max(999),orderedSize:text,actualSize:text,reorderSize:text,serial:text,specialShape:z.boolean().optional(),orderedLegHeight:text,actualLegHeight:text,reorderLegHeight:text,position:text,panelSide:text,panelOperation:text,description:text,photos:z.array(photo).max(20)}).superRefine((v,c)=>{
  if(!v.window)c.addIssue({code:'custom',message:'Enter a window number or location.'});
  if(v.type==='Whole Window'&&![v.orderedSize,v.actualSize,v.reorderSize].every(s=>validSize(s||'')))c.addIssue({code:'custom',message:'Enter ordered, actual and reorder sizes in inches and fractions down to 1/16.'});
  if(['Screen Frame','Sash','Frame'].includes(v.type)&&!v.serial)c.addIssue({code:'custom',message:'Enter the serial number.'});
  if(v.type==='Sash'&&!['Top','Bottom','Left','Right','Middle'].includes(v.position))c.addIssue({code:'custom',message:'Enter sash position.'});
+ if(v.type==='Whole Window'&&v.specialShape&&![v.orderedLegHeight,v.actualLegHeight,v.reorderLegHeight].every(s=>validSize((s||'')+' x 1')))c.addIssue({code:'custom',message:'Enter a valid leg height for each special shape size.'});
  if(v.type==='SPD'&&(!['Left','Right'].includes(v.panelSide)||!['Inactive','Active'].includes(v.panelOperation)))c.addIssue({code:'custom',message:'Select patio panel side and Active or Inactive.'});
 });
 export const reorderSubmission=z.object({id:z.string().uuid().optional(),reason:z.string().trim().min(1).max(4000),remaining:text,acknowledged:z.literal(true),items:z.array(item).min(1).max(50)});
@@ -20,6 +21,7 @@ export async function reorderOperation({tx,j,m,data,at,alert,assigned}:any){
  const review=['admin','supervisor'].includes(m.role),o=j.operations;
  check(review||m.role==='installer'&&assigned,'Only assigned installers or FS/Admin can submit reorders.');
  o.reorders ||= [];
+ const completeReorder=(r:any)=>{const day=localDay();r.reorderDate=day;j.reorderDate=day;j.reorder=r.reason;if(j.stage==='Production'){j.stage='Incomplete';j.incompleteSince=day;}else if(j.stage==='Incomplete')j.incompleteSince=day;};
  const event=(r:any,message:string)=>{r.events=[...(r.events||[]),{at,by:m.name,message}];r.updatedAt=at;};
  if(data.command==='submit'){
   const v=read(reorderSubmission,data);
@@ -33,10 +35,18 @@ export async function reorderOperation({tx,j,m,data,at,alert,assigned}:any){
    if(!(j.attachments||[]).some((x:any)=>x.key===a.key))j.attachments=[...(j.attachments||[]),{...a,source:'reorder',uploadedBy:m.name,uploadedAt:at}];
   }
   const r={...v,id:old?.id||crypto.randomUUID(),status:'Submitted',submittedBy:m.id,submittedName:m.name,submittedAt:at,events:old?.events||[],revisions:old?[...(old.revisions||[]),{at:old.submittedAt,reason:old.reason,remaining:old.remaining,items:old.items,reviewedBy:old.reviewedBy,reviewedAt:old.reviewedAt,chargebacks:old.chargebacks,chargebackNote:old.chargebackNote,comment:old.comment}]:[]};
-  event(r,'Submitted for Field Supervisor review');
+  const crewId=m.role==='installer'?m.id:j.installerId;
+  const crew=crewId?await tx.prepare("SELECT name,installer_code,profile_details FROM members WHERE id=? AND role='installer'").bind(crewId).first():null;
+  Object.assign(r,{contractorName:crew?.name||j.crew||'',contractorNumber:crew?.profile_details?.contractorNumber??(/^C[0-9]+$/i.test(crew?.installer_code||'')?crew.installer_code.toUpperCase():'')});
+  if(review){
+   const decision=read(z.object({chargebacks:z.array(z.enum(chargeParties)).max(5).default([]),chargebackNote:text}),data);
+   check(!decision.chargebacks?.length||!!decision.chargebackNote,'Explain the chargeback decision.');
+   Object.assign(r,decision,{status:'Approved',reviewedBy:m.name,reviewedAt:at,reviewAcknowledged:true});
+   completeReorder(r);event(r,'Submitted and approved by '+m.name);
+  }else event(r,'Submitted for Field Supervisor review');
   if(old)o.reorders=o.reorders.map((x:any)=>x.id===old.id?r:x);else o.reorders.push(r);
-  await alert(j.supervisorId||(review?m.id:''),`Reorder submitted for #${j.number}: ${v.reason}`);
-  return 'Reorder request submitted';
+  await alert(review?j.installerId:j.supervisorId,`Reorder ${review?'approved':'submitted'} for #${j.number}: ${v.reason}`);
+  return review?'Reorder approved; reorder date recorded':'Reorder request submitted';
  }
  check(review,'Field Supervisor or Administrator review required.');
  const r=o.reorders.find((r:any)=>r.id===data.id);check(r,'Reorder request not found.');
@@ -52,21 +62,9 @@ export async function reorderOperation({tx,j,m,data,at,alert,assigned}:any){
   check(!v.chargebacks.length||!!v.chargebackNote,'Explain the chargeback decision.');
   check(v.decision==='Approved'||!!v.comment,'Enter a reason for correction or decline.');
   Object.assign(r,v,{status:v.decision,reviewedBy:m.name,reviewedAt:at});event(r,v.decision+': '+v.comment);
+  if(v.decision==='Approved')completeReorder(r);
   await alert(r.submittedBy,`Reorder for #${j.number}: ${v.decision}. ${v.comment}`);
   return 'Reorder '+v.decision.toLowerCase();
  }
- check(data.command==='track','Unknown reorder action.');
- const v=read(z.object({status:z.enum(['Ordered','Received','Scheduled','Resolved']),vendor:text,reference:text,orderedDate:text,estimatedShipDate:text,receivedDate:text,bay:text,returnDate:text,managerInitials:text,tagReturned:z.boolean().default(false),notes:text}),data);
- const next:Record<string,string>={Approved:'Ordered',Ordered:'Received',Received:'Scheduled',Scheduled:'Resolved'};
- check(v.status===next[r.status],'Complete the previous reorder step first.');
- const validDate=(d:string)=>/^\d{4}-\d{2}-\d{2}$/.test(d)&&!Number.isNaN(Date.parse(d+'T12:00:00Z'))&&new Date(d+'T12:00:00Z').toISOString().slice(0,10)===d;
- for(const key of ['orderedDate','estimatedShipDate','receivedDate','returnDate'] as const)if(v[key])check(validDate(v[key]!), 'Enter a valid '+key);
- if(v.orderedDate)check(v.orderedDate<=localDay(),'Actual order date cannot be in the future.');
- if(v.receivedDate)check(v.receivedDate<=localDay(),'Received date cannot be in the future.');
- if(v.status==='Ordered')check(!!v.vendor&&!!v.reference&&validDate(v.orderedDate||''),'Enter vendor, order/reference number and actual order date.');
- if(v.status==='Received')check(validDate(v.receivedDate||'')&&!!v.bay,'Enter received date and bay.');
- if(v.status==='Scheduled')check((j.install&&j.install.slice(0,10)>=String(r.receivedDate||'0000'))||(o.services||[]).some((x:any)=>x.date>=String(r.receivedDate||'0000')),'Schedule the return visit using Schedule Work first.');
- if(v.status==='Ordered'&&j.stage==='Incomplete'&&!j.reorderDate){j.reorderDate=v.orderedDate;if(!j.incompleteSince)j.incompleteSince=v.orderedDate;}
- Object.assign(r,Object.fromEntries(Object.entries(v).filter(([key])=>data[key]!==undefined)));event(r,v.status+': '+(v.notes||''));
- return 'Reorder '+v.status.toLowerCase();
+ throw new ApiError(400,'Order tracking has been removed.');
 }

@@ -648,3 +648,29 @@ test('historical service intake defaults to zero balance, schedules, preserves e
  await operation(pa,{action:'create',data:{number:'ACTIVE-SERVICE-CONFLICT',customer:'Active',address:'A',amount:null}});
  await assert.rejects(()=>operation(fs,{action:'create',data:{number:'ACTIVE-SERVICE-CONFLICT',serviceCompletionJob:true}}),/active job/i);
 });
+
+test('digital reorder submissions, chargebacks, corrections, tracking and photo ownership',async()=>{
+ await act(pa,'create',{number:'DIGITAL-REORDER',customer:'Reorder Customer',address:'123 Reorder St',amount:0,noPermitRequired:true,assignedInstallerId:installer.id});
+ const jobId=j.id,photoKey='jobs/'+j.id+'/issue/'+crypto.randomUUID();
+ await pg.query("INSERT INTO production.attachment_uploads(key,staging_key,job_id,kind,member_id,name,expires,status,sha256) VALUES($1,$2,$3,'issue',$4,'Issue.jpg',$5,'ready',$6)",[photoKey,'pending/'+crypto.randomUUID(),jobId,installer.id,Date.now()+100000,'reorder-photo']);
+ const data={command:'submit',reason:'Window does not fit',remaining:'Replace this window',acknowledged:true,items:[{type:'Whole Window',window:'Living room 1',quantity:1,orderedSize:'36 x 48',actualSize:'36 x 48',reorderSize:'35 x 47',photos:[{key:photoKey,name:'Issue.jpg',kind:'issue'}]}]};
+ await assert.rejects(()=>act(pa,'reorderRequest',data),/assigned installers/);
+ await assert.rejects(()=>act(installer,'reorderRequest',{...data,items:[{...data.items[0],photos:[{key:'jobs/'+j.id+'/issue/not-uploaded',name:'Fake',kind:'issue'}]}]}),/Upload photos/);
+ await act(installer,'reorderRequest',data);let r=j.operations.reorders[0];assert.equal(r.status,'Submitted');assert.equal(j.stage,'Ordered');assert.ok(j.attachments.some(a=>a.key===photoKey));
+ await assert.rejects(()=>act(installer,'reorderRequest',{command:'review',id:r.id,decision:'Approved'}),/Supervisor/);
+ await assert.rejects(()=>act(fs,'reorderRequest',{command:'review',id:r.id,decision:'Approved',chargebacks:['Installer'],chargebackNote:'',comment:'',reviewAcknowledged:true}),/chargeback/);
+ await act(fs,'reorderRequest',{command:'review',id:r.id,decision:'Correction requested',chargebacks:[],chargebackNote:'',comment:'Confirm opening size',reviewAcknowledged:true});
+ await act(installer,'reorderRequest',{...data,id:r.id,reason:'Opening measured and confirmed'});
+ r=j.operations.reorders[0];assert.equal(r.revisions.length,1);
+ await act(fs,'reorderRequest',{command:'review',id:r.id,decision:'Approved',chargebacks:['Factory'],chargebackNote:'Wrong size shipped',comment:'Verified',reviewAcknowledged:true});
+ await assert.rejects(()=>act(fs,'reorderRequest',{command:'track',id:r.id,status:'Received'}),/previous/);
+ await act(fs,'reorderRequest',{command:'track',id:r.id,status:'Ordered',vendor:'Vendor',reference:'FO-100',orderedDate:today});
+ await act(fs,'reorderRequest',{command:'track',id:r.id,status:'Received',receivedDate:today,bay:'A1'});
+ await assert.rejects(()=>act(fs,'reorderRequest',{command:'track',id:r.id,status:'Scheduled'}),/Schedule/);
+ await act(pa,'schedule',{date:today,period:'AM',installerId:installer.id,stop:1});
+ await act(fs,'reorderRequest',{command:'track',id:r.id,status:'Scheduled'});
+ await act(fs,'reorderRequest',{command:'track',id:r.id,status:'Resolved'});
+ assert.equal(j.operations.reorders[0].status,'Resolved');assert.equal(j.operations.reorders[0].reference,'FO-100');assert.equal(j.operations.reorders[0].bay,'A1');assert.equal(j.stage,'Ordered');
+ const {reorderPrintHtml}=await vite.ssrLoadModule('/lib/print-reorder.ts');
+ const html=reorderPrintHtml(j,j.operations.reorders[0]);assert.ok(html.includes('Contractor Reorder Form'));assert.ok(html.includes('Wrong size shipped'));assert.ok(html.includes(encodeURIComponent(photoKey)));
+});

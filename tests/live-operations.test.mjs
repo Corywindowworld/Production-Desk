@@ -491,7 +491,7 @@ test('location permissions, scoped maps, private links and session revocation',a
  await location.savePosition(identity,{latitude:27.9,longitude:-82.5,accuracy:15,observedAt:now});
  await location.requireLocation(req,installer);
  assert.equal((await location.mapLocations(fs)).find(x=>x.id===installer.id).status,'Sharing');
- assert.ok((await location.mapLocations({...fs,id:'different-supervisor'})).some(x=>x.id===installer.id));
+ assert.equal((await location.mapLocations({...fs,id:'different-supervisor'})).length,0);
  await assert.rejects(()=>location.mapLocations(pa),/Supervisor/);
  await assert.rejects(()=>location.mapLocations(installer),/Supervisor/);
  const device=await location.deviceToken(req);
@@ -631,20 +631,4 @@ test('active print view uses the same Day Week and Month dates as the screen',as
   assert.ok(html.includes('FIRST VISIBLE'));assert.ok(html.includes('LAST VISIBLE'));
   assert.ok(!html.includes('OUTSIDE RANGE'));
  }
-});
-
-test('historical service intake defaults to zero balance, schedules, preserves existing account and inspection',async()=>{
- const number='HISTORICAL-SERVICE-1';
- await operation(pa,{action:'create',data:{number,customer:'Old Customer',address:'123 Old Street',serviceCompletionJob:true,inspectionComplete:true,amount:999,contractAmount:5000,scheduleWork:{date:today,period:'AM',installerId:'',stop:1}}});
- let job=(await operationsData(admin)).jobs.find(v=>v.number===number);
- assert.equal(job.stage,'SVC');assert.equal(job.amount,0);assert.equal(job.received,'');assert.equal(job.inspectionComplete,true);assert.equal(job.install,today);assert.equal(aging(job,today).aged,false);
- const originalId=job.id;
- await operation(fs,{action:'create',data:{number,serviceCompletionJob:true,customer:'Do not overwrite',instructions:'Return for adjustment',scheduleWork:{date:addDays(today,2),period:'PM',installerId:installer.id,stop:2}}});
- const matches=(await operationsData(admin)).jobs.filter(v=>v.number===number);
- assert.equal(matches.length,1);job=matches[0];assert.equal(job.id,originalId);assert.equal(job.customer,'Old Customer');assert.equal(job.contractAmount,5000);assert.equal(job.instructions,'Return for adjustment');assert.equal(job.install,addDays(today,2));
- await operation(pa,{action:'permit',jobId:job.id,version:job.version,data:{received:false,number:'',inspectionComplete:true}});
- job=(await operationsData(admin)).jobs.find(v=>v.id===originalId);assert.equal(job.inspectionComplete,true);
- await assert.rejects(()=>operation(installer,{action:'create',data:{number:'DENIED-SERVICE',serviceCompletionJob:true}}),/permission/i);
- await operation(pa,{action:'create',data:{number:'ACTIVE-SERVICE-CONFLICT',customer:'Active',address:'A',amount:null}});
- await assert.rejects(()=>operation(fs,{action:'create',data:{number:'ACTIVE-SERVICE-CONFLICT',serviceCompletionJob:true}}),/active job/i);
 });

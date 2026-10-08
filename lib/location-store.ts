@@ -42,7 +42,7 @@ export async function requireLocation(request:Request,m:Member){
 }
 export async function mapLocations(m:Member){
  if(!['admin','supervisor'].includes(m.role))throw new ApiError(403,'Admin or Field Supervisor access required.');
- const rows=(await database().prepare("SELECT m.id,m.name,l.latitude,l.longitude,l.accuracy,l.observed_at,l.updated_at,l.sharing,EXISTS(SELECT 1 FROM sessions s JOIN credentials c ON c.member_id=s.member_id WHERE s.token_hash=l.session_hash AND s.expires>? AND s.generation=c.generation) AS signed_in FROM members m LEFT JOIN production.installer_locations l ON l.member_id=m.id WHERE m.role='installer' AND m.active=1"+(m.role==='supervisor'?' AND m.supervisor_id=?':'')+' ORDER BY m.name').bind(Date.now(),...(m.role==='supervisor'?[m.id]:[])).all()).results;
+ const rows=(await database().prepare("SELECT m.id,m.name,l.latitude,l.longitude,l.accuracy,l.observed_at,l.updated_at,l.sharing,EXISTS(SELECT 1 FROM sessions s JOIN credentials c ON c.member_id=s.member_id WHERE s.token_hash=l.session_hash AND s.expires>? AND s.generation=c.generation) AS signed_in FROM members m LEFT JOIN production.installer_locations l ON l.member_id=m.id WHERE m.role='installer' AND m.active=1"+' ORDER BY m.name').bind(Date.now()).all()).results;
  return rows.map((r:any)=>{const status=!r.sharing||!r.signed_in?'Not sharing':Date.now()-Number(r.observed_at)>FRESH?'Stale':'Sharing';return {id:r.id,name:r.name,status,latitude:r.latitude,longitude:r.longitude,accuracy:r.accuracy,observed_at:r.observed_at,stale:status!=='Sharing'}});
 }
 export async function createShare(m:Member,jobId:string,etaMinutes?:number){

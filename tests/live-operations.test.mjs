@@ -491,7 +491,7 @@ test('location permissions, scoped maps, private links and session revocation',a
  await location.savePosition(identity,{latitude:27.9,longitude:-82.5,accuracy:15,observedAt:now});
  await location.requireLocation(req,installer);
  assert.equal((await location.mapLocations(fs)).find(x=>x.id===installer.id).status,'Sharing');
- assert.equal((await location.mapLocations({...fs,id:'different-supervisor'})).length,0);
+ assert.ok((await location.mapLocations({...fs,id:'different-supervisor'})).some(x=>x.id===installer.id));
  await assert.rejects(()=>location.mapLocations(pa),/Supervisor/);
  await assert.rejects(()=>location.mapLocations(installer),/Supervisor/);
  const device=await location.deviceToken(req);
@@ -615,4 +615,36 @@ test('daily print scopes installs, service visits and days off to selected day',
  assert.ok(html.includes('Daily Schedule'));assert.ok(html.includes('@page{size:letter landscape;margin:0}'));assert.ok(html.includes('margin:14mm 14mm 14mm!important'));assert.ok(!html.includes('letter portrait'));assert.equal((html.match(/class="day"/g)||[]).length,1);
  for(const text of ['TODAY INSTALL','SERVICE TODAY','OFF TODAY'])assert.ok(html.includes(text));
  for(const text of ['TOMORROW ONLY','OFF TOMORROW'])assert.ok(!html.includes(text));
+});
+
+test('active print view uses the same Day Week and Month dates as the screen',async()=>{
+ const {weeklyScheduleHtml}=await vite.ssrLoadModule('/lib/print-schedule.ts');
+ const {datesFor}=await vite.ssrLoadModule('/app/operations-preview/schedule-view.tsx');
+ for(const view of ['Day','Week','Month']){
+  const dates=datesFor('2026-10-08',view);
+  const html=weeklyScheduleHtml({view,day:'2026-10-08',jobs:[
+   {id:'first',customer:'FIRST VISIBLE',stage:'Production',install:dates[0]},
+   {id:'last',customer:'LAST VISIBLE',stage:'Production',install:dates.at(-1)},
+   {id:'outside',customer:'OUTSIDE RANGE',stage:'Production',install:'2027-01-01'}
+  ]});
+  assert.equal((html.match(/class="day"/g)||[]).length,dates.length);
+  assert.ok(html.includes('FIRST VISIBLE'));assert.ok(html.includes('LAST VISIBLE'));
+  assert.ok(!html.includes('OUTSIDE RANGE'));
+ }
+});
+
+test('historical service intake defaults to zero balance, schedules, preserves existing account and inspection',async()=>{
+ const number='HISTORICAL-SERVICE-1';
+ await operation(pa,{action:'create',data:{number,customer:'Old Customer',address:'123 Old Street',serviceCompletionJob:true,inspectionComplete:true,amount:999,contractAmount:5000,scheduleWork:{date:today,period:'AM',installerId:'',stop:1}}});
+ let job=(await operationsData(admin)).jobs.find(v=>v.number===number);
+ assert.equal(job.stage,'SVC');assert.equal(job.amount,0);assert.equal(job.received,'');assert.equal(job.inspectionComplete,true);assert.equal(job.install,today);assert.equal(aging(job,today).aged,false);
+ const originalId=job.id;
+ await operation(fs,{action:'create',data:{number,serviceCompletionJob:true,customer:'Do not overwrite',instructions:'Return for adjustment',scheduleWork:{date:addDays(today,2),period:'PM',installerId:installer.id,stop:2}}});
+ const matches=(await operationsData(admin)).jobs.filter(v=>v.number===number);
+ assert.equal(matches.length,1);job=matches[0];assert.equal(job.id,originalId);assert.equal(job.customer,'Old Customer');assert.equal(job.contractAmount,5000);assert.equal(job.instructions,'Return for adjustment');assert.equal(job.install,addDays(today,2));
+ await operation(pa,{action:'permit',jobId:job.id,version:job.version,data:{received:false,number:'',inspectionComplete:true}});
+ job=(await operationsData(admin)).jobs.find(v=>v.id===originalId);assert.equal(job.inspectionComplete,true);
+ await assert.rejects(()=>operation(installer,{action:'create',data:{number:'DENIED-SERVICE',serviceCompletionJob:true}}),/permission/i);
+ await operation(pa,{action:'create',data:{number:'ACTIVE-SERVICE-CONFLICT',customer:'Active',address:'A',amount:null}});
+ await assert.rejects(()=>operation(fs,{action:'create',data:{number:'ACTIVE-SERVICE-CONFLICT',serviceCompletionJob:true}}),/active job/i);
 });

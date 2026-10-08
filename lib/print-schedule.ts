@@ -1,12 +1,13 @@
-import {addDays} from './operations';
+import {datesFor,type ScheduleViewMode} from '../app/operations-preview/schedule-view';
 import {installAppointments,hourLabel} from './install-calendar';
 import {displayedJobStatus} from './payment-status';
 
 const escape=(value:unknown)=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]!));
 const label=(day:string)=>new Intl.DateTimeFormat('en-US',{month:'short',day:'numeric',year:'numeric',timeZone:'UTC'}).format(new Date(day+'T12:00:00Z'));
-export function weeklyScheduleHtml({jobs,daysOff=[],day,colors={},daily=false}:{jobs:any[];daysOff?:any[];day:string;colors?:Record<string,string>;daily?:boolean}){
- const start=daily?day:addDays(day,-new Date(day+'T12:00:00Z').getUTCDay());
- const dates=Array.from({length:daily?1:7},(_,i)=>addDays(start,i));
+export function weeklyScheduleHtml({jobs,daysOff=[],day,colors={},daily=false,view}:{jobs:any[];daysOff?:any[];day:string;colors?:Record<string,string>;daily?:boolean;view?:ScheduleViewMode}){
+ const mode=view||(daily?'Day':'Week');
+ daily=mode==='Day';
+ const dates=datesFor(day,mode),start=dates[0],monthly=mode==='Month';
  const appointments=jobs.flatMap(j=>[
   ...installAppointments(j,dates).map(a=>({...a,service:j.stage==='SVC',details:[j.instructions,j.scheduleInstructions].filter(Boolean).join(' · ')})),
   ...(j.operations?.services||[]).filter((s:any)=>dates.includes(s.date)).map((s:any)=>({...j,...s,service:true}))
@@ -19,16 +20,17 @@ export function weeklyScheduleHtml({jobs,daysOff=[],day,colors={},daily=false}:{
    return `<article style="border-left-color:${color}"><b>${escape(a.time?hourLabel(a.time):a.period||'')} · ${a.service?'Service':'Stop '+escape(a.stop||1)}</b><strong>${escape(a.crew||'Unassigned')}</strong><strong>${escape(a.customer)}</strong><div>#${escape(a.number)} · ${escape(statuses[displayedJobStatus(a)]||displayedJobStatus(a))}</div><div>${escape([a.address,a.city,a.state,a.zip].filter(Boolean).join(', '))}</div>${a.phone?`<div>${escape(a.phone)}</div>`:''}${a.deliveryOnly?'<b>DELIVERY ONLY</b>':''}${a.multi&&!a.service?`<b>MULTI-DAY (${escape(a.daysLeft)} left)</b>`:''}${a.details?`<p>${escape(a.details)}</p>`:''}</article>`;
   }).join('')}${!rows.length?'<p class="empty">No appointments</p>':''}</section>`;
  }).join('');
- return `<!doctype html><html><head><meta charset="utf-8"><title>Production Desk — ${daily?'Day':'Week of'} ${escape(label(start))}</title><style>
+ return `<!doctype html><html><head><meta charset="utf-8"><title>Production Desk — ${mode} ${escape(label(start))}</title><style>
  @page{size:letter landscape;margin:8mm}*{box-sizing:border-box}body{margin:0;color:#132738;background:#fff;font:10px Arial,sans-serif}.toolbar{padding:12px;font:14px Arial;background:#eef3f8}.toolbar button{padding:8px 16px;margin-right:12px}#page{width:100%;height:194mm;margin:0}#sheet{width:100%;height:194mm;--schedule-font:10px;--schedule-pad:5px;font-size:var(--schedule-font)}header{display:flex;justify-content:space-between;align-items:baseline;padding:0 0 10px}h1{font-size:19px;margin:0}header p{font-size:12px;margin:0}.week{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:5px}.day{min-width:0;border:1px solid #bac7d1;padding:4px;min-height:180mm}h2{font-size:12px;margin:0 0 5px;padding-bottom:5px;border-bottom:1px solid #bac7d1}h2 span{display:block;font-size:10px;font-weight:normal;margin-top:3px}article{border:1px solid #ccd5dd;border-left:4px solid #173a66;padding:var(--schedule-pad);margin:0 0 var(--schedule-pad);overflow-wrap:anywhere;break-inside:avoid}article b,article strong{display:block}article div{margin-top:3px}article p{margin:4px 0 0;white-space:pre-wrap}.off{border:1px dashed #657483;padding:5px;margin:5px 0;font-weight:bold}.empty{color:#536677}@media print{.toolbar{display:none}body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
  ${daily?`@page{size:letter landscape;margin:0}html,body{width:auto;max-width:100%}#page,#sheet{width:100%;height:auto;min-height:0;margin:0;padding:0}#sheet{--schedule-font:12px;--schedule-pad:7px}header{flex-wrap:wrap;gap:6px;padding:4px 0 12px}h1{font-size:18px}.week{display:block}.day{min-height:0;border:0;padding:0}h2{break-after:avoid}.off{break-inside:avoid}article{display:inline-block;vertical-align:top;width:calc(33.333% - 7px);max-width:100%;margin:0 5px 8px 0;break-inside:avoid;page-break-inside:avoid}@media print{html,body{margin:0!important;padding:0!important;width:auto!important}#page{width:auto!important;margin:14mm 14mm 14mm!important;padding:0!important}#sheet{width:100%!important;max-width:100%;height:auto!important}header,h2{break-inside:avoid}article{overflow:visible}}`:''}
- </style></head><body><div class="toolbar"><button id="print" type="button">Print / Save PDF</button>${daily?'Landscape · Letter · Default scale (100%). Additional pages are used when needed.':'Landscape · Letter · One page. Busy weeks use smaller text.'} Turn off browser headers and footers.</div><div id="page"><div id="sheet"><header><h1>Production Desk · ${daily?'Daily':'Weekly'} Schedule</h1><p>${escape(label(start))}${daily?'':' – '+escape(label(dates[6]))}</p></header><div class="week">${columns}</div></div></div></body></html>`;
+ ${monthly?'@page{size:letter landscape;margin:12mm}#page,#sheet{height:auto;min-height:0}.week{align-items:start}.day{min-height:0;break-inside:avoid;padding:5px}h2{font-size:11px}article{break-inside:avoid}':''}
+ </style></head><body><div class="toolbar"><button id="print" type="button">Print / Save PDF</button>${daily||monthly?'Landscape · Letter · Default scale (100%). Additional pages are used when needed.':'Landscape · Letter · One page. Busy weeks use smaller text.'} Turn off browser headers and footers.</div><div id="page"><div id="sheet"><header><h1>Production Desk · ${daily?'Daily':monthly?'Monthly':'Weekly'} Schedule</h1><p>${escape(label(start))}${daily?'':' – '+escape(label(dates[dates.length-1]))}</p></header><div class="week">${columns}</div></div></div></body></html>`;
 }
 export function printWeeklySchedule(options:Parameters<typeof weeklyScheduleHtml>[0]){
  const preview=window.open('','_blank','width=1200,height=850');
  if(!preview)throw Error('Allow pop-ups for Production Desk to open the printable schedule.');
  preview.document.open();preview.document.write(weeklyScheduleHtml(options));preview.document.close();
- const fit=()=>{if(options.daily)return;const sheet=preview.document.getElementById('sheet')!,page=preview.document.getElementById('page')!;sheet.style.width='100%';sheet.style.setProperty('--schedule-font','10px');sheet.style.setProperty('--schedule-pad','5px');let size=10;while(sheet.scrollHeight>page.clientHeight&&size>5){size-=.5;sheet.style.setProperty('--schedule-font',size+'px');sheet.style.setProperty('--schedule-pad',Math.max(2,size/2)+'px');}};
+ const fit=()=>{if(options.daily||options.view==='Day'||options.view==='Month')return;const sheet=preview.document.getElementById('sheet')!,page=preview.document.getElementById('page')!;sheet.style.width='100%';sheet.style.setProperty('--schedule-font','10px');sheet.style.setProperty('--schedule-pad','5px');let size=10;while(sheet.scrollHeight>page.clientHeight&&size>5){size-=.5;sheet.style.setProperty('--schedule-font',size+'px');sheet.style.setProperty('--schedule-pad',Math.max(2,size/2)+'px');}};
  const print=()=>{fit();preview.focus();preview.print();};
  preview.document.getElementById('print')!.addEventListener('click',print);
  preview.addEventListener('beforeprint',fit);
@@ -36,3 +38,5 @@ export function printWeeklySchedule(options:Parameters<typeof weeklyScheduleHtml
 }
 
 export function printDailySchedule(options:Parameters<typeof weeklyScheduleHtml>[0]){return printWeeklySchedule({...options,daily:true});}
+
+export function printSchedule(options:Parameters<typeof weeklyScheduleHtml>[0]){return printWeeklySchedule(options);}

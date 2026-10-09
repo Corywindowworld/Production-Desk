@@ -6,6 +6,7 @@ import {remainingWorkdays,hourLabel,installAppointments} from './install-calenda
 import {storedObject} from './stored-data';
 import {database} from '@/db/raw';
 import {ApiError,Member,hasJobEditPermission,type DashboardStep} from '@/lib/access';
+import {saveLeadRenovation} from './lead-renovation';
 import {normalizeStoredCustomerFields,fieldsSchema,scheduleSchema,receiveSchema,receiveItemsSchema,allowedMaterials,requestSchema,surveySchema,configSchema,optionalDate,localDay,aging,dayDifference,bonusMetrics,bonusPeriod} from './operations';
 import {env} from './server-env';
 import {reportSchema,reportError,installerJob} from './installer-workflow';
@@ -24,7 +25,7 @@ function uniqueChoices(values:any[]){const choices=new Map<string,string>();for(
 export function installerVisible(m:Member,j:any,today=localDay()) {return j.installerId===m.id||j.operations?.services?.some((s:any)=>s.installerId===m.id)}
 export function publicJob(m:Member,j:any){
  if(m.role!=='installer')return j;
- return {...installerJob(j),serviceCompletionJob:!!j.serviceCompletionJob,inspectionComplete:!!j.inspectionComplete,noPermitRequired:!!j.noPermitRequired,deliveryOnly:!!j.deliveryOnly,phone2:j.phone2||'',phone3:j.phone3||'',customerSuppliedPermit:!!j.customerSuppliedPermit,install:j.installerId===m.id?j.install:'',canReport:installerVisible(m,j),salesRep:j.salesRep,salesRepPhone:j.salesRepPhone,salesRepEmail:j.salesRepEmail,received:j.received,bay:j.bay,city:j.city,state:j.state,zip:j.zip,materials:j.materials||[],product:j.product,windowCount:j.windowCount||0,slidingDoors:j.slidingDoors||0,entryDoorCount:j.entryDoorCount||0,screenCount:j.screenCount||0,buildingDepartment:j.buildingDepartment||'',permitExpiration:j.permitExpiration||'',buildingDepartmentPhone:j.buildingDepartmentPhone||'',privateProvider:!!j.privateProvider,installEnd:j.installerId===m.id?j.installEnd:'',installTime:j.installTime||'',scheduleCompletedOn:j.scheduleCompletedOn||'',brand:j.brand||'',materialType:j.materialType||'',permitReceived:!!j.permitReceived,permitNumber:j.permitNumber||'',instructions:j.instructions,scheduleInstructions:j.scheduleInstructions||'',reorder:j.reorder||'',attachments:(j.attachments||[]).filter((a:any)=>a.kind!=='visit'),operations:{reorders:j.operations?.reorders||[],salesKeys:j.operations?.salesKeys,report:j.operations?.report,services:(j.operations?.services||[]).filter((s:any)=>s.installerId===m.id)}};
+ return {...installerJob(j),leadRenovationJob:!!j.leadRenovationJob,serviceCompletionJob:!!j.serviceCompletionJob,inspectionComplete:!!j.inspectionComplete,noPermitRequired:!!j.noPermitRequired,deliveryOnly:!!j.deliveryOnly,phone2:j.phone2||'',phone3:j.phone3||'',customerSuppliedPermit:!!j.customerSuppliedPermit,install:j.installerId===m.id?j.install:'',canReport:installerVisible(m,j),salesRep:j.salesRep,salesRepPhone:j.salesRepPhone,salesRepEmail:j.salesRepEmail,received:j.received,bay:j.bay,city:j.city,state:j.state,zip:j.zip,materials:j.materials||[],product:j.product,windowCount:j.windowCount||0,slidingDoors:j.slidingDoors||0,entryDoorCount:j.entryDoorCount||0,screenCount:j.screenCount||0,buildingDepartment:j.buildingDepartment||'',permitExpiration:j.permitExpiration||'',buildingDepartmentPhone:j.buildingDepartmentPhone||'',privateProvider:!!j.privateProvider,installEnd:j.installerId===m.id?j.installEnd:'',installTime:j.installTime||'',scheduleCompletedOn:j.scheduleCompletedOn||'',brand:j.brand||'',materialType:j.materialType||'',permitReceived:!!j.permitReceived,permitNumber:j.permitNumber||'',instructions:j.instructions,scheduleInstructions:j.scheduleInstructions||'',reorder:j.reorder||'',attachments:(j.attachments||[]).filter((a:any)=>a.kind!=='visit'),operations:{leadRenovation:j.operations?.leadRenovation,reorders:j.operations?.reorders||[],salesKeys:j.operations?.salesKeys,report:j.operations?.report,services:(j.operations?.services||[]).filter((s:any)=>s.installerId===m.id)}};
 }
 export async function operationsData(m:Member,onStep:(step:DashboardStep)=>void=()=>{}){
  const db=database(),today=localDay();
@@ -78,7 +79,8 @@ export async function operationsData(m:Member,onStep:(step:DashboardStep)=>void=
   for(const rep of saved)if(rep.name){const name=cleanChoice(rep.name),key=choiceKey(name),previous=byName.get(key);byName.set(key,{name:choiceName(previous?.name,name),phone:rep.phone||previous?.phone||'',email:rep.email||previous?.email||''});}
   salesReps.push(...Array.from(byName.values()).sort((a,b)=>a.name.localeCompare(b.name)));
  }
- return {cities,salesReps,buildingDepartments,daysOff,bonusSnapshots,warnings,bonusConfigs,me:m,jobs,team,today,metrics,surveys,config:reviewer(m)?config:null,crewColors,canEdit:hasJobEditPermission(m),canReview:reviewer(m)};
+ const ownProfile=await db.prepare('SELECT profile_details,installer_code FROM members WHERE id=?').bind(m.id).first();
+ return {leadProfile:{renovatorName:ownProfile?.profile_details?.leadInstallerName||m.name,renovatorId:ownProfile?.profile_details?.contractorNumber||ownProfile?.installer_code||'',epaCertification:ownProfile?.profile_details?.epaCertification||'',savedSignature:ownProfile?.profile_details?.savedSignature||''},cities,salesReps,buildingDepartments,daysOff,bonusSnapshots,warnings,bonusConfigs,me:m,jobs,team,today,metrics,surveys,config:reviewer(m)?config:null,crewColors,canEdit:hasJobEditPermission(m),canReview:reviewer(m)};
 }
 // All job changes lock the row and compare versions inside one transaction. Side effects are queued with the change.
 export async function operation(m:Member,input:any){
@@ -317,6 +319,9 @@ export async function operation(m:Member,input:any){
    }
    else if(target==='Production'){assert(!o.report?.pending,'Review the installer submission before changing status.',409);assert(j.stage==='Received'&&j.install,'Schedule the RCVD job before moving it to PROD.',400);j.stage='Production';j.installed=today;o.report=null;history='Job moved to PROD; production aging started'}
    else{assert(!o.report?.pending,'Review the installer submission before changing status.',409);assert(['Production','InProgress'].includes(j.stage),'Only a PROD job can be marked IN PROGRESS.',400);j.stage='InProgress';history='Multi-day installation marked IN PROGRESS'}
+  }else if(action==='leadRenovation'){
+   assert(m.role==='installer'&&installerVisible(m,j),'Only an assigned installer may sign this form.');
+   await saveLeadRenovation(tx,j,m,input.data,at);history='Lead Renovation Procedures Record signed by '+m.name;
   }else if(action==='reorderRequest'){
    history=await reorderOperation({tx,j,m,data:input.data,at,alert,assigned:installerVisible(m,j)});
   }else if(action==='jobPhotos'){
@@ -335,6 +340,7 @@ export async function operation(m:Member,input:any){
    assert(m.role==='installer','Installer access required.');const text=parse(z.string().trim().min(1).max(4000),input.data.text);o.issues=[{id:crypto.randomUUID(),text,by:m.name,at},...(o.issues||[])];await alert(j.supervisorId,`⚠ Job #${j.number}: ${text}`);history='Installer reported an issue: '+text;
   }else if(action==='report'){
    assert(reviewer(m)||(m.role==='installer'&&installerVisible(m,j)),'Only the assigned installer, Field Supervisor or Administrator can submit a report.');
+   assert(!j.leadRenovationJob||m.role!=='installer'||o.leadRenovation?.signedBy===m.id,'Complete and sign the Lead Renovation Procedures Record first.',400);
    assert(!o.report?.pending,'A report is already awaiting Field Supervisor approval. Wait for it to be reviewed before submitting another result.',409);
    const r=parse(reportSchema,{...input.data,jobId:j.id,version});assert(r.installed<=today,'Installation date cannot be in the future.',400);assert(!reportError(r),reportError(r),400);const hashes=new Set();
    for(const a of r.attachments){const file=await tx.prepare("SELECT * FROM attachment_uploads WHERE key=? AND status='ready'").bind(a.key).first();assert(a.key.startsWith(`jobs/${j.id}/${a.kind}/`)&&file?.job_id===j.id&&file?.kind===a.kind&&file?.member_id===m.id,'An uploaded attachment is missing.',400);if(['front','rear','left','right'].includes(a.kind)){const hash=file?.sha256;assert(hash&&!hashes.has(hash),'Upload four different exterior photos.',400);hashes.add(hash)}}

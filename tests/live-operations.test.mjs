@@ -773,3 +773,26 @@ test('whole-window returned size flags normalize on save and print approval init
  r=j.operations.reorders.at(-1);assert.equal(r.items[0].actualSize,'');assert.equal(r.items[0].sameSizeAsOrder,false);assert.equal(r.managerInitials,'A');assert.equal(r.returnDate,today);
  const {reorderPrintHtml}=await vite.ssrLoadModule('/lib/print-reorder.ts');assert.ok(reorderPrintHtml(j,r).includes('Installed — no return'));
 });
+
+test('lead renovation forms require EPA, installer signature and truthful review; preserve snapshots',async()=>{
+ await act(pa,'create',{number:'LEAD-FORM-1',customer:'Lead Customer',address:'12 Main St',city:'Tampa',state:'FL',zip:'33610',amount:0,assignedInstallerId:installer.id,leadRenovationJob:true});
+ assert.equal(j.leadRenovationJob,true);
+ await assert.rejects(()=>act(installer,'report',{}),/Lead Renovation/);
+ const data={answers:Array(13).fill(true),signature:'Test Installer',confirmed:true,saveSignature:true};
+ await assert.rejects(()=>act(fs,'leadRenovation',data),/assigned installer/);
+ await assert.rejects(()=>act(installer,'leadRenovation',data),/EPA Certification/);
+ await pg.query("UPDATE production.members SET profile_details=profile_details || '{\"epaCertification\":\"EPA-123\"}'::jsonb WHERE id=$1",[installer.id]);
+ await assert.rejects(()=>act(installer,'leadRenovation',{...data,confirmed:false}),/Review every answer/);
+ await act(installer,'leadRenovation',{...data,answers:data.answers.map((v,i)=>i===3?false:v)});
+ assert.equal(j.operations.leadRenovation.customerId,'LEAD-FORM-1');assert.equal(j.operations.leadRenovation.epaCertification,'EPA-123');assert.equal(j.operations.leadRenovation.answers[3],false);
+ const d=await operationsData(installer);assert.equal(d.leadProfile.savedSignature,'Test Installer');assert.equal(d.jobs.find(x=>x.id===j.id).leadRenovationJob,true);assert.equal(d.jobs.find(x=>x.id===j.id).operations.leadRenovation.signedBy,installer.id);
+ await act(installer,'leadRenovation',data);assert.equal(j.operations.leadRenovationHistory.length,1);assert.equal(j.operations.leadRenovationHistory[0].answers[3],false);
+});
+test('FS may supply serials during reorder approval',async()=>{
+ await act(pa,'create',{number:'REVIEW-SERIAL',customer:'Serial Customer',address:'1 Main',amount:0,assignedInstallerId:installer.id});
+ const key='jobs/'+j.id+'/issue/'+crypto.randomUUID();
+ await pg.query("INSERT INTO production.attachment_uploads(key,staging_key,job_id,kind,member_id,name,expires,status,sha256) VALUES($1,$2,$3,'issue',$4,'Issue.jpg',$5,'ready',$6)",[key,'pending/'+crypto.randomUUID(),j.id,installer.id,Date.now()+100000,'serial-photo']);
+ await act(installer,'reorderRequest',{command:'submit',reason:'Glass',acknowledged:true,items:[{type:'Whole Window',window:'1',quantity:1,orderedSize:'36 x 48',reorderSize:'36 x 48',windowInstalled:true,photos:[{key,name:'Issue.jpg',kind:'issue'}]}]});
+ await act(fs,'reorderRequest',{command:'review',id:j.operations.reorders[0].id,decision:'Approved',serials:['SERIAL-123'],chargebacks:[],chargebackNote:'',comment:'',reviewAcknowledged:true});
+ assert.equal(j.operations.reorders[0].items[0].serial,'SERIAL-123');
+});

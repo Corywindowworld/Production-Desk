@@ -59,9 +59,10 @@ export async function reorderOperation({tx,j,m,data,at,alert,assigned}:any){
  }
  if(data.command==='review'){
   check(r.status==='Submitted','This request has already been reviewed.');
-  const v=read(z.object({decision:z.enum(['Approved','Correction requested','Declined']),chargebacks:z.array(z.enum(chargeParties)).max(5),chargebackNote:text,comment:text,reviewAcknowledged:z.literal(true)}),data);
+  const v=read(z.object({serials:z.array(z.string().trim().max(4000)).max(100).optional(),decision:z.enum(['Approved','Correction requested','Declined']),chargebacks:z.array(z.enum(chargeParties)).max(5),chargebackNote:text,comment:text,reviewAcknowledged:z.literal(true)}),data);
   check(!v.chargebacks.length||!!v.chargebackNote,'Explain the chargeback decision.');
   check(v.decision==='Approved'||!!v.comment,'Enter a reason for correction or decline.');
+  if(v.serials){check(v.serials.length===r.items.length,'Serial numbers must match reorder items.');r.items=r.items.map((i:any,n:number)=>({...i,serial:v.serials![n]}));}
   Object.assign(r,v,{status:v.decision,reviewedBy:m.name,reviewedAt:at});event(r,v.decision+': '+v.comment);
   if(v.decision==='Approved')completeReorder(r);
   await alert(r.submittedBy,`Reorder for #${j.number}: ${v.decision}. ${v.comment}`);

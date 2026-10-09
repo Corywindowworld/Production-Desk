@@ -1,21 +1,23 @@
 'use client';
-import {useState} from 'react';
+import {useState,useEffect,useRef} from 'react';
 import {uploadAttachment} from '@/lib/upload-client';
 import {printReorder} from '@/lib/print-reorder';
 const types=['Whole Window','Screen Frame','Sash','Frame','SPD','Entry Door','Other Part'];
 const parties=['Factory','Installer','Sales Rep','Customer','Window World'];
 const empty=()=>({type:'Whole Window',window:'',quantity:1,orderedSize:'',actualSize:'',reorderSize:'',serial:'',position:'',panelSide:'',panelOperation:'',specialShape:false,orderedLegHeight:'',actualLegHeight:'',reorderLegHeight:'',description:'',photos:[] as any[]});
-export function ReorderRequests({j,me,save}:any){
+export function ReorderRequests({j,me,save,openRequest=0}:any){
+ const section=useRef<HTMLDetailsElement>(null);
  const review=['admin','supervisor'].includes(me.role),canSubmit=review||me.role==='installer';
  const [draft,setDraft]=useState<any>(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState('');
+ useEffect(()=>{if(!openRequest)return;setDraft((current:any)=>current||{reason:j.operations?.report?.reason||'',remaining:j.operations?.report?.notes||'',items:[{...empty(),photos:(j.operations?.report?.attachments||[]).filter((a:any)=>a.kind==='issue')}]});if(section.current){section.current.open=true;section.current.scrollIntoView({behavior:'smooth',block:'start'});}},[openRequest,j.id]);
  async function run(data:any){setBusy(true);setError('');setNotice('');try{await save('reorderRequest',data);setNotice('✓ Reorder saved.');return true}catch(e){setError((e as Error).message);return false}finally{setBusy(false)}}
  const editItem=(i:number,k:string,v:any)=>setDraft((d:any)=>({...d,items:d.items.map((x:any,n:number)=>n===i?{...x,[k]:v}:x)}));
- return <details className="op-disclosure"><summary>Digital Reorder Forms ({j.operations?.reorders?.length||0})</summary>
+ return <details ref={section} className="op-disclosure"><summary>Digital Reorder Forms ({j.operations?.reorders?.length||0})</summary>
  <p>Customer: {j.customer} · ID #{j.number} · Installer: {j.crew||me.name} · Sales Rep: {j.salesRep||'Not recorded'}</p>
  {canSubmit&&!draft&&<button className="live-button" onClick={()=>setDraft({reason:'',remaining:'',items:[empty()]})}>Create Reorder</button>}
  {error&&<p role="alert" className="op-red">{error}</p>}{notice&&<p role="status" className="op-callout">{notice}</p>}
  {draft&&<form className="op-form" onSubmit={async e=>{e.preventDefault();const f=new FormData(e.currentTarget);if(await run({command:'submit',...draft,...(review?{chargebacks:f.getAll('chargebacks'),chargebackNote:f.get('chargebackNote')}:{}),acknowledged:f.has('acknowledged')}))setDraft(null)}}>
- <fieldset disabled={busy}><h3>Contractor Reorder Form</h3><label>Why is this reorder necessary?<textarea required value={draft.reason} onChange={e=>setDraft({...draft,reason:e.target.value})}/></label>
+ <fieldset disabled={busy}><h3>Contractor Reorder Form</h3>{openRequest>0&&<p className="op-callout">Complete this reorder for the INC result you submitted. Your reason and issue photos have been brought over; review them and add the item details.</p>}<label>Why is this reorder necessary?<textarea required value={draft.reason} onChange={e=>setDraft({...draft,reason:e.target.value})}/></label>
  {draft.items.map((x:any,i:number)=><details key={i} open className="op-disclosure"><summary>Item {i+1} · {x.type} · {x.window||'Window/location'}</summary>
  <label>Item type<select value={x.type} onChange={e=>editItem(i,'type',e.target.value)}>{types.map(t=><option key={t}>{t}</option>)}</select></label>
  <label>Window number / location<input required value={x.window} onChange={e=>editItem(i,'window',e.target.value)}/></label><label>Quantity<input type="number" min="1" max="999" value={x.quantity} onChange={e=>editItem(i,'quantity',Number(e.target.value))}/></label>

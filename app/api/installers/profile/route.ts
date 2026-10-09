@@ -1,4 +1,4 @@
-import {actor,apiError,sameOrigin} from '@/lib/access';
+import {actor,ApiError,apiError,sameOrigin} from '@/lib/access';
 import {installerProfiles,saveInstallerProfile} from '@/lib/installer-directory';
 export async function GET(request:Request){try{return Response.json(await installerProfiles(await actor(request)),{headers:{'Cache-Control':'no-store'}})}catch(e){return apiError(e)}}
-export async function POST(request:Request){try{sameOrigin(request);await saveInstallerProfile(await actor(request),await request.json());return Response.json({ok:true})}catch(e){return apiError(e)}}
+export async function POST(request:Request){try{sameOrigin(request);const m=await actor(request),input=await request.json();await saveInstallerProfile(m,input);const saved=(await installerProfiles(m)).installers.find((i:any)=>i.id===input.id);if(!saved||saved.epaCertification!==String(input.epaCertification??saved.epaCertification).trim())throw new ApiError(409,'The saved EPA number could not be verified. Reopen the installer profile and try again.');return Response.json({ok:true,installer:saved},{headers:{'Cache-Control':'no-store'}})}catch(e){return apiError(e)}}

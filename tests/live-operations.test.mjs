@@ -817,3 +817,20 @@ test('lead renovation print preserves all answers and uses safe reorder-style pr
 });
 
 test('new lead forms require a drawn PNG signature',async()=>{const {leadSchema}=await vite.ssrLoadModule('/lib/lead-renovation.ts');assert.equal(leadSchema.safeParse({answers:Array(13).fill(true),signature:'Typed Only',confirmed:true}).success,false);});
+
+test('legacy JSON-string and fragment-array installer profiles repair and feed lead certificate',async()=>{
+ const {installerProfiles,saveInstallerProfile}=await vite.ssrLoadModule('/lib/installer-directory.ts');
+ const {readProfileDetails}=await vite.ssrLoadModule('/lib/account-profile.ts');
+ const original={contractorNumber:'C843',leadInstallerName:'Lead Tester',savedDrawnSignature:'data:image/png;base64,aGVsbG8='};
+ for(const stored of [JSON.stringify({...original,epaCertification:'EPA-OLD'}),[JSON.stringify(original),{epaCertification:'EPA-OLD'}]]){
+  await pg.query('UPDATE production.members SET profile_details=$1::jsonb WHERE id=$2',[JSON.stringify(stored),installer.id]);
+  const p=(await installerProfiles(admin)).installers.find(i=>i.id===installer.id);assert.equal(p.epaCertification,'EPA-OLD');
+  await saveInstallerProfile(admin,{id:p.id,name:p.name,phone:p.phone,leadInstallerName:p.leadInstallerName,address:p.address,contactEmail:p.contactEmail,emergencyContact:p.emergencyContact,emergencyPhone:p.emergencyPhone,contractorNumber:p.contractorNumber,epaCertification:'EPA-VERIFIED'});
+  const storedRow=(await pg.query('SELECT profile_details,jsonb_typeof(profile_details) AS kind FROM production.members WHERE id=$1',[installer.id])).rows[0];assert.equal(storedRow.kind,'object');assert.equal(storedRow.profile_details.epaCertification,'EPA-VERIFIED');assert.equal(storedRow.profile_details.savedDrawnSignature,original.savedDrawnSignature);
+  assert.equal((await operationsData(installer)).leadProfile.epaCertification,'EPA-VERIFIED');
+ }
+ await act(pa,'create',{number:'EPA-CERT-TRANSFER',customer:'EPA Customer',address:'1 Test St',amount:0,assignedInstallerId:installer.id,leadRenovationJob:true});
+ await act(installer,'leadRenovation',{answers:Array(13).fill(true),signature:'Lead Tester',signatureDataUrl:original.savedDrawnSignature,confirmed:true,saveSignature:true});
+ assert.equal(j.operations.leadRenovation.epaCertification,'EPA-VERIFIED');
+ assert.equal((await installerProfiles(installer)).installers[0].epaCertification,'EPA-VERIFIED');
+});

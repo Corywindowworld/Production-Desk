@@ -1,3 +1,4 @@
+import {readProfileDetails} from './account-profile';
 import {reorderOperation} from '@/lib/reorder-requests';
 import {canAddJobPhotos,jobPhotoKinds} from './job-photo-access';
 import {linkedAccountValues} from './linked-account';
@@ -80,6 +81,7 @@ export async function operationsData(m:Member,onStep:(step:DashboardStep)=>void=
   salesReps.push(...Array.from(byName.values()).sort((a,b)=>a.name.localeCompare(b.name)));
  }
  const ownProfile=await db.prepare('SELECT profile_details,installer_code FROM members WHERE id=?').bind(m.id).first();
+ if(ownProfile)ownProfile.profile_details=readProfileDetails(ownProfile.profile_details);
  return {leadProfile:{savedDrawnSignature:ownProfile?.profile_details?.savedDrawnSignature||'',renovatorName:ownProfile?.profile_details?.leadInstallerName||m.name,renovatorId:ownProfile?.profile_details?.contractorNumber||ownProfile?.installer_code||'',epaCertification:ownProfile?.profile_details?.epaCertification||'',savedSignature:ownProfile?.profile_details?.savedSignature||''},cities,salesReps,buildingDepartments,daysOff,bonusSnapshots,warnings,bonusConfigs,me:m,jobs,team,today,metrics,surveys,config:reviewer(m)?config:null,crewColors,canEdit:hasJobEditPermission(m),canReview:reviewer(m)};
 }
 // All job changes lock the row and compare versions inside one transaction. Side effects are queued with the change.

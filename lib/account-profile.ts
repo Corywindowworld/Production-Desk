@@ -16,3 +16,10 @@ export const profileDetails=z.object({
  additional:z.array(z.object({label:z.string().trim().min(1).max(80),value:z.string().trim().max(500)}).strict()).max(20).default([])
 }).strict();
 export const profileInput=z.object({id:z.string().min(1).max(100),name:z.string().trim().min(1).max(100),phone:z.string().trim().max(50),details:profileDetails}).strict();
+
+// Earlier JSONB writes could contain JSON strings or arrays of profile fragments.
+export function readProfileDetails(value:any):Record<string,any>{
+ if(typeof value==='string'){try{return readProfileDetails(JSON.parse(value))}catch{return {}}}
+ if(Array.isArray(value))return Object.assign({},...value.map(readProfileDetails));
+ return value&&typeof value==='object'?value:{};
+}

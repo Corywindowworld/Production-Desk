@@ -778,14 +778,14 @@ test('lead renovation forms require EPA, installer signature and truthful review
  await act(pa,'create',{number:'LEAD-FORM-1',customer:'Lead Customer',address:'12 Main St',city:'Tampa',state:'FL',zip:'33610',amount:0,assignedInstallerId:installer.id,leadRenovationJob:true});
  assert.equal(j.leadRenovationJob,true);
  await assert.rejects(()=>act(installer,'report',{}),/Lead Renovation/);
- const data={answers:Array(13).fill(true),signature:'Test Installer',confirmed:true,saveSignature:true};
+ const data={answers:Array(13).fill(true),signature:'Test Installer',signatureDataUrl:'data:image/png;base64,aGVsbG8=',confirmed:true,saveSignature:true};
  await assert.rejects(()=>act(fs,'leadRenovation',data),/assigned installer/);
  await assert.rejects(()=>act(installer,'leadRenovation',data),/EPA Certification/);
  await pg.query("UPDATE production.members SET profile_details=profile_details || '{\"epaCertification\":\"EPA-123\"}'::jsonb WHERE id=$1",[installer.id]);
  await assert.rejects(()=>act(installer,'leadRenovation',{...data,confirmed:false}),/Review every answer/);
  await act(installer,'leadRenovation',{...data,answers:data.answers.map((v,i)=>i===3?false:v)});
  assert.equal(j.operations.leadRenovation.customerId,'LEAD-FORM-1');assert.equal(j.operations.leadRenovation.epaCertification,'EPA-123');assert.equal(j.operations.leadRenovation.answers[3],false);
- const d=await operationsData(installer);assert.equal(d.leadProfile.savedSignature,'Test Installer');assert.equal(d.jobs.find(x=>x.id===j.id).leadRenovationJob,true);assert.equal(d.jobs.find(x=>x.id===j.id).operations.leadRenovation.signedBy,installer.id);
+ const d=await operationsData(installer);assert.equal(d.leadProfile.savedSignature,'Test Installer');assert.equal(d.leadProfile.savedDrawnSignature,data.signatureDataUrl);assert.equal(d.jobs.find(x=>x.id===j.id).leadRenovationJob,true);assert.equal(d.jobs.find(x=>x.id===j.id).operations.leadRenovation.signedBy,installer.id);
  await act(installer,'leadRenovation',data);assert.equal(j.operations.leadRenovationHistory.length,1);assert.equal(j.operations.leadRenovationHistory[0].answers[3],false);
 });
 test('FS may supply serials during reorder approval',async()=>{
@@ -796,3 +796,24 @@ test('FS may supply serials during reorder approval',async()=>{
  await act(fs,'reorderRequest',{command:'review',id:j.operations.reorders[0].id,decision:'Approved',serials:['SERIAL-123'],chargebacks:[],chargebackNote:'',comment:'',reviewAcknowledged:true});
  assert.equal(j.operations.reorders[0].items[0].serial,'SERIAL-123');
 });
+
+test('EPA-only installer profile saves persist without rewriting assigned jobs',async()=>{
+ const {installerProfiles,saveInstallerProfile}=await vite.ssrLoadModule('/lib/installer-directory.ts');
+ const p=(await installerProfiles(admin)).installers.find(i=>i.id===installer.id);
+ const before=await pg.query("SELECT id,version FROM production.jobs WHERE payload::jsonb->>'installerId'=$1 ORDER BY id",[installer.id]);
+ const body={id:p.id,name:p.name,phone:p.phone,leadInstallerName:p.leadInstallerName,address:p.address,contactEmail:p.contactEmail,emergencyContact:p.emergencyContact,emergencyPhone:p.emergencyPhone,contractorNumber:p.contractorNumber,epaCertification:'EPA-SAVED-456',photoDataUrl:p.photoDataUrl};
+ await saveInstallerProfile(admin,body);
+ assert.equal((await installerProfiles(admin)).installers.find(i=>i.id===installer.id).epaCertification,'EPA-SAVED-456');
+ const after=await pg.query("SELECT id,version FROM production.jobs WHERE payload::jsonb->>'installerId'=$1 ORDER BY id",[installer.id]);assert.deepEqual(after.rows,before.rows);
+ await saveInstallerProfile(installer,{...body,epaCertification:'EPA-SELF-789'});
+ assert.equal((await installerProfiles(installer)).installers[0].epaCertification,'EPA-SELF-789');
+});
+test('lead renovation print preserves all answers and uses safe reorder-style print margins',async()=>{
+ const {leadRenovationPrintHtml}=await vite.ssrLoadModule('/lib/print-lead-renovation.ts');
+ const html=leadRenovationPrintHtml({customerId:'123',customerName:'Customer <Test>',address:'12 Main',city:'Tampa',state:'FL',zip:'33610',renovatorName:'Lead',renovatorId:'C843',epaCertification:'EPA-789',answers:Array(13).fill(true),signature:'Lead Installer',signedAt:'2026-10-09T16:00:00Z'});
+ assert.ok(html.includes('Customer &lt;Test&gt;'));assert.ok(html.includes('EPA-789'));assert.ok(html.includes('Lead Installer'));assert.ok(html.includes('10-09-2026'));
+ assert.ok(html.includes('size:letter portrait;margin:0'));assert.ok(html.includes('padding:0.6in 0.65in!important'));assert.equal((html.match(/class="choices"/g)||[]).length,13);
+ assert.ok(!html.includes('overflow:hidden'));assert.ok(!html.includes('height:11in'));
+});
+
+test('new lead forms require a drawn PNG signature',async()=>{const {leadSchema}=await vite.ssrLoadModule('/lib/lead-renovation.ts');assert.equal(leadSchema.safeParse({answers:Array(13).fill(true),signature:'Typed Only',confirmed:true}).success,false);});

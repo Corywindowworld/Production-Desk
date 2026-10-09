@@ -1,0 +1,8 @@
+'use client';
+import {useState} from 'react';
+export type PreviewPhoto={name:string;url:string;type:string};
+export function Photos({title,items,onAdd}:{title:string;items:PreviewPhoto[];onAdd?: (photos:PreviewPhoto[])=>void}){
+const [error,setError]=useState(''),[busy,setBusy]=useState(false);
+async function add(files:File[]){setError('');if(items.length+files.length>20||files.some(f=>f.size===0||f.size>15*1024*1024||(!f.type.startsWith('image/')&&f.type!=='application/pdf'))){setError('Choose up to 20 images or PDFs, each nonempty and no larger than 15 MB.');return}setBusy(true);try{const result=await Promise.all(files.map(f=>new Promise<PreviewPhoto>((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve({name:f.name,url:String(r.result),type:f.type});r.onerror=()=>reject(Error('Could not read file'));r.readAsDataURL(f)})));onAdd?.(result)}catch{setError('Could not read these files. Try again.')}finally{setBusy(false)}}
+return <section><h3>{title}</h3>{onAdd&&<label>Add photos / documents<input type="file" multiple accept="image/*,.pdf" disabled={busy} onChange={e=>{add(Array.from(e.target.files||[]));e.target.value=''}}/></label>}{busy&&<p>Reading files…</p>}{error&&<p role="alert" className="op-red">{error}</p>}<div className="op-gallery">{items.map((p,i)=><a key={i} href={p.url} download={p.name}>{p.type.startsWith('image/')?<img src={p.url} alt={p.name}/>:<span>PDF document</span>}<small>{p.name}</small></a>)}</div>{!items.length&&<p className="op-muted">No {title.toLowerCase()} added.</p>}<small>Preview files stay in this browser session and clear on refresh.</small></section>
+}

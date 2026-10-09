@@ -1,0 +1,3 @@
+import {qualityLabel,qualityTone} from '@/lib/installer-quality';
+export function QualityBadge({score}:{score:number|null}){return <div className={'quality-value '+qualityTone(score)}><strong>{score===null?'Not rated':score.toFixed(2)}{score===4&&<span className="quality-gold-star" role="img" aria-label="Gold star for a perfect 4.00 score">★</span>}</strong><span>{qualityLabel(score)}</span></div>}
+export function QualityLegend(){return <div className="quality-legend" aria-label="Guild quality rating scale"><span><b>Poor</b> 3.59 and below</span><span><b>Fair</b> 3.60–3.69</span><span><b>Good</b> 3.70–3.79</span><span><b>Outstanding</b> 3.80–4.00</span><span><span className="quality-gold-star" aria-hidden="true">★</span> Perfect 4.00</span></div>}

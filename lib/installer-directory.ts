@@ -14,7 +14,22 @@ export async function saveInstallerProfile(m:Member,input:unknown){
  if(!manager&&!(m.role==='installer'&&m.id===d.id))throw new ApiError(403,'You can only edit your own installer profile.');
  if(d.supervisorId!==undefined&&!manager)throw new ApiError(403,'Only a Field Supervisor or Administrator may change crew assignment.');
  if(d.inactive!==undefined&&!manager)throw new ApiError(403,'Only a Field Supervisor or Administrator may change active status.');
- const db=database(),at=new Date().toISOString();await db.transaction(async tx=>{
+ const db=database(),at=new Date().toISOString();
+ const current=await db.prepare("SELECT name,active,supervisor_id,installer_code,profile_details FROM members WHERE id=? AND role='installer'").bind(d.id).first();
+ if(!current)throw new ApiError(404,'Installer not found.');
+ const currentContractor=current.profile_details?.contractorNumber??(/^C[0-9]+$/i.test(current.installer_code||'')?current.installer_code.toUpperCase():'');
+ const profileOnly=d.name===current.name&&(d.supervisorId===undefined||d.supervisorId===current.supervisor_id)&&(d.contractorNumber===undefined||d.contractorNumber===currentContractor)&&(d.inactive===undefined||d.inactive===!current.active);
+ if(profileOnly){
+  const details={...(d.epaCertification!==undefined?{epaCertification:d.epaCertification}:{}),...(d.photoDataUrl!==undefined?{photoDataUrl:d.photoDataUrl}:{}),leadInstallerName:d.leadInstallerName,address:d.address,contactEmail:d.contactEmail,emergencyContact:d.emergencyContact,emergencyPhone:formatPhone(d.emergencyPhone)};
+  // A contact/EPA edit needs one atomic write, not a multi-query transaction
+  // holding the installer row while visiting unrelated job records.
+  const result=await db.prepare("WITH target AS (SELECT id FROM members WHERE id=? AND role='installer' FOR UPDATE NOWAIT), saved AS (UPDATE members SET phone=?,profile_details=COALESCE(profile_details,'{}'::jsonb) || ?::jsonb WHERE id IN (SELECT id FROM target) RETURNING id) INSERT INTO account_audit(id,actor_id,member_id,action,created) SELECT ?,?,id,'Installer contact and certification updated',? FROM saved").bind(d.id,formatPhone(d.phone),JSON.stringify(details),crypto.randomUUID(),m.id,at).run();
+  if(!result.meta.changes)throw new ApiError(404,'Installer not found.');
+  return;
+ }
+ await db.transaction(async tx=>{
+  await tx.prepare("SET LOCAL lock_timeout = '5s'").run();
+  await tx.prepare("SET LOCAL statement_timeout = '12s'").run();
   const r=await tx.prepare("SELECT * FROM members WHERE id=? AND role='installer' FOR UPDATE").bind(d.id).first();if(!r)throw new ApiError(404,'Installer not found.');
   if(d.supervisorId!==undefined&&d.supervisorId!==r.supervisor_id){const supervisor=await tx.prepare("SELECT id,name FROM members WHERE id=? AND role IN ('admin','supervisor') AND active=1 FOR SHARE").bind(d.supervisorId).first();if(!supervisor)throw new ApiError(400,'Choose an active Field Supervisor.');await tx.prepare('UPDATE members SET supervisor_id=? WHERE id=?').bind(supervisor.id,d.id).run();await tx.prepare("UPDATE jobs SET payload=(payload::jsonb || jsonb_build_object('supervisorId',?::text,'supervisor',?::text))::text,version=version+1,updated=? WHERE payload::jsonb->>'installerId'=?").bind(supervisor.id,supervisor.name,at,d.id).run();await tx.prepare('INSERT INTO account_audit(id,actor_id,member_id,action,created) VALUES(?,?,?,?,?)').bind(crypto.randomUUID(),m.id,d.id,'Crew Field Supervisor changed to '+supervisor.name,at).run();}
   const details={...r.profile_details,...(d.epaCertification!==undefined?{epaCertification:d.epaCertification}:{}),...(d.contractorNumber!==undefined?{contractorNumber:d.contractorNumber}:{}),...(d.photoDataUrl!==undefined?{photoDataUrl:d.photoDataUrl}:{}),leadInstallerName:d.leadInstallerName,address:d.address,contactEmail:d.contactEmail,emergencyContact:d.emergencyContact,emergencyPhone:formatPhone(d.emergencyPhone)};

@@ -38,6 +38,7 @@ export function apiError(e:unknown,step?:DashboardStep){
   ERR_TLS_CERT_ALTNAME_INVALID:'Database TLS certificate hostname mismatch',
   ERR_INVALID_URL:'Invalid connection URL',
  };
+ if(code==='55P03'||code==='40P01'||code==='57014')return Response.json({error:'The database is busy with another update. This save was rolled back. Please try saving again in a few seconds.'},{status:503,headers:{'Cache-Control':'no-store'}});
  const known=typeof code==='string'&&Object.hasOwn(reasons,code);
  // Never log raw errors: database errors can contain credentials, queries and user data.
  const errorType=e instanceof SyntaxError?'SyntaxError':e instanceof TypeError?'TypeError':e instanceof RangeError?'RangeError':'Error';

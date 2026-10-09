@@ -663,14 +663,8 @@ test('digital reorder submissions, chargebacks, corrections, tracking and photo 
  await act(installer,'reorderRequest',{...data,id:r.id,reason:'Opening measured and confirmed'});
  r=j.operations.reorders[0];assert.equal(r.revisions.length,1);
  await act(fs,'reorderRequest',{command:'review',id:r.id,decision:'Approved',chargebacks:['Factory'],chargebackNote:'Wrong size shipped',comment:'Verified',reviewAcknowledged:true});
- await assert.rejects(()=>act(fs,'reorderRequest',{command:'track',id:r.id,status:'Received'}),/previous/);
- await act(fs,'reorderRequest',{command:'track',id:r.id,status:'Ordered',vendor:'Vendor',reference:'FO-100',orderedDate:today});
- await act(fs,'reorderRequest',{command:'track',id:r.id,status:'Received',receivedDate:today,bay:'A1'});
- await assert.rejects(()=>act(fs,'reorderRequest',{command:'track',id:r.id,status:'Scheduled'}),/Schedule/);
- await act(pa,'schedule',{date:today,period:'AM',installerId:installer.id,stop:1});
- await act(fs,'reorderRequest',{command:'track',id:r.id,status:'Scheduled'});
- await act(fs,'reorderRequest',{command:'track',id:r.id,status:'Resolved'});
- assert.equal(j.operations.reorders[0].status,'Resolved');assert.equal(j.operations.reorders[0].reference,'FO-100');assert.equal(j.operations.reorders[0].bay,'A1');assert.equal(j.stage,'Ordered');
+ await assert.rejects(()=>act(fs,'reorderRequest',{command:'track',id:r.id,status:'Received'}),/removed/);
+ assert.equal(j.operations.reorders[0].status,'Approved');assert.equal(j.reorderDate,today);assert.equal(j.stage,'Ordered');
  const {reorderPrintHtml}=await vite.ssrLoadModule('/lib/print-reorder.ts');
  const html=reorderPrintHtml(j,j.operations.reorders[0]);assert.ok(html.includes('Contractor Reorder Form'));assert.ok(html.includes('Wrong size shipped'));assert.ok(html.includes(encodeURIComponent(photoKey)));
 });
@@ -683,7 +677,7 @@ test('FS reorders allow no photos; installer photos and Admin deletion are enfor
  await act(fs,'reorderRequest',data);
  let r=j.operations.reorders[0];assert.equal(r.items[0].panelSide,'Left');assert.equal(r.items[0].panelOperation,'Inactive');
  const {reorderPrintHtml}=await vite.ssrLoadModule('/lib/print-reorder.ts');
- const html=reorderPrintHtml(j,r);assert.ok(html.includes('Inactive'));assert.ok(html.includes('margin:0.6in'));assert.ok(html.includes('class="customer-header"'));assert.ok(html.includes('class="check-box"'));
+ const html=reorderPrintHtml(j,r);assert.ok(html.includes('Inactive'));assert.ok(html.includes('padding:0.6in 0.65in!important'));assert.ok(html.includes('class="customer-header"'));assert.ok(html.includes('class="check-box"'));
  await assert.rejects(()=>act(fs,'reorderRequest',{command:'delete',id:r.id}),/Administrators/);
  await assert.rejects(()=>act(installer,'reorderRequest',{command:'delete',id:r.id}),/Supervisor/);
  await act(admin,'reorderRequest',{command:'delete',id:r.id});
@@ -704,4 +698,78 @@ test('whole window sizes preserve sixteenth fractions and reject invalid dimensi
  const data={reason:'Size check',acknowledged:true,items:[item]};
  assert.equal(reorderSubmission.parse(data).items[0].orderedSize,item.orderedSize);
  for(const invalid of ['36 1/32 x 48','0 x 48','36 x','36 17/16 x 48'])assert.equal(reorderSubmission.safeParse({...data,items:[{...item,reorderSize:invalid}]}).success,false);
+});
+
+test('paper reorder layout uses internal print padding and preserves overflow items and notes',async()=>{
+ const {reorderPrintHtml}=await vite.ssrLoadModule('/lib/print-reorder.ts');
+ const items=Array.from({length:9},(_,i)=>({type:'Sash',window:'Window '+i,quantity:1,serial:'SERIAL-'+i,position:'Top',description:'Detail '+i,photos:[]}));
+ const reason='Long reason '.repeat(50);
+ const html=reorderPrintHtml({customer:'Test <Customer>',number:'123'}, {items,reason,chargebacks:['Factory'],submittedAt:'2026-10-08T19:00:00Z'});
+ assert.equal((html.match(/class="sheet form-sheet"/g)||[]).length,2);
+ assert.ok(html.includes('Form page: 2 of 2'));
+ assert.ok(html.includes('padding:0.6in 0.65in!important'));
+ assert.ok(html.includes('class="parts-grid"'));
+ assert.ok(html.includes('Screen Frames Only'));assert.ok(html.includes('Sashes Only'));assert.ok(html.includes('Frames Only'));
+ assert.ok(html.includes('SERIAL-8'));assert.ok(html.includes(reason));
+ assert.ok(html.includes('Test &lt;Customer&gt;'));assert.ok(html.includes('10-08-2026'));
+ assert.ok(!html.includes('overflow:hidden'));assert.ok(!html.includes('height:11in'));
+});
+
+test('contractor profile, special shapes and FS direct approval update PROD to INC',async()=>{
+ const {saveInstallerProfile,installerProfiles}=await vite.ssrLoadModule('/lib/installer-directory.ts');
+ const p={id:installer.id,name:'Arch Crew',leadInstallerName:'Lead',phone:'',address:'',contactEmail:'',emergencyContact:'',emergencyPhone:'',contractorNumber:'c843'};
+ await saveInstallerProfile(admin,p);
+ assert.equal((await installerProfiles(admin)).installers.find(x=>x.id===installer.id).contractorNumber,'C843');
+ await assert.rejects(()=>saveInstallerProfile(admin,{...p,contractorNumber:'843'}),/Check/);
+ await act(pa,'create',{number:'ARCH-REORDER',customer:'Arch Customer',address:'1 Main',amount:0,assignedInstallerId:installer.id});
+ await pg.query("UPDATE production.jobs SET payload=(payload::jsonb || jsonb_build_object('stage','Production'))::text WHERE id=$1",[j.id]);await reload();
+ const item={type:'Whole Window',window:'Arch 1',quantity:1,specialShape:true,orderedSize:'36 x 60',actualSize:'36 x 60',reorderSize:'35 1/2 x 59 1/2',orderedLegHeight:'40',actualLegHeight:'40',reorderLegHeight:'39 1/2',photos:[]};
+ const data={command:'submit',reason:'Arch replacement',acknowledged:true,chargebacks:['Factory'],chargebackNote:'Warranty',items:[item]};
+ await assert.rejects(()=>act(fs,'reorderRequest',{...data,items:[{...item,reorderLegHeight:''}]}),/leg height/i);
+ await assert.rejects(()=>act(installer,'reorderRequest',data),/photo/i);
+ await act(fs,'reorderRequest',data);
+ const r=j.operations.reorders[0];
+ assert.equal(r.returnDate,today);assert.equal(r.managerInitials,'S');assert.equal(r.status,'Approved');assert.equal(r.reviewedBy,fs.name);assert.equal(r.contractorNumber,'C843');assert.equal(r.contractorName,'Arch Crew');assert.equal(r.chargebackNote,'Warranty');
+ assert.equal(j.stage,'Incomplete');assert.equal(j.reorderDate,today);assert.equal(j.incompleteSince,today);
+ const {reorderPrintHtml}=await vite.ssrLoadModule('/lib/print-reorder.ts');
+ const html=reorderPrintHtml(j,r);assert.ok(html.includes('C843'));assert.ok(html.includes('Leg 39 1/2'));assert.ok(html.includes('Special Shape'));
+});
+test('installer reorder approval sets reorder date and moves PROD to INC only after review',async()=>{
+ await act(pa,'create',{number:'INSTALLER-REORDER-INC',customer:'Customer',address:'1 Main',amount:0,assignedInstallerId:installer.id});
+ await pg.query("UPDATE production.jobs SET payload=(payload::jsonb || jsonb_build_object('stage','Production'))::text WHERE id=$1",[j.id]);await reload();
+ const key='jobs/'+j.id+'/issue/'+crypto.randomUUID();
+ await pg.query("INSERT INTO production.attachment_uploads(key,staging_key,job_id,kind,member_id,name,expires,status,sha256) VALUES($1,$2,$3,'issue',$4,'Issue.jpg',$5,'ready',$6)",[key,'pending/'+crypto.randomUUID(),j.id,installer.id,Date.now()+100000,'photo']);
+ await act(installer,'reorderRequest',{command:'submit',reason:'Broken sash',acknowledged:true,items:[{type:'Sash',window:'2',quantity:1,serial:'123',position:'Top',photos:[{key,name:'Issue.jpg',kind:'issue'}]}]});
+ assert.equal(j.stage,'Production');assert.equal(j.operations.reorders[0].status,'Submitted');
+ await act(admin,'reorderRequest',{command:'review',id:j.operations.reorders[0].id,decision:'Approved',chargebacks:[],chargebackNote:'',comment:'',reviewAcknowledged:true});
+ assert.equal(j.stage,'Incomplete');assert.equal(j.reorderDate,today);assert.equal(j.incompleteSince,today);
+});
+
+test('Admin can revise a GQ survey without duplicates; audits and stale edit protection',async()=>{
+ const id=crypto.randomUUID();
+ await pg.query("INSERT INTO production.operations_surveys(id,external_id,customer_id,installer_id,completed_on,ratings,entered_by,created) VALUES($1,$2,$3,$4,$5,$6,$7,$8)",[id,'RESURVEY-TEST','NOT-IMPORTED',installer.id,today,JSON.stringify([2,3,4,null]),admin.id,new Date().toISOString()]);
+ const data={id,completedOn:today,ratings:[5,5,5,5],reason:'Customer resurvey',expectedDate:today,expectedRatings:[2,3,4,null]};
+ for(const m of [installer,fs,pa])await assert.rejects(()=>operation(m,{action:'editSurvey',data}),/Administrator/);
+ await assert.rejects(()=>operation(admin,{action:'editSurvey',data:{...data,ratings:[6,5,5,5]}}));
+ await operation(admin,{action:'editSurvey',data});
+ const rows=(await operationsData(admin)).surveys.filter(s=>s.id===id);
+ assert.equal(rows.length,1);assert.deepEqual(rows[0].ratings,[5,5,5,5]);assert.equal(rows[0].customer_id,'NOT-IMPORTED');
+ const {surveyDetails}=await vite.ssrLoadModule('/lib/survey-details.ts');
+ assert.equal(surveyDetails(rows[0],[]).score,4);
+ await assert.rejects(()=>operation(admin,{action:'editSurvey',data}),/changed/);
+ const audits=await pg.query("SELECT action FROM production.account_audit WHERE actor_id=$1 AND action LIKE '%GQ survey edited%'",[admin.id]);
+ assert.ok(audits.rows.some(r=>r.action.includes(id)&&r.action.includes('Customer resurvey')&&r.action.includes('"before"')));
+});
+
+
+test('whole-window returned size flags normalize on save and print approval initials',async()=>{
+ await act(pa,'create',{number:'RETURN-SIZE-FLAGS',customer:'Return flags',address:'1 Main',amount:0,assignedInstallerId:installer.id});
+ const item={type:'Whole Window',window:'1',quantity:1,orderedSize:'36 1/16 x 48',reorderSize:'35 x 47',photos:[]};
+ const data={command:'submit',reason:'Replacement',acknowledged:true};
+ await assert.rejects(()=>act(fs,'reorderRequest',{...data,items:[item]}),/sizes/);
+ await act(fs,'reorderRequest',{...data,items:[{...item,sameSizeAsOrder:true}]});
+ let r=j.operations.reorders.at(-1);assert.equal(r.items[0].actualSize,item.orderedSize);assert.equal(r.managerInitials,'S');assert.equal(r.returnDate,today);
+ await act(admin,'reorderRequest',{...data,items:[{...item,windowInstalled:true,sameSizeAsOrder:true,actualSize:'99 x 99'}]});
+ r=j.operations.reorders.at(-1);assert.equal(r.items[0].actualSize,'');assert.equal(r.items[0].sameSizeAsOrder,false);assert.equal(r.managerInitials,'A');assert.equal(r.returnDate,today);
+ const {reorderPrintHtml}=await vite.ssrLoadModule('/lib/print-reorder.ts');assert.ok(reorderPrintHtml(j,r).includes('Installed — no return'));
 });

@@ -6,12 +6,12 @@ export const chargeParties=['Factory','Installer','Sales Rep','Customer','Window
 const text=z.string().trim().max(4000).default('');
 const validSize=(value:string)=>{const dimensions=value.split(/\s*x\s*/i);return dimensions.length===2&&dimensions.every(d=>{const m=d.trim().match(/^(\d+)(?:\s+(\d+)\/(\d+))?$/);if(!m)return false;const inches=Number(m[1]),num=Number(m[2]||0),den=Number(m[3]||1);return inches<=300&&[1,2,4,8,16].includes(den)&&num<den&&inches+num/den>0;});};
 const photo=z.object({key:z.string().max(250),name:z.string().max(255),kind:z.literal('issue')});
-const item=z.object({type:z.enum(reorderTypes),window:text,quantity:z.number().int().min(1).max(999),orderedSize:text,actualSize:text,reorderSize:text,serial:text,specialShape:z.boolean().optional(),orderedLegHeight:text,actualLegHeight:text,reorderLegHeight:text,position:text,panelSide:text,panelOperation:text,description:text,photos:z.array(photo).max(20)}).superRefine((v,c)=>{
+const item=z.object({type:z.enum(reorderTypes),window:text,quantity:z.number().int().min(1).max(999),sameSizeAsOrder:z.boolean().optional(),windowInstalled:z.boolean().optional(),orderedSize:text,actualSize:text,reorderSize:text,serial:text,specialShape:z.boolean().optional(),orderedLegHeight:text,actualLegHeight:text,reorderLegHeight:text,position:text,panelSide:text,panelOperation:text,description:text,photos:z.array(photo).max(20)}).superRefine((v,c)=>{
  if(!v.window)c.addIssue({code:'custom',message:'Enter a window number or location.'});
- if(v.type==='Whole Window'&&![v.orderedSize,v.actualSize,v.reorderSize].every(s=>validSize(s||'')))c.addIssue({code:'custom',message:'Enter ordered, actual and reorder sizes in inches and fractions down to 1/16.'});
+ if(v.type==='Whole Window'&&![v.orderedSize,...(v.windowInstalled?[]:[v.sameSizeAsOrder?v.orderedSize:v.actualSize]),v.reorderSize].every(s=>validSize(s||'')))c.addIssue({code:'custom',message:'Enter ordered, actual and reorder sizes in inches and fractions down to 1/16.'});
  if(['Screen Frame','Sash','Frame'].includes(v.type)&&!v.serial)c.addIssue({code:'custom',message:'Enter the serial number.'});
  if(v.type==='Sash'&&!['Top','Bottom','Left','Right','Middle'].includes(v.position))c.addIssue({code:'custom',message:'Enter sash position.'});
- if(v.type==='Whole Window'&&v.specialShape&&![v.orderedLegHeight,v.actualLegHeight,v.reorderLegHeight].every(s=>validSize((s||'')+' x 1')))c.addIssue({code:'custom',message:'Enter a valid leg height for each special shape size.'});
+ if(v.type==='Whole Window'&&v.specialShape&&![v.orderedLegHeight,...(v.windowInstalled?[]:[v.sameSizeAsOrder?v.orderedLegHeight:v.actualLegHeight]),v.reorderLegHeight].every(s=>validSize((s||'')+' x 1')))c.addIssue({code:'custom',message:'Enter a valid leg height for each special shape size.'});
  if(v.type==='SPD'&&(!['Left','Right'].includes(v.panelSide)||!['Inactive','Active'].includes(v.panelOperation)))c.addIssue({code:'custom',message:'Select patio panel side and Active or Inactive.'});
 });
 export const reorderSubmission=z.object({id:z.string().uuid().optional(),reason:z.string().trim().min(1).max(4000),remaining:text,acknowledged:z.literal(true),items:z.array(item).min(1).max(50)});
@@ -21,10 +21,11 @@ export async function reorderOperation({tx,j,m,data,at,alert,assigned}:any){
  const review=['admin','supervisor'].includes(m.role),o=j.operations;
  check(review||m.role==='installer'&&assigned,'Only assigned installers or FS/Admin can submit reorders.');
  o.reorders ||= [];
- const completeReorder=(r:any)=>{const day=localDay();r.reorderDate=day;j.reorderDate=day;j.reorder=r.reason;if(j.stage==='Production'){j.stage='Incomplete';j.incompleteSince=day;}else if(j.stage==='Incomplete')j.incompleteSince=day;};
+ const completeReorder=(r:any)=>{const day=localDay();r.reorderDate=day;r.returnDate=day;r.managerInitials=m.name.trim().split(/\s+/).map((n:string)=>n[0]).join('').toUpperCase();j.reorderDate=day;j.reorder=r.reason;if(j.stage==='Production'){j.stage='Incomplete';j.incompleteSince=day;}else if(j.stage==='Incomplete')j.incompleteSince=day;};
  const event=(r:any,message:string)=>{r.events=[...(r.events||[]),{at,by:m.name,message}];r.updatedAt=at;};
  if(data.command==='submit'){
   const v=read(reorderSubmission,data);
+  for(const i of v.items)if(i.type==='Whole Window'){if(i.windowInstalled){i.actualSize='';i.actualLegHeight='';i.sameSizeAsOrder=false;}else if(i.sameSizeAsOrder){i.actualSize=i.orderedSize;i.actualLegHeight=i.orderedLegHeight;}}
   if(m.role==='installer')check(v.items.every(i=>i.photos.length>0),'Installers must upload at least one photo for each reorder item.');
   const old=v.id?o.reorders.find((r:any)=>r.id===v.id):null;
   if(v.id)check(old&&old.status==='Correction requested'&&(review||old.submittedBy===m.id),'Only a returned request can be resubmitted.');

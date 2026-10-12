@@ -153,7 +153,6 @@ export async function operation(m:Member,input:any){
  if(action==='survey'){
   assert(reviewer(m),'Field supervisor or administrator access required.');const s=parse(surveySchema,input.data);assert(s.completedOn<=today,'Survey date cannot be in the future.',400);
   assert(await db.prepare("SELECT id FROM members WHERE id=? AND role='installer'").bind(s.installerId).first(),'Select an installer.',400);
-  assert(await db.prepare("SELECT id FROM jobs WHERE (payload::jsonb)->>'number'=? LIMIT 1").bind(s.customerId).first(),'No job matches that Customer ID.',400);
   const r=await db.prepare('INSERT INTO production.operations_surveys (id,external_id,customer_id,installer_id,completed_on,ratings,entered_by,created) VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(external_id) DO NOTHING').bind(crypto.randomUUID(),s.externalId,s.customerId,s.installerId,s.completedOn,JSON.stringify(s.ratings),m.id,at).run();assert(r.meta.changes,'That survey reference has already been recorded.',409);return;
  }
  if(action==='crewColors'){

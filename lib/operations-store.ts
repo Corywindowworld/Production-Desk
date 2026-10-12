@@ -21,6 +21,8 @@ const assert=(yes:unknown,message:string,status=403)=>{if(!yes)throw new ApiErro
 const parse=<T>(schema:z.ZodType<T>,value:unknown):T=>{const p=schema.safeParse(value);if(!p.success)throw new ApiError(400,p.error.issues[0]?`${p.error.issues[0].path.join('.')||'Form'}: ${p.error.issues[0].message}`:'Check the form.');return p.data};
 const choiceKey=(value:string)=>value.trim().replace(/\s+/g,' ').toLocaleLowerCase();
 const cleanChoice=(value:string)=>value.trim().replace(/\s+/g,' ');
+const removedCities=new Set(['/pollo beach','beverly hi','chevallutz','clearwate','palm harb','st pete bea','ruskin','st pete','temple ter']);
+const allowedSalesRep=(name:string)=>!/^\d+$/.test(name.trim())&&!/^christian rossi\s*\(inactive\)?$/i.test(name.trim())&&choiceKey(name)!=='spenser smith';
 function choiceName(current:string|undefined,next:string){const clean=cleanChoice(next);if(!current)return clean;const score=(v:string)=>(/[a-z]/.test(v)?1:0)+(/[A-Z]/.test(v)?1:0);return score(clean)>score(current)?clean:current;}
 function uniqueChoices(values:any[]){const choices=new Map<string,string>();for(const raw of values)if(typeof raw==='string'&&raw.trim()){const key=choiceKey(raw);choices.set(key,choiceName(choices.get(key),raw));}return [...choices.values()].sort((a,b)=>a.localeCompare(b));}
 export function installerVisible(m:Member,j:any,today=localDay()) {return j.installerId===m.id||j.operations?.services?.some((s:any)=>s.installerId===m.id)}
@@ -71,14 +73,14 @@ export async function operationsData(m:Member,onStep:(step:DashboardStep)=>void=
  const savedDepartments=m.role==='installer'?[]:(await db.prepare("SELECT payload FROM production.operations_config WHERE id LIKE 'building-department:%'").all()).results.map((r:any)=>storedObject(r.payload).name);
  const buildingDepartments=m.role==='installer'?[]:uniqueChoices([...savedDepartments,...all.map((j:any)=>j.buildingDepartment)]);
  const savedCities=m.role==='installer'?[]:(await db.prepare("SELECT payload FROM production.operations_config WHERE id LIKE 'city:%'").all()).results.map((r:any)=>storedObject(r.payload).name);
- const cities=m.role==='installer'?[]:uniqueChoices([...savedCities,...all.map((j:any)=>j.city)]);
+ const cities=m.role==='installer'?[]:uniqueChoices([...savedCities,...all.map((j:any)=>j.city)]).filter(city=>!removedCities.has(choiceKey(city)));
  const salesReps:any[]=[];
  if(m.role!=='installer'){
   const saved=(await db.prepare("SELECT payload FROM production.operations_config WHERE id LIKE 'sales-rep:%'").all()).results.map((r:any)=>storedObject(r.payload));
   const byName=new Map<string,any>();
   for(const j of all){if(j.salesRep?.trim()){const name=cleanChoice(j.salesRep),key=choiceKey(name),previous=byName.get(key);byName.set(key,{name:choiceName(previous?.name,name),phone:previous?.phone||j.salesRepPhone||'',email:previous?.email||j.salesRepEmail||''});}}
   for(const rep of saved)if(rep.name){const name=cleanChoice(rep.name),key=choiceKey(name),previous=byName.get(key);byName.set(key,{name:choiceName(previous?.name,name),phone:rep.phone||previous?.phone||'',email:rep.email||previous?.email||''});}
-  salesReps.push(...Array.from(byName.values()).sort((a,b)=>a.name.localeCompare(b.name)));
+  salesReps.push(...Array.from(byName.values()).filter(rep=>allowedSalesRep(rep.name)).sort((a,b)=>a.name.localeCompare(b.name)));
  }
  const ownProfile=await db.prepare('SELECT profile_details,installer_code FROM members WHERE id=?').bind(m.id).first();
  if(ownProfile)ownProfile.profile_details=readProfileDetails(ownProfile.profile_details);

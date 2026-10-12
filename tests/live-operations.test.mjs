@@ -834,3 +834,16 @@ test('legacy JSON-string and fragment-array installer profiles repair and feed l
  assert.equal(j.operations.leadRenovation.epaCertification,'EPA-VERIFIED');
  assert.equal((await installerProfiles(installer)).installers[0].epaCertification,'EPA-VERIFIED');
 });
+
+
+test('GQ surveys accept older customer IDs and link when the job is added later',async()=>{
+ const value={externalId:'HISTORICAL-GQ-NEW',customerId:'OLD-CUSTOMER-913',installerId:installer.id,completedOn:today,ratings:[5,4,5,4]};
+ const count=(await operationsData(admin)).jobs.length;
+ await operation(fs,{action:'survey',data:value});
+ const d=await operationsData(admin),survey=d.surveys.find(s=>s.external_id===value.externalId);assert.ok(survey);assert.equal(d.jobs.length,count);
+ const {surveyDetails}=await vite.ssrLoadModule('/lib/survey-details.ts');assert.equal(surveyDetails(survey,d.jobs).job,null);
+ await assert.rejects(()=>operation(fs,{action:'survey',data:value}),/already been recorded/);
+ await assert.rejects(()=>operation(installer,{action:'survey',data:{...value,externalId:'NO-INSTALLER-ENTRY'}}),/supervisor or administrator/);
+ await act(pa,'create',{number:value.customerId,customer:'Older customer',address:'1 Historical Way',amount:0});
+ const after=await operationsData(admin);assert.equal(surveyDetails(survey,after.jobs).job.id,j.id);
+});

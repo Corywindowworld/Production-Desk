@@ -431,6 +431,7 @@ export function JobCertificateForm({ j, type, profile, onChange }: any) {
                       your Window World representative.
                     </p>
                   )}
+                  <p className="certificate-retainage-note">A 3% processing fee applies to credit card payments.</p>
                   <div className="certificate-balance">
                     <div>
                       <small>Current balance</small>

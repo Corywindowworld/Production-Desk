@@ -4254,7 +4254,7 @@ function Connections() {
         <>
           <p>Sales system: {data.salesIntegration}</p>
           <p>Guild Quality: {data.guildQuality}</p>
-          <p>Email: {data.emailConfigured ? "Configured" : "Not configured"}</p>
+          <p>Email: {data.emailConfigured ? "Configured" : "Missing Vercel settings: " + (data.emailMissing || []).join(", ")}</p>
           <p>
             Phone push: {data.pushConfigured ? "Configured" : "Not configured"}
           </p>

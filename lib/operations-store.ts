@@ -2234,8 +2234,9 @@ export async function deliverOperationEmail(id: string) {
       .prepare("SELECT * FROM production.operations_email WHERE id=?")
       .bind(id)
       .first();
-  if (!r || r.status === "accepted") return;
-  let status = "not_configured";
+  if (!r) return "Email queue entry not found";
+  if (r.status === "accepted") return "accepted";
+  let status = "Not configured: " + [!env.RESEND_API_KEY && "RESEND_API_KEY", !env.ACCOUNT_EMAIL_FROM && "ACCOUNT_EMAIL_FROM"].filter(Boolean).join(", ");
   if (env.RESEND_API_KEY && env.ACCOUNT_EMAIL_FROM) {
     try {
       let certificatePackage: any = null;
@@ -2265,7 +2266,7 @@ export async function deliverOperationEmail(id: string) {
           "Idempotency-Key": id,
         },
         body: JSON.stringify({
-          from: `Production Desk <${env.ACCOUNT_EMAIL_FROM}>`,
+          from: env.ACCOUNT_EMAIL_FROM.includes("<") ? env.ACCOUNT_EMAIL_FROM.trim() : `Production Desk <${env.ACCOUNT_EMAIL_FROM.trim()}>`,
           to: [r.recipient],
           subject: r.subject,
           ...(certificatePackage
@@ -2287,11 +2288,11 @@ export async function deliverOperationEmail(id: string) {
               : { text: r.body }),
         }),
       });
-      status = response.ok ? "accepted" : "failed";
-      if (!response.ok) console.error("Certificate/operations email rejected", {emailId:id, httpStatus:response.status, detail:(await response.text()).slice(0,1000)});
+      if (response.ok) { const result=await response.json(); status=result.id ? "accepted" : "Failed: Resend returned no email ID"; }
+      else { const detail=await response.json().catch(()=>({message:"No response detail"})); status=`Failed (HTTP ${response.status}): ${String(detail.message || detail.name || "Resend rejected email").slice(0,500)}`; console.error("Operations email rejected",{emailId:id,status}); }
     } catch (error) {
       console.error("Operations email delivery failed", {emailId:id, error:String(error)});
-      status = "failed";
+      status = "Failed: delivery request did not complete. Check Vercel logs for email ID " + id;
     }
   }
   await db
@@ -2300,6 +2301,7 @@ export async function deliverOperationEmail(id: string) {
     )
     .bind(status, new Date().toISOString(), id)
     .run();
+  return status;
 }
 
 // Preserve the closing result once; repeated cron invocations cannot overwrite it.

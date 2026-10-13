@@ -3853,3 +3853,17 @@ test("certificate delivery reaches Resend with its PDF and records acceptance", 
   try {await deliverOperationEmail(row.id);assert.equal(called,true);assert.equal((await pg.query('SELECT status FROM production.operations_email WHERE id=$1',[row.id])).rows[0].status,'accepted');}
   finally {globalThis.fetch=originalFetch;delete env.RESEND_API_KEY;delete env.ACCOUNT_EMAIL_FROM;}
 });
+
+
+test("email failures identify missing configuration and provider rejection", async () => {
+ const {env}=await vite.ssrLoadModule('/lib/server-env.ts');
+ const {deliverOperationEmail}=await vite.ssrLoadModule('/lib/operations-store.ts');
+ const id=crypto.randomUUID();
+ await pg.query("INSERT INTO production.operations_email(id,recipient,subject,body,status,created,updated) VALUES($1,'customer@example.com','Test','Test','pending','now','now')",[id]);
+ assert.match(await deliverOperationEmail(id),/RESEND_API_KEY.*ACCOUNT_EMAIL_FROM/);
+ const original=globalThis.fetch;
+ env.RESEND_API_KEY='test';env.ACCOUNT_EMAIL_FROM='Window World <office@example.com>';
+ globalThis.fetch=async (_url,options)=>{assert.equal(JSON.parse(options.body).from,'Window World <office@example.com>');return new Response(JSON.stringify({message:'Sender domain is not verified'}),{status:403});};
+ try {assert.match(await deliverOperationEmail(id),/HTTP 403.*Sender domain is not verified/);}
+ finally {globalThis.fetch=original;delete env.RESEND_API_KEY;delete env.ACCOUNT_EMAIL_FROM;}
+});

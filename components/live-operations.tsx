@@ -2,6 +2,7 @@
 import { cityDropdownChoices, allowedCityChoice } from "@/lib/dropdown-cleanup";
 import { LeadRenovation } from "./lead-renovation";
 import { JobCertificateForm, SignedJobCertificate } from "./job-certificate";
+import { DigitalDocuments } from "./digital-documents";
 import { ReorderRequests } from "@/components/reorder-requests";
 import { canAddJobPhotos, jobPhotoKinds } from "@/lib/job-photo-access";
 import { linkedAccountValues } from "@/lib/linked-account";
@@ -1569,6 +1570,7 @@ function Approvals({ jobs, me, review, saving, change, onOpen }: any) {
               <p>{j.operations.report.reason}</p>
               <SignedJobCertificate
                 record={j.operations.report.certificate}
+                defaultOpen
               />
               <Gallery attachments={j.operations.report.attachments || []} />
               {review && (
@@ -2857,6 +2859,25 @@ function JobFile({ j, data, change, clickAction, saving, onOpen }: any) {
             ...(!isInstaller
               ? [{ id: "service", label: "Service & Payments" }]
               : []),
+            {
+              id: "documents",
+              label:
+                "Digital Documents" +
+                ((o.report?.certificate ? 1 : 0) +
+                (o.previousReports || []).filter((r: any) => r.certificate)
+                  .length +
+                (o.leadRenovation ? 1 : 0) +
+                (o.reorders?.length || 0)
+                  ? " (" +
+                    ((o.report?.certificate ? 1 : 0) +
+                      (o.previousReports || []).filter(
+                        (r: any) => r.certificate,
+                      ).length +
+                      (o.leadRenovation ? 1 : 0) +
+                      (o.reorders?.length || 0)) +
+                    ")"
+                  : ""),
+            },
             { id: "history", label: "Notes & History" },
           ].map((t) => (
             <button
@@ -3001,23 +3022,20 @@ function JobFile({ j, data, change, clickAction, saving, onOpen }: any) {
               )}
             </details>
           )}
-          {!isInstaller && canAddJobPhotos(me, j, today) && (
-            <details
-              className="op-disclosure"
-              open={j.stage === "Production" ? undefined : true}
-            >
-              <summary>Add job photos</summary>
-              <JobPhotoUpload j={j} save={save} />
-            </details>
-          )}
           {me.role === "admin" && <AdminResultForm j={j} save={save} />}
           <details className="op-disclosure">
-            <summary>Installation photos and report</summary>
+            <summary>Installation Photos</summary>
             <Gallery
               attachments={(j.attachments || []).filter(
                 (a: any) => a.kind !== "visit" && !o.salesKeys?.includes(a.key),
               )}
             />
+            {!isInstaller && canAddJobPhotos(me, j, today) && (
+              <details className="op-disclosure">
+                <summary>Add Installation Photos</summary>
+                <JobPhotoUpload j={j} save={save} />
+              </details>
+            )}
             {o.report && (
               <>
                 <p>
@@ -3169,6 +3187,15 @@ function JobFile({ j, data, change, clickAction, saving, onOpen }: any) {
             )}
           </section>
         )}
+        <section
+          role="tabpanel"
+          id={"job-panel-" + j.id + "-documents"}
+          aria-labelledby={"job-tab-" + j.id + "-documents"}
+          hidden={workspaceTab !== "documents"}
+          style={{ display: workspaceTab === "documents" ? "block" : "none" }}
+        >
+          <DigitalDocuments j={j} />
+        </section>
         <section
           role="tabpanel"
           id={"job-panel-" + j.id + "-history"}

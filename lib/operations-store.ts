@@ -186,6 +186,7 @@ export function publicJob(m: Member, j: any) {
       reorders: j.operations?.reorders || [],
       salesKeys: j.operations?.salesKeys,
       report: j.operations?.report,
+      previousReports: j.operations?.previousReports || [],
       services: (j.operations?.services || []).filter(
         (s: any) => s.installerId === m.id,
       ),
@@ -2278,11 +2279,11 @@ export async function deliverOperationEmail(id: string) {
                 ],
               }
             : html
-            ? {
-                html: r.body,
-                text: "Your signed Window World job certificate is included in this email. Production Desk retains the signed electronic record.",
-              }
-            : { text: r.body }),
+              ? {
+                  html: r.body,
+                  text: "Your signed Window World job certificate is included in this email. Production Desk retains the signed electronic record.",
+                }
+              : { text: r.body }),
         }),
       });
       status = response.ok ? "accepted" : "failed";

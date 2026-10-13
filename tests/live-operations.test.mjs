@@ -228,10 +228,9 @@ test("live approvals, persistence, scopes and money", async () => {
   assert.equal(j.stage, "Production");
   assert.equal(j.operations.report.pending, true);
   const certificateEmail = (
-    await pg.query(
-      "SELECT body FROM production.operations_email WHERE id=$1",
-      [j.operations.report.certificateEmailId],
-    )
+    await pg.query("SELECT body FROM production.operations_email WHERE id=$1", [
+      j.operations.report.certificateEmailId,
+    ])
   ).rows[0];
   const certificatePackage = JSON.parse(certificateEmail.body);
   assert.equal(certificatePackage.kind, "job-certificate");
@@ -3770,7 +3769,10 @@ test("certificate variants print safely and generate downloadable PDFs", async (
   };
   const html = jobCertificatePrintHtml(service);
   assert.match(html, /Service Completion Certificate/i);
-  assert.doesNotMatch(html, /PAYMENT ACKNOWLEDGMENT|Waiver and Release of Lien/);
+  assert.doesNotMatch(
+    html,
+    /PAYMENT ACKNOWLEDGMENT|Waiver and Release of Lien/,
+  );
   assert.match(html, /@page\{size:letter portrait/);
   const pdf = await jobCertificatePdf(service);
   assert.equal(Buffer.from(pdf).subarray(0, 4).toString(), "%PDF");
@@ -3788,5 +3790,43 @@ test("certificate variants print safely and generate downloadable PDFs", async (
   assert.match(
     completionHtml,
     /hereby waives and releases its lien and right to claim a lien for labor, services, or materials furnished to/,
+  );
+});
+
+test("customer files collect current and historical digital documents without duplicates", async () => {
+  const { certificatesForJob, uploadedDocumentsForJob } =
+    await vite.ssrLoadModule("/lib/digital-documents.ts");
+  const current = {
+    id: "certificate-current",
+    type: "Complete",
+    signedAt: "2026-10-13T12:00:00Z",
+  };
+  const previous = {
+    id: "certificate-previous",
+    type: "Incomplete",
+    signedAt: "2026-10-01T12:00:00Z",
+  };
+  const job = {
+    operations: {
+      report: { certificate: current },
+      previousReports: [
+        { certificate: previous },
+        { certificate: current },
+        { status: "Complete" },
+      ],
+    },
+    attachments: [
+      { key: "one", name: "permit.pdf", kind: "photos" },
+      { key: "two", name: "front.jpg", kind: "front" },
+      { key: "three", name: "worksheet.DOCX", kind: "photos" },
+    ],
+  };
+  assert.deepEqual(
+    certificatesForJob(job).map((v) => v.id),
+    ["certificate-current", "certificate-previous"],
+  );
+  assert.deepEqual(
+    uploadedDocumentsForJob(job).map((v) => v.key),
+    ["one", "three"],
   );
 });

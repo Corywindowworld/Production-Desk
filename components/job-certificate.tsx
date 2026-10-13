@@ -258,6 +258,11 @@ export function JobCertificateForm({ j, type, profile, onChange }: any) {
         >
           {complete ? (
             <main className="certificate-thank-you">
+              <img
+                className="certificate-brand-logo"
+                src="/window-world-tampa-bay.jpeg"
+                alt="Window World Tampa Bay"
+              />
               <div className="certificate-success-mark">✓</div>
               <p className="certificate-eyebrow">SIGN-OFF COMPLETE</p>
               <h2>You’re all complete!</h2>
@@ -286,6 +291,11 @@ export function JobCertificateForm({ j, type, profile, onChange }: any) {
               }}
             >
               <header className="certificate-customer-header">
+                <img
+                  className="certificate-brand-logo"
+                  src="/window-world-tampa-bay.jpeg"
+                  alt="Window World Tampa Bay"
+                />
                 <div>
                   <p className="certificate-eyebrow">
                     WINDOW WORLD · TAMPA BAY

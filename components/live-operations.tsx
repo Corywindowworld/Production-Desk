@@ -2857,7 +2857,7 @@ function JobFile({ j, data, change, clickAction, saving, onOpen }: any) {
                 (o.reorders?.length ? " (" + o.reorders.length + ")" : ""),
             },
             ...(!isInstaller
-              ? [{ id: "service", label: "Service & Payments" }]
+              ? [{ id: "service", label: "Service & Status" }]
               : []),
             {
               id: "documents",
@@ -2878,7 +2878,7 @@ function JobFile({ j, data, change, clickAction, saving, onOpen }: any) {
                     ")"
                   : ""),
             },
-            { id: "history", label: "Notes & History" },
+            { id: "history", label: "Payments and History" },
           ].map((t) => (
             <button
               type="button"
@@ -2959,10 +2959,7 @@ function JobFile({ j, data, change, clickAction, saving, onOpen }: any) {
             </details>
           )}
           {(isInstaller || review) && (
-            <details
-              className="op-disclosure live-completion"
-              open={j.stage === "Production" ? undefined : true}
-            >
+            <details className="op-disclosure live-completion">
               <summary>Job Completion {o.report?.pending ? "✓" : ""}</summary>
               <p>
                 Select Complete or Incomplete and upload every required photo
@@ -3179,12 +3176,6 @@ function JobFile({ j, data, change, clickAction, saving, onOpen }: any) {
                 ))}
               </div>
             </details>
-            {me.role === "admin" && (
-              <details className="op-disclosure">
-                <summary>Payments</summary>
-                <PaymentForm j={j} save={save} />
-              </details>
-            )}
           </section>
         )}
         <section
@@ -3203,6 +3194,12 @@ function JobFile({ j, data, change, clickAction, saving, onOpen }: any) {
           hidden={workspaceTab !== "history"}
           style={{ display: workspaceTab === "history" ? "block" : "none" }}
         >
+          {me.role === "admin" && (
+            <details className="op-disclosure">
+              <summary>Payments</summary>
+              <PaymentForm j={j} save={save} />
+            </details>
+          )}
           {!isInstaller && (
             <LinkedAccounts
               j={j}

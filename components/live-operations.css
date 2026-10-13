@@ -1105,3 +1105,34 @@ html:is(
 .live-approval-card h4 {
   font-weight: 700;
 }
+
+/* Customer-facing Window World Tampa Bay branding */
+.certificate-handoff {
+  background: #eaf2fa;
+  color: #17324f;
+}
+.certificate-brand-logo {
+  display: block;
+  width: 240px;
+  max-width: 65%;
+  height: auto;
+  object-fit: contain;
+  border-radius: 12px;
+  background: white;
+  padding: 12px;
+}
+.certificate-thank-you .certificate-brand-logo {
+  margin: 0 auto 24px;
+}
+.certificate-customer-header {
+  background: #064b88;
+  color: white;
+  flex-wrap: wrap;
+}
+.certificate-customer-header .certificate-eyebrow {
+  color: #deefff;
+}
+.certificate-primary {
+  background: #064b88 !important;
+  color: white !important;
+}

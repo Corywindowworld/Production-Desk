@@ -1,5 +1,5 @@
 import {salesResultEmail} from "./sales-result-email";
-import { allowedCityChoice } from "./dropdown-cleanup";
+import { allowedCityChoice, cityDropdownChoices } from "./dropdown-cleanup";
 import { readProfileDetails } from "./account-profile";
 import { certificateEmailHtml, certificateSnapshot } from "./job-certificate";
 import { jobCertificatePdfBase64 } from "./job-certificate-pdf";
@@ -371,9 +371,7 @@ export async function operationsData(
   const cities =
     m.role === "installer"
       ? []
-      : uniqueChoices([...savedCities, ...all.map((j: any) => j.city)]).filter(
-          allowedCityChoice,
-        );
+      : cityDropdownChoices([...savedCities, ...all.map((j: any) => j.city)]);
   const salesReps: any[] = [];
   if (m.role !== "installer") {
     const saved = (
@@ -2170,7 +2168,7 @@ export async function operation(m: Member, input: any) {
       await scheduleJob(input.data.scheduleWork);
       history = previousHistory + "; " + history;
     }
-    if (["create", "edit"].includes(action) && j.city?.trim()) {
+    if (["create", "edit"].includes(action) && j.city?.trim() && allowedCityChoice(j.city)) {
       const name = cleanChoice(j.city);
       await tx
         .prepare(

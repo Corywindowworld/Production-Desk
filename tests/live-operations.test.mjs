@@ -3867,3 +3867,5 @@ test("email failures identify missing configuration and provider rejection", asy
  try {assert.match(await deliverOperationEmail(id),/HTTP 403.*Sender domain is not verified/);}
  finally {globalThis.fetch=original;delete env.RESEND_API_KEY;delete env.ACCOUNT_EMAIL_FROM;}
 });
+
+ test("sales result emails include branded customer details and contractor number",async()=>{const {salesResultEmail}=await vite.ssrLoadModule('/lib/sales-result-email.ts');const email=salesResultEmail({customer:'Jane & John',number:'123456',address:'123 Main St',city:'Tampa',state:'FL',zip:'33601',phone:'813-555-0100'},{contractorId:'C123',installerName:'Test Crew',type:'Complete'},'https://productiondesk.app');assert.match(email.subject,/Jane & John/);assert.match(email.html,/Jane &amp; John/);assert.match(email.html,/123 Main St, Tampa, FL, 33601/);assert.match(email.html,/813-555-0100/);assert.match(email.html,/Completion results submitted by installer C123. Pending management review/);assert.match(email.html,/https:\/\/productiondesk.app\/window-world-tampa-bay.jpeg/);});

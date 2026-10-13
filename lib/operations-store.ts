@@ -1,3 +1,4 @@
+import {salesResultEmail} from "./sales-result-email";
 import { allowedCityChoice } from "./dropdown-cleanup";
 import { readProfileDetails } from "./account-profile";
 import { certificateEmailHtml, certificateSnapshot } from "./job-certificate";
@@ -1055,7 +1056,8 @@ export async function operation(m: Member, input: any) {
         .run();
       push.push(id);
     };
-    const notifyReport = async (message: string) => {
+    const notifyReport = async (message: string, certificate?:any) => {
+      const branded = certificate ? salesResultEmail(j,certificate,env.APP_URL || "https://productiondesk.app") : null;
       await alert(j.supervisorId, message);
       if (j.salesRepEmail) {
         const id = crypto.randomUUID();
@@ -1066,8 +1068,8 @@ export async function operation(m: Member, input: any) {
           .bind(
             id,
             j.salesRepEmail,
-            `Production Desk · Job ${j.number}`,
-            message + "\n\nContact the field supervisor for details.",
+            branded?.subject || `Production Desk · ${j.customer} · Job ${j.number}`,
+            branded?.html || message + "\n\nContact the field supervisor for details.",
             "pending",
             at,
             at,
@@ -1976,6 +1978,7 @@ export async function operation(m: Member, input: any) {
       emails.push(certificateEmailId);
       await notifyReport(
         `Job #${j.number}: ${r.status} submitted by ${m.name}. Field supervisor review required.`,
+        certificate,
       );
     } else if (action === "reviewReport") {
       assert(reviewer(m), "Supervisor approval required.");

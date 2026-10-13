@@ -4271,7 +4271,7 @@ function Connections() {
                   ? "Accepted by email provider"
                   : e.status}
               </span>
-              {e.status !== "accepted" && (
+              {(e.status !== "accepted" || e.subject.includes("Certificate")) && (
                 <button
                   onClick={async () => {
                     try {
@@ -4285,7 +4285,7 @@ function Connections() {
                     }
                   }}
                 >
-                  Retry
+                  {e.status === "accepted" ? "Resend certificate" : "Retry"}
                 </button>
               )}
             </div>

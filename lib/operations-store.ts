@@ -1926,6 +1926,7 @@ export async function operation(m: Member, input: any) {
       const safeCustomerId = String(j.number).replace(/[^a-z0-9_-]+/gi, "-");
       const emailPackage = JSON.stringify({
         kind: "job-certificate",
+        certificate,
         html: certificateEmailHtml(certificate),
         text: `Your signed Window World ${certificateLabel} Certificate is attached as a PDF. Window World Tampa Bay retains the signed electronic record with the job.`,
         filename: `Window-World-${certificateLabel.replaceAll(" ", "-")}-Certificate-${safeCustomerId}.pdf`,
@@ -2228,7 +2229,7 @@ export async function operation(m: Member, input: any) {
       /* Durable in-app alert retained. */
     }
 }
-export async function deliverOperationEmail(id: string) {
+export async function deliverOperationEmail(id: string, sourceId = id) {
   const db = database(),
     r = await db
       .prepare("SELECT * FROM production.operations_email WHERE id=?")
@@ -2251,6 +2252,19 @@ export async function deliverOperationEmail(id: string) {
           certificatePackage = parsed;
       } catch {
         /* Plain-text and legacy HTML email bodies are still supported. */
+      }
+      if (certificatePackage) {
+        let snapshot = certificatePackage.certificate;
+        if (!snapshot) {
+          const rows = await db.prepare("SELECT payload FROM jobs WHERE CAST(payload AS text) LIKE ?").bind("%" + sourceId + "%").all();
+          for (const row of rows.results) {
+            const job = typeof row.payload === "string" ? JSON.parse(row.payload) : row.payload;
+            const reports = [job.operations?.report, ...(job.operations?.previousReports || [])];
+            snapshot = reports.find((report:any) => report?.certificateEmailId === sourceId)?.certificate;
+            if (snapshot) break;
+          }
+        }
+        if (snapshot) certificatePackage.pdfBase64 = await jobCertificatePdfBase64(snapshot);
       }
       const html = String(r.body)
         .trimStart()

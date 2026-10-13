@@ -134,6 +134,7 @@ export async function jobCertificatePdf(c: any) {
       width: 12,
       height: 12,
       borderWidth: 1,
+      color: rgb(1, 1, 1),
     });
     if (c.answers[i])
       page.drawText("X", { x: left + 2.5, y: y - 10, size: 9, font: bold });
@@ -144,6 +145,7 @@ export async function jobCertificatePdf(c: any) {
       width: 12,
       height: 12,
       borderWidth: 1,
+      color: rgb(1, 1, 1),
     });
     if (!c.answers[i])
       page.drawText("X", { x: left + 46.5, y: y - 10, size: 9, font: bold });
@@ -312,8 +314,12 @@ export async function jobCertificatePdf(c: any) {
   );
   // Crop to actual content, then fit the complete signed record on one Letter page.
   const contentBottom = Math.max(0, y - 24);
+  // Serialize first so pdf-lib flushes the font and image resources before
+  // another document copies the page. Copying the live page loses resources.
+  const sourceBytes = await pdf.save();
+  const source = await PDFDocument.load(sourceBytes);
   const output = await PDFDocument.create();
-  const embedded = await output.embedPage(page, {left:0,bottom:contentBottom,right:W,top:H});
+  const embedded = await output.embedPage(source.getPage(0), {left:0,bottom:contentBottom,right:W,top:H});
   const target = output.addPage([612,792]);
   const scale = Math.min(1, 720 / embedded.height, 552 / embedded.width);
   target.drawPage(embedded,{x:(612-embedded.width*scale)/2,y:792-36-embedded.height*scale,xScale:scale,yScale:scale});

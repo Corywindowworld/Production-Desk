@@ -1,4 +1,6 @@
+import {allowedCityChoice} from './dropdown-cleanup';
 import {readProfileDetails} from './account-profile';
+import {certificateEmailHtml,certificateSnapshot} from './job-certificate';
 import {reorderOperation} from '@/lib/reorder-requests';
 import {canAddJobPhotos,jobPhotoKinds} from './job-photo-access';
 import {linkedAccountValues} from './linked-account';
@@ -21,13 +23,13 @@ const assert=(yes:unknown,message:string,status=403)=>{if(!yes)throw new ApiErro
 const parse=<T>(schema:z.ZodType<T>,value:unknown):T=>{const p=schema.safeParse(value);if(!p.success)throw new ApiError(400,p.error.issues[0]?`${p.error.issues[0].path.join('.')||'Form'}: ${p.error.issues[0].message}`:'Check the form.');return p.data};
 const choiceKey=(value:string)=>value.trim().replace(/\s+/g,' ').toLocaleLowerCase();
 const cleanChoice=(value:string)=>value.trim().replace(/\s+/g,' ');
-const removedCities=new Set(['/pollo beach','beverly hi','chevallutz','clearwate','palm harb','st pete bea','ruskin','st pete','temple ter']);
 const allowedSalesRep=(name:string)=>!/^\d+$/.test(name.trim())&&!/^christian rossi\s*\(inactive\)?$/i.test(name.trim())&&choiceKey(name)!=='spenser smith';
 function choiceName(current:string|undefined,next:string){const clean=cleanChoice(next);if(!current)return clean;const score=(v:string)=>(/[a-z]/.test(v)?1:0)+(/[A-Z]/.test(v)?1:0);return score(clean)>score(current)?clean:current;}
 function uniqueChoices(values:any[]){const choices=new Map<string,string>();for(const raw of values)if(typeof raw==='string'&&raw.trim()){const key=choiceKey(raw);choices.set(key,choiceName(choices.get(key),raw));}return [...choices.values()].sort((a,b)=>a.localeCompare(b));}
 export function installerVisible(m:Member,j:any,today=localDay()) {return j.installerId===m.id||j.operations?.services?.some((s:any)=>s.installerId===m.id)}
 export function publicJob(m:Member,j:any){
  if(m.role!=='installer')return j;
+ j={...j,balanceDue:typeof j.amount==='number'?j.amount:null,customerEmail:j.customerEmail||''};
  return {...installerJob(j),leadRenovationJob:!!j.leadRenovationJob,serviceCompletionJob:!!j.serviceCompletionJob,inspectionComplete:!!j.inspectionComplete,noPermitRequired:!!j.noPermitRequired,deliveryOnly:!!j.deliveryOnly,phone2:j.phone2||'',phone3:j.phone3||'',customerSuppliedPermit:!!j.customerSuppliedPermit,install:j.installerId===m.id?j.install:'',canReport:installerVisible(m,j),salesRep:j.salesRep,salesRepPhone:j.salesRepPhone,salesRepEmail:j.salesRepEmail,received:j.received,bay:j.bay,city:j.city,state:j.state,zip:j.zip,materials:j.materials||[],product:j.product,windowCount:j.windowCount||0,slidingDoors:j.slidingDoors||0,entryDoorCount:j.entryDoorCount||0,screenCount:j.screenCount||0,buildingDepartment:j.buildingDepartment||'',permitExpiration:j.permitExpiration||'',buildingDepartmentPhone:j.buildingDepartmentPhone||'',privateProvider:!!j.privateProvider,installEnd:j.installerId===m.id?j.installEnd:'',installTime:j.installTime||'',scheduleCompletedOn:j.scheduleCompletedOn||'',brand:j.brand||'',materialType:j.materialType||'',permitReceived:!!j.permitReceived,permitNumber:j.permitNumber||'',instructions:j.instructions,scheduleInstructions:j.scheduleInstructions||'',reorder:j.reorder||'',attachments:(j.attachments||[]).filter((a:any)=>a.kind!=='visit'),operations:{leadRenovation:j.operations?.leadRenovation,reorders:j.operations?.reorders||[],salesKeys:j.operations?.salesKeys,report:j.operations?.report,services:(j.operations?.services||[]).filter((s:any)=>s.installerId===m.id)}};
 }
 export async function operationsData(m:Member,onStep:(step:DashboardStep)=>void=()=>{}){
@@ -73,7 +75,7 @@ export async function operationsData(m:Member,onStep:(step:DashboardStep)=>void=
  const savedDepartments=m.role==='installer'?[]:(await db.prepare("SELECT payload FROM production.operations_config WHERE id LIKE 'building-department:%'").all()).results.map((r:any)=>storedObject(r.payload).name);
  const buildingDepartments=m.role==='installer'?[]:uniqueChoices([...savedDepartments,...all.map((j:any)=>j.buildingDepartment)]);
  const savedCities=m.role==='installer'?[]:(await db.prepare("SELECT payload FROM production.operations_config WHERE id LIKE 'city:%'").all()).results.map((r:any)=>storedObject(r.payload).name);
- const cities=m.role==='installer'?[]:uniqueChoices([...savedCities,...all.map((j:any)=>j.city)]).filter(city=>!removedCities.has(choiceKey(city)));
+ const cities=m.role==='installer'?[]:uniqueChoices([...savedCities,...all.map((j:any)=>j.city)]).filter(allowedCityChoice);
  const salesReps:any[]=[];
  if(m.role!=='installer'){
   const saved=(await db.prepare("SELECT payload FROM production.operations_config WHERE id LIKE 'sales-rep:%'").all()).results.map((r:any)=>storedObject(r.payload));
@@ -345,14 +347,18 @@ export async function operation(m:Member,input:any){
    assert(reviewer(m)||(m.role==='installer'&&installerVisible(m,j)),'Only the assigned installer, Field Supervisor or Administrator can submit a report.');
    assert(!j.leadRenovationJob||m.role!=='installer'||o.leadRenovation?.signedBy===m.id,'Complete and sign the Lead Renovation Procedures Record first.',400);
    assert(!o.report?.pending,'A report is already awaiting Field Supervisor approval. Wait for it to be reviewed before submitting another result.',409);
-   const r=parse(reportSchema,{...input.data,jobId:j.id,version});assert(r.installed<=today,'Installation date cannot be in the future.',400);assert(!reportError(r),reportError(r),400);const hashes=new Set();
+   const r=parse(reportSchema,{...input.data,jobId:j.id,version});assert(r.installed<=today,'Installation date cannot be in the future.',400);assert(!(typeof j.amount==='number'&&(r.certificate.paymentAmount??0)>j.amount),'Payment acknowledged cannot exceed the current balance.',400);assert(!reportError(r),reportError(r),400);const hashes=new Set();
    for(const a of r.attachments){const file=await tx.prepare("SELECT * FROM attachment_uploads WHERE key=? AND status='ready'").bind(a.key).first();assert(a.key.startsWith(`jobs/${j.id}/${a.kind}/`)&&file?.job_id===j.id&&file?.kind===a.kind&&file?.member_id===m.id,'An uploaded attachment is missing.',400);if(['front','rear','left','right'].includes(a.kind)){const hash=file?.sha256;assert(hash&&!hashes.has(hash),'Upload four different exterior photos.',400);hashes.add(hash)}}
    if(o.report)o.previousReports=[...(o.previousReports||[]),o.report];
-   const report={...r,installerId:m.role==='installer'?m.id:j.installerId||m.id,installerName:m.role==='installer'?m.name:j.crew||m.name,submittedBy:m.id,submittedByName:m.name,submittedAt:at,pending:true};
+   const signingMember=await tx.prepare('SELECT installer_code,profile_details FROM members WHERE id=?').bind(m.role==='installer'?m.id:j.installerId||m.id).first();
+   const certificate=certificateSnapshot(j,m,r.certificate,signingMember,at),certificateEmailId=crypto.randomUUID();
+   const report={...r,certificate,certificateEmailId,installerId:m.role==='installer'?m.id:j.installerId||m.id,installerName:m.role==='installer'?m.name:j.crew||m.name,submittedBy:m.id,submittedByName:m.name,submittedAt:at,pending:true};
    await tx.prepare('INSERT INTO installer_reports(id,job_id,installer_id,supervisor_id,payload,created) VALUES(?,?,?,?,?,?)').bind(r.id,j.id,report.installerId,j.supervisorId,JSON.stringify(report),at).run();
-   o.report=report;j.attachments=[...(j.attachments||[]),...r.attachments];history=`Installer submitted ${r.status}; awaiting approval`;await notifyReport(`Job #${j.number}: ${r.status} submitted by ${m.name}. Field supervisor review required.`);
+   o.report=report;j.attachments=[...(j.attachments||[]),...r.attachments];history=`Installer submitted ${r.status} with signed digital certificate; awaiting approval`;
+   await tx.prepare('INSERT INTO production.operations_email(id,recipient,subject,body,status,created,updated) VALUES(?,?,?,?,?,?,?)').bind(certificateEmailId,certificate.customerEmail,`Window World ${r.status==='Complete'?'Completion':'Incompletion'} Certificate · Customer ID ${j.number}`,certificateEmailHtml(certificate),'pending',at,at).run();emails.push(certificateEmailId);
+   await notifyReport(`Job #${j.number}: ${r.status} submitted by ${m.name}. Field supervisor review required.`);
   }else if(action==='reviewReport'){
-   assert(reviewer(m),'Supervisor approval required.');assert(o.report?.pending,'No report is pending.',409);const approve=parse(z.boolean(),input.data.approve);o.report={...o.report,pending:false,approved:approve,reviewedBy:m.name,reviewedAt:at,confirmed:approve};
+   assert(reviewer(m),'Supervisor approval required.');assert(o.report?.pending,'No report is pending.',409);const approve=parse(z.boolean(),input.data.approve);o.report={...o.report,pending:false,approved:approve,reviewedBy:m.name,reviewedAt:at,confirmed:approve,certificate:o.report.certificate?{...o.report.certificate,reviewedBy:m.name,reviewedAt:at}:undefined};
    if(approve){if(o.report.status==='Incomplete'&&input.data.reorder!==undefined){j.reorder=parse(z.string().trim().min(1).max(4000),input.data.reorder);j.reorderDate=parse(optionalDate,input.data.reorderDate);assert(j.reorderDate&&j.reorderDate<=today,'Enter a reorder date no later than today.',400);}assert(!reportError(o.report),reportError(o.report),400);if(o.report.status==='Incomplete')assert(String(j.reorder||'').trim(),'Enter reorder information before approving an INC result.',400);j.stage=o.report.status==='Complete'?'Closed':'Incomplete';if(j.stage==='Closed')j.scheduleCompletedOn=o.report.installed||today;if(j.stage==='Incomplete')j.incompleteSince=j.reorderDate||at;history=`Installer report approved; job moved to ${j.stage==='Closed'?'COMP':'INC'}`}
    else history='Installer report returned for correction';
    await alert(j.installerId,`Job #${j.number}: report ${approve?`approved and moved to ${j.stage==='Closed'?'COMP':'INC'}`:'returned for correction'}.`);
@@ -395,7 +401,7 @@ export async function operation(m:Member,input:any){
 export async function deliverOperationEmail(id:string){
  const db=database(),r=await db.prepare('SELECT * FROM production.operations_email WHERE id=?').bind(id).first();if(!r||r.status==='accepted')return;
  let status='not_configured';
- if(env.RESEND_API_KEY&&env.ACCOUNT_EMAIL_FROM){try{const response=await fetch('https://api.resend.com/emails',{method:'POST',redirect:'error',signal:AbortSignal.timeout(10000),headers:{Authorization:'Bearer '+env.RESEND_API_KEY,'Content-Type':'application/json','Idempotency-Key':id},body:JSON.stringify({from:`Production Desk <${env.ACCOUNT_EMAIL_FROM}>`,to:[r.recipient],subject:r.subject,text:r.body})});status=response.ok?'accepted':'failed'}catch{status='failed'}}
+ if(env.RESEND_API_KEY&&env.ACCOUNT_EMAIL_FROM){try{const html=String(r.body).trimStart().toLowerCase().startsWith('<!doctype html>');const response=await fetch('https://api.resend.com/emails',{method:'POST',redirect:'error',signal:AbortSignal.timeout(10000),headers:{Authorization:'Bearer '+env.RESEND_API_KEY,'Content-Type':'application/json','Idempotency-Key':id},body:JSON.stringify({from:`Production Desk <${env.ACCOUNT_EMAIL_FROM}>`,to:[r.recipient],subject:r.subject,...(html?{html:r.body,text:'Your signed Window World job certificate is included in this email. Production Desk retains the signed electronic record.'}:{text:r.body})})});status=response.ok?'accepted':'failed'}catch{status='failed'}}
  await db.prepare('UPDATE production.operations_email SET status=?,updated=? WHERE id=?').bind(status,new Date().toISOString(),id).run();
 }
 

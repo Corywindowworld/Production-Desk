@@ -21,6 +21,7 @@ await pg.query('UPDATE production.members SET supervisor_id=$2 WHERE id=$1',[ins
 const today=localDay();let j;
 async function reload(){j=(await operationsData(admin)).jobs[0];globalThis.__jobId=j.id;return j}
 async function act(m,action,data={}){await operation(m,{action,jobId:j?.id,version:j?.version,data});return reload()}
+const certificate=type=>({type,customerEmail:'customer@example.com',homeownerName:'Test Customer',completedWindows:type==='Incomplete'?'Windows 1 through 4':'',answers:Array(7).fill(true),explanation:'',referencePermission:false,paymentAmount:0,paymentMethod:'',paymentReference:'',cardLastFour:'',paymentDifferenceReason:'',customerSignatureDataUrl:'data:image/png;base64,aGVsbG8=',installerSignatureDataUrl:'data:image/png;base64,aGVsbG8=',confirmed:true});
 test('live approvals, persistence, scopes and money',async()=>{
  await act(pa,'create',{number:'LEGACY-1',customer:'Test Customer',address:'123 Test Street',amount:1000,contractAmount:5000,supervisorId:fs.id});assert.equal(j.stage,'Ordered');
  await assert.rejects(()=>act(pa,'schedule',{date:today,period:'AM',installerId:installer.id,stop:1}),/permit/i);
@@ -36,7 +37,7 @@ test('live approvals, persistence, scopes and money',async()=>{
  await act(fs,'start');assert.equal(j.stage,'Production');
  const kinds=['front','rear','left','right','completion'];const attachments=kinds.map(kind=>({key:`jobs/${j.id}/${kind}/${crypto.randomUUID()}`,name:kind+'.jpg',kind}));
  for(const a of attachments)await pg.query("INSERT INTO production.attachment_uploads(key,staging_key,job_id,kind,member_id,name,expires,status,sha256) VALUES($1,$1,$2,$3,$4,$5,0,'ready',$1)",[a.key,j.id,a.kind,installer.id,a.name]);
- await act(installer,'report',{id:crypto.randomUUID(),status:'Complete',reason:'',notes:'Done',installed:today,attachments});assert.equal(j.stage,'Production');assert.equal(j.operations.report.pending,true);
+ await act(installer,'report',{id:crypto.randomUUID(),status:'Complete',reason:'',notes:'Done',installed:today,attachments,certificate:certificate('Complete')});assert.equal(j.stage,'Production');assert.equal(j.operations.report.pending,true);
  assert.equal((await pg.query("SELECT count(*)::integer AS count FROM production.notifications WHERE recipient_id=$1 AND message LIKE '%Field supervisor review required%'",[fs.id])).rows[0].count,1);
  await assert.rejects(()=>act(pa,'reviewReport',{approve:true}),/approval required/);
  await act(fs,'reviewReport',{approve:true});assert.equal(j.stage,'Closed');assert.equal(j.operations.report.confirmed,true);assert.equal(j.scheduleCompletedOn,today);
@@ -68,7 +69,7 @@ test('supervisor status controls and administrator deletion',async()=>{
  await act(fs,'status',{target:'InProgress'});assert.equal(j.stage,'InProgress');assert.equal(aging(j,today).kind,'Production');
  const incKinds=['front','rear','left','right','issue','incomplete'];const incAttachments=incKinds.map(kind=>({key:`jobs/${j.id}/${kind}/${crypto.randomUUID()}`,name:kind+'.jpg',kind}));
  for(const a of incAttachments)await pg.query("INSERT INTO production.attachment_uploads(key,staging_key,job_id,kind,member_id,name,expires,status,sha256) VALUES($1,$1,$2,$3,$4,$5,0,'ready',$1)",[a.key,j.id,a.kind,installer.id,a.name]);
- await act(installer,'report',{id:crypto.randomUUID(),status:'Incomplete',reason:'Damaged sash',notes:'Return needed',installed:today,attachments:incAttachments});
+ await act(installer,'report',{id:crypto.randomUUID(),status:'Incomplete',reason:'Damaged sash',notes:'Return needed',installed:today,attachments:incAttachments,certificate:certificate('Incomplete')});
  await assert.rejects(()=>act(fs,'reviewReport',{approve:true}),/reorder information/i);await act(fs,'edit',{reorder:'Order replacement sash'});await act(fs,'reviewReport',{approve:true});assert.equal(j.stage,'Incomplete');
  const id=j.id;await assert.rejects(()=>act(fs,'delete'),/Administrator/);await act(admin,'delete');
  assert.equal((await pg.query('SELECT id FROM production.jobs WHERE id=$1',[id])).rows.length,0);
@@ -131,13 +132,13 @@ test('period and aging boundaries',()=>{
  const m=bonusMetrics([],[{completed_on:today,ratings:[5,5,5,5]}],null,today);assert.equal(m.score,4);assert.equal(m.estimate,null);
 });
 test('completion and incomplete evidence requirements',()=>{
- assert.deepEqual(requiredReportKinds('Complete'),['front','rear','left','right','completion']);
- assert.deepEqual(requiredReportKinds('Incomplete'),['front','rear','left','right','issue','incomplete']);
+ assert.deepEqual(requiredReportKinds('Complete'),['front','rear','left','right']);
+ assert.deepEqual(requiredReportKinds('Incomplete'),['front','rear','left','right','issue']);
  const files=kinds=>kinds.map((kind,i)=>({kind,key:'file-'+i}));
- assert.equal(reportError({status:'Complete',reason:'',attachments:files(requiredReportKinds('Complete'))}),'');
- assert.equal(reportError({status:'Incomplete',reason:'Broken glass',attachments:files(requiredReportKinds('Incomplete'))}),'');
- assert.match(reportError({status:'Incomplete',reason:'',attachments:files(requiredReportKinds('Incomplete'))}),/Explain/);
- assert.match(reportError({status:'Incomplete',reason:'Broken glass',attachments:files(['front','rear','left','right','incomplete'])}),/photos of the issue/i);
+ assert.equal(reportError({status:'Complete',reason:'',attachments:files(requiredReportKinds('Complete')),certificate:certificate('Complete')}),'');
+ assert.equal(reportError({status:'Incomplete',reason:'Broken glass',attachments:files(requiredReportKinds('Incomplete')),certificate:certificate('Incomplete')}),'');
+ assert.match(reportError({status:'Incomplete',reason:'',attachments:files(requiredReportKinds('Incomplete')),certificate:certificate('Incomplete')}),/Explain/);
+ assert.match(reportError({status:'Incomplete',reason:'Broken glass',attachments:files(['front','rear','left','right']),certificate:certificate('Incomplete')}),/photos of the issue/i);
 });
 test('FS and Admin submit and approve their own closeout evidence',async()=>{
  for(const [member,result] of [[fs,'Incomplete'],[admin,'Complete']]){
@@ -149,7 +150,7 @@ test('FS and Admin submit and approve their own closeout evidence',async()=>{
   const view=(await operationsData(installer)).jobs.find(v=>v.id===j.id);assert.equal(view.buildingDepartment,'City of Tampa');assert.equal(view.paymentMethod,'AQUA');
   const attachments=requiredReportKinds(result).map(kind=>({key:`jobs/${j.id}/${kind}/${crypto.randomUUID()}`,kind,name:kind+'.jpg'}));
   for(const a of attachments)await pg.query("INSERT INTO production.attachment_uploads(key,staging_key,job_id,kind,member_id,name,expires,status,sha256) VALUES($1,$1,$2,$3,$4,$5,0,'ready',$1)",[a.key,j.id,a.kind,member.id,a.name]);
-  const report={id:crypto.randomUUID(),status:result,reason:'Damaged sash',notes:'Recorded by staff',installed:today,attachments};
+  const report={id:crypto.randomUUID(),status:result,reason:'Damaged sash',notes:'Recorded by staff',installed:today,attachments,certificate:certificate(result)};
   await assert.rejects(()=>act(pa,'report',report),/Only the assigned/);
   await assert.rejects(()=>act(member,'report',{...report,attachments:attachments.slice(1)}),/front/i);
   await act(member,'report',report);assert.equal(j.operations.report.submittedBy,member.id);assert.equal(j.operations.report.installerId,installer.id);
@@ -338,7 +339,7 @@ test('completion reports work in every assigned status and after a previous appr
   const kinds=status==='Incomplete'?['front','rear','left','right','issue','incomplete']:['front','rear','left','right','completion'];
   const attachments=kinds.map(kind=>({kind,name:kind+'.jpg',key:`jobs/${j.id}/${kind}/${crypto.randomUUID()}`}));
   for(const a of attachments)await pg.query("INSERT INTO production.attachment_uploads(key,staging_key,job_id,kind,member_id,name,expires,status,sha256) VALUES($1,$1,$2,$3,$4,$5,0,'ready',$1)",[a.key,j.id,a.kind,installer.id,a.name]);
-  const report={id:crypto.randomUUID(),status,reason:'Visit result',notes:'Follow-up',installed:today,attachments};
+  const report={id:crypto.randomUUID(),status,reason:'Visit result',notes:'Follow-up',installed:today,attachments,certificate:certificate(status)};
   await assert.rejects(()=>act({...installer,id:'not-assigned'},'report',report),/assigned/);
   await act(installer,'report',report);assert.equal(j.stage,stage);assert.equal(j.operations.report.pending,true);assert.equal(j.operations.report.installerId,installer.id);assert.equal(j.operations.previousReports[0].id,'old-report');
   await assert.rejects(()=>act(installer,'report',{...report,id:crypto.randomUUID()}),/awaiting/);
@@ -846,4 +847,21 @@ test('GQ surveys accept older customer IDs and link when the job is added later'
  await assert.rejects(()=>operation(installer,{action:'survey',data:{...value,externalId:'NO-INSTALLER-ENTRY'}}),/supervisor or administrator/);
  await act(pa,'create',{number:value.customerId,customer:'Older customer',address:'1 Historical Way',amount:0});
  const after=await operationsData(admin);assert.equal(surveyDetails(survey,after.jobs).job.id,j.id);
+});
+
+
+test('removed dropdown choices stay out of saved catalogs and job-derived lists',async()=>{
+ const removedCities=['/pollo beach','BEVERLY HI','chevallutz','CLEARWATE','PALM HARB','ST PETE BEA','RUSKIN','ST PETE','TEMPLE TER'];
+ for(const [i,name] of removedCities.entries())await pg.query('INSERT INTO production.operations_config(id,payload,updated_by,updated) VALUES($1,$2,$3,$4)', ['city:cleanup-test-'+i,JSON.stringify({name}),admin.id,new Date().toISOString()]);
+ for(const [i,name] of ['12345','Christian Rossi (inactive','Christian Rossi (inactive)','Spenser Smith'].entries())await pg.query('INSERT INTO production.operations_config(id,payload,updated_by,updated) VALUES($1,$2,$3,$4)', ['sales-rep:cleanup-test-'+i,JSON.stringify({name}),admin.id,new Date().toISOString()]);
+ await act(pa,'create',{number:'DROPDOWN-CLEANUP',customer:'Retain historical data',address:'1 Main',city:'rUsKiN',salesRep:'12345',amount:0});
+ let d=await operationsData(admin);assert.ok(removedCities.every(c=>!d.cities.some(v=>v.toLowerCase()===c.toLowerCase())));assert.ok(!d.salesReps.some(r=>/^\d+$/.test(r.name)||r.name.toLowerCase().startsWith('christian rossi (inactive')||r.name.toLowerCase()==='spenser smith'));
+ assert.equal(j.city,'rUsKiN');assert.equal(j.salesRep,'12345');
+ await act(pa,'create',{number:'DROPDOWN-VALID',customer:'Valid choices',address:'1 Main',city:'Apollo Beach',salesRep:'Christian Rossi',amount:0});d=await operationsData(admin);assert.ok(d.cities.includes('Apollo Beach'));assert.ok(d.salesReps.some(r=>r.name==='Christian Rossi'));
+});
+
+
+test('customer dropdown cleans older server lists directly and deduplicates case',async()=>{
+ const {cityDropdownChoices}=await vite.ssrLoadModule('/lib/dropdown-cleanup.ts');
+ assert.deepEqual(cityDropdownChoices([' RUSKIN ','st   pete','/pollo beach','BEVERLY HI','chevallutz','CLEARWATE','PALM HARB','ST PETE BEA','TEMPLE TER','Apollo Beach','apollo beach','Clearwater','Palm Harbor']),['Apollo Beach','Clearwater','Palm Harbor']);
 });

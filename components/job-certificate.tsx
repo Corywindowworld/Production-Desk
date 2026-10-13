@@ -135,7 +135,7 @@ export function JobCertificateForm({ j, type, profile, onChange }: any) {
     [installerSignature, setInstallerSignature] = useState(
       profile?.savedDrawnSignature || "",
     );
-  const [paymentAmount, setPaymentAmount] = useState(0),
+  const [paymentInput, setPaymentAmount] = useState(""),
     [paymentMethod, setPaymentMethod] = useState(""),
     [email, setEmail] = useState(j.customerEmail || ""),
     [homeownerName, setHomeownerName] = useState(j.customer || "");
@@ -145,6 +145,7 @@ export function JobCertificateForm({ j, type, profile, onChange }: any) {
     [paymentReference, setPaymentReference] = useState(""),
     [cardLastFour, setCardLastFour] = useState(""),
     [paymentDifferenceReason, setPaymentDifferenceReason] = useState("");
+  const paymentAmount = Number(paymentInput) || 0;
   const remaining =
     balance === null
       ? null
@@ -168,7 +169,7 @@ export function JobCertificateForm({ j, type, profile, onChange }: any) {
   });
   useEffect(() => {
     setAnswers(Array(questions.length).fill(true));
-    setPaymentAmount(0);
+    setPaymentAmount("");
     setPaymentMethod("");
     setCompletedWindows("");
     setExplanation("");
@@ -198,7 +199,7 @@ export function JobCertificateForm({ j, type, profile, onChange }: any) {
   ]);
   const choosePayment = (value: string) => {
     setPaymentMethod(value);
-    if (value === "Paid In Full") setPaymentAmount(balance ?? 0);
+    if (value === "Paid In Full") setPaymentAmount(String(balance ?? 0));
   };
   const accept = () => {
     setError("");
@@ -421,13 +422,22 @@ export function JobCertificateForm({ j, type, profile, onChange }: any) {
                       </p>
                     </div>
                   </div>
+                  {type === "Incomplete" && (
+                    <p className="certificate-retainage-note">
+                      For incomplete installations, you may retain up to 10%
+                      until the remaining work is completed. The balance for
+                      completed work remains due; a pending inspection alone
+                      does not defer payment. Please discuss any questions with
+                      your Window World representative.
+                    </p>
+                  )}
                   <div className="certificate-balance">
                     <div>
                       <small>Current balance</small>
                       <strong>{money(balance)}</strong>
                     </div>
                     <div>
-                      <small>Amount acknowledged</small>
+                      <small>Amount Paid Today</small>
                       <strong>{money(paymentAmount)}</strong>
                     </div>
                     <div>
@@ -437,18 +447,20 @@ export function JobCertificateForm({ j, type, profile, onChange }: any) {
                   </div>
                   <div className="certificate-two-column">
                     <label>
-                      Amount paid/acknowledged today
-                      <input
-                        type="number"
-                        min="0"
-                        max={balance ?? undefined}
-                        step=".01"
-                        value={paymentAmount}
-                        readOnly={paymentMethod === "Paid In Full"}
-                        onChange={(e) =>
-                          setPaymentAmount(Number(e.target.value) || 0)
-                        }
-                      />
+                      Amount Paid Today
+                      <span className="certificate-currency-input">
+                        <span aria-hidden="true">$</span>
+                        <input
+                          placeholder="0.00"
+                          type="number"
+                          min="0"
+                          max={balance ?? undefined}
+                          step=".01"
+                          value={paymentInput}
+                          readOnly={paymentMethod === "Paid In Full"}
+                          onChange={(e) => setPaymentAmount(e.target.value)}
+                        />
+                      </span>
                     </label>
                     <label>
                       Payment method
@@ -469,18 +481,6 @@ export function JobCertificateForm({ j, type, profile, onChange }: any) {
                       </select>
                     </label>
                   </div>
-                  {paymentMethod && paymentMethod !== "Paid In Full" && (
-                    <label>
-                      {paymentMethod === "Check"
-                        ? "Check number"
-                        : "Payment/reference number"}
-                      <input
-                        value={paymentReference}
-                        onChange={(e) => setPaymentReference(e.target.value)}
-                        maxLength={150}
-                      />
-                    </label>
-                  )}
                   {paymentMethod === "Credit Card" && (
                     <label>
                       Card last four digits only

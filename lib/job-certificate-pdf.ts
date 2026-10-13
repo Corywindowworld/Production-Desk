@@ -1,3 +1,4 @@
+import { certificateLogoPng } from "./certificate-logo";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { certificateQuestionsForType } from "./job-certificate";
 
@@ -18,7 +19,10 @@ const day = (v: string) =>
 const clean = (v: unknown) =>
   String(v ?? "")
     .replace(/[\r\n\t]+/g, " ")
-    .replace(/[\u2010-\u2015]/g,"-").replace(/[\u2018\u2019]/g,"\'").replace(/[\u201c\u201d]/g,'"').replace(/[^\x20-\x7e\xa0-\xff]/g," ")
+    .replace(/[\u2010-\u2015]/g, "-")
+    .replace(/[\u2018\u2019]/g, "\'")
+    .replace(/[\u201c\u201d]/g, '"')
+    .replace(/[^\x20-\x7e\xa0-\xff]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 export async function jobCertificatePdf(c: any) {
@@ -111,6 +115,8 @@ export async function jobCertificatePdf(c: any) {
     complete ? 17 : 18,
     serif,
   );
+  const logo = await pdf.embedPng(certificateLogoPng);
+  page.drawImage(logo, { x: left, y: H - 38, width: 28, height: 28 });
   if (complete) center("CONGRATULATIONS ON YOUR NEW WINDOWS!", 11, bold);
   field("Customer:", c.customerName);
   field("Customer ID #:", c.customerId);
@@ -319,10 +325,20 @@ export async function jobCertificatePdf(c: any) {
   const sourceBytes = await pdf.save();
   const source = await PDFDocument.load(sourceBytes);
   const output = await PDFDocument.create();
-  const embedded = await output.embedPage(source.getPage(0), {left:0,bottom:contentBottom,right:W,top:H});
-  const target = output.addPage([612,792]);
+  const embedded = await output.embedPage(source.getPage(0), {
+    left: 0,
+    bottom: contentBottom,
+    right: W,
+    top: H,
+  });
+  const target = output.addPage([612, 792]);
   const scale = Math.min(1, 720 / embedded.height, 552 / embedded.width);
-  target.drawPage(embedded,{x:(612-embedded.width*scale)/2,y:792-36-embedded.height*scale,xScale:scale,yScale:scale});
+  target.drawPage(embedded, {
+    x: (612 - embedded.width * scale) / 2,
+    y: 792 - 36 - embedded.height * scale,
+    xScale: scale,
+    yScale: scale,
+  });
   return output.save();
 }
 export async function jobCertificatePdfBase64(c: any) {

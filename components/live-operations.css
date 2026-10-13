@@ -1136,3 +1136,5 @@ html:is(
   background: #064b88 !important;
   color: white !important;
 }
+
+.certificate-currency-input{display:flex;align-items:center;gap:10px}.certificate-currency-input>span{font-size:22px;font-weight:700}.certificate-currency-input input{flex:1;min-width:0}.certificate-retainage-note{padding:14px 18px;background:#edf5fc;border-left:3px solid #064b88;font-size:14px;line-height:1.6}

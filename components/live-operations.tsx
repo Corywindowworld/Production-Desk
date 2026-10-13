@@ -2945,19 +2945,6 @@ function JobFile({ j, data, change, clickAction, saving, onOpen }: any) {
               save={save}
             />
           )}
-          {isInstaller && (
-            <details className="op-disclosure">
-              <summary>Report Issue</summary>
-              <Form
-                onSave={async (f) => save("issue", { text: field(f, "text") })}
-              >
-                <Text
-                  label="What needs the supervisor’s attention?"
-                  name="text"
-                />
-              </Form>
-            </details>
-          )}
           {(isInstaller || review) && (
             <details className="op-disclosure live-completion">
               <summary>Job Completion {o.report?.pending ? "✓" : ""}</summary>
@@ -3974,6 +3961,12 @@ function InstallerReport({ j, save }: any) {
             <option>Incomplete</option>
           </select>
         </label>
+        <JobCertificateForm
+          j={j}
+          type={j.stage === "SVC" ? "Service" : status}
+          profile={j.certificateProfile}
+          onChange={setCertificate}
+        />
         <Input
           name="installed"
           label="Installation date"
@@ -3994,12 +3987,7 @@ function InstallerReport({ j, save }: any) {
           </>
         )}
         <Text label="Installer notes" name="notes" />
-        <JobCertificateForm
-          j={j}
-          type={j.stage === "SVC" ? "Service" : status}
-          profile={j.certificateProfile}
-          onChange={setCertificate}
-        />
+
         {requirements.map((kind) => (
           <label key={kind}>
             {reportLabels[kind]}
@@ -4254,7 +4242,13 @@ function Connections() {
         <>
           <p>Sales system: {data.salesIntegration}</p>
           <p>Guild Quality: {data.guildQuality}</p>
-          <p>Email: {data.emailConfigured ? "Configured" : "Missing Vercel settings: " + (data.emailMissing || []).join(", ")}</p>
+          <p>
+            Email:{" "}
+            {data.emailConfigured
+              ? "Configured"
+              : "Missing Vercel settings: " +
+                (data.emailMissing || []).join(", ")}
+          </p>
           <p>
             Phone push: {data.pushConfigured ? "Configured" : "Not configured"}
           </p>
@@ -4271,7 +4265,8 @@ function Connections() {
                   ? "Accepted by email provider"
                   : e.status}
               </span>
-              {(e.status !== "accepted" || e.subject.includes("Certificate")) && (
+              {(e.status !== "accepted" ||
+                e.subject.includes("Certificate")) && (
                 <button
                   onClick={async () => {
                     try {

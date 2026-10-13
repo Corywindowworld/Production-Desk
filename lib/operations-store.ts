@@ -2219,13 +2219,14 @@ export async function operation(m: Member, input: any) {
         .bind(j.id, JSON.stringify(j), at)
         .run();
   });
+  // Send durable emails before slower device push deliveries can exhaust the request.
+  for (const id of emails) await deliverOperationEmail(id);
   for (const id of push)
     try {
       await deliverPush(id);
     } catch {
       /* Durable in-app alert retained. */
     }
-  for (const id of emails) await deliverOperationEmail(id);
 }
 export async function deliverOperationEmail(id: string) {
   const db = database(),
@@ -2239,7 +2240,7 @@ export async function deliverOperationEmail(id: string) {
     try {
       let certificatePackage: any = null;
       try {
-        const parsed = JSON.parse(String(r.body));
+        const parsed = typeof r.body === "object" ? r.body : JSON.parse(String(r.body));
         if (
           parsed?.kind === "job-certificate" &&
           parsed.html &&
@@ -2287,7 +2288,9 @@ export async function deliverOperationEmail(id: string) {
         }),
       });
       status = response.ok ? "accepted" : "failed";
-    } catch {
+      if (!response.ok) console.error("Certificate/operations email rejected", {emailId:id, httpStatus:response.status, detail:(await response.text()).slice(0,1000)});
+    } catch (error) {
+      console.error("Operations email delivery failed", {emailId:id, error:String(error)});
       status = "failed";
     }
   }

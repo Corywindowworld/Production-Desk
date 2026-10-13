@@ -3776,6 +3776,10 @@ test("certificate variants print safely and generate downloadable PDFs", async (
   assert.match(html, /@page\{size:letter portrait/);
   const pdf = await jobCertificatePdf(service);
   assert.equal(Buffer.from(pdf).subarray(0, 4).toString(), "%PDF");
+  const { PDFDocument } = await import("pdf-lib");
+  assert.equal((await PDFDocument.load(pdf)).getPageCount(), 1);
+  const completedPdf = await jobCertificatePdf({...service, ...certificate("Complete"), type:"Complete", contractAmount:10000});
+  assert.equal((await PDFDocument.load(completedPdf)).getPageCount(), 1);
   const completionHtml = jobCertificatePrintHtml({
     ...service,
     ...certificate("Complete"),
@@ -3829,4 +3833,23 @@ test("customer files collect current and historical digital documents without du
     uploadedDocumentsForJob(job).map((v) => v.key),
     ["one", "three"],
   );
+});
+
+test("certificate delivery reaches Resend with its PDF and records acceptance", async () => {
+  const {env} = await vite.ssrLoadModule('/lib/server-env.ts');
+  const {deliverOperationEmail} = await vite.ssrLoadModule('/lib/operations-store.ts');
+  const row=(await pg.query("SELECT id FROM production.operations_email WHERE body LIKE '%job-certificate%' LIMIT 1")).rows[0];
+  assert.ok(row);
+  const originalFetch=globalThis.fetch;
+  env.RESEND_API_KEY='test-key'; env.ACCOUNT_EMAIL_FROM='test@example.com';
+  let called=false;
+  globalThis.fetch=async (url,options)=>{
+    assert.equal(url,'https://api.resend.com/emails');
+    const payload=JSON.parse(options.body);
+    assert.ok(payload.html); assert.match(payload.attachments[0].filename,/\.pdf$/);
+    assert.equal(Buffer.from(payload.attachments[0].content,'base64').subarray(0,4).toString(),'%PDF');
+    called=true;return new Response(JSON.stringify({id:'test-email'}),{status:200});
+  };
+  try {await deliverOperationEmail(row.id);assert.equal(called,true);assert.equal((await pg.query('SELECT status FROM production.operations_email WHERE id=$1',[row.id])).rows[0].status,'accepted');}
+  finally {globalThis.fetch=originalFetch;delete env.RESEND_API_KEY;delete env.ACCOUNT_EMAIL_FROM;}
 });

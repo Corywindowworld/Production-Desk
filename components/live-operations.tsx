@@ -4259,7 +4259,7 @@ function Connections() {
             Phone push: {data.pushConfigured ? "Configured" : "Not configured"}
           </p>
           <p>Open Settings → Photo storage to check Supabase uploads.</p>
-          <h3>Sales representative email queue</h3>
+          <h3>Customer and sales email queue</h3>
           {data.emails.map((e: any) => (
             <div className="op-appointment" key={e.id}>
               <strong>

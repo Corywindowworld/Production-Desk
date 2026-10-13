@@ -18,6 +18,7 @@ const day = (v: string) =>
 const clean = (v: unknown) =>
   String(v ?? "")
     .replace(/[\r\n\t]+/g, " ")
+    .replace(/[\u2010-\u2015]/g,"-").replace(/[\u2018\u2019]/g,"\'").replace(/[\u201c\u201d]/g,'"').replace(/[^\x20-\x7e\xa0-\xff]/g," ")
     .replace(/\s+/g, " ")
     .trim();
 export async function jobCertificatePdf(c: any) {
@@ -26,7 +27,7 @@ export async function jobCertificatePdf(c: any) {
     bold = await pdf.embedFont(StandardFonts.HelveticaBold),
     serif = await pdf.embedFont(StandardFonts.TimesRomanBold);
   const W = 612,
-    H = 792,
+    H = 2400,
     left = 42,
     right = 42,
     bottom = 42,
@@ -40,7 +41,7 @@ export async function jobCertificatePdf(c: any) {
   const ensure = (height: number) => {
     if (y - height < bottom) addPage();
   };
-  const lines = (value: unknown, size = 12, maxWidth = width) => {
+  const lines = (value: unknown, size = 11, maxWidth = width) => {
     const words = clean(value).split(" ").filter(Boolean),
       out: string[] = [];
     let line = "";
@@ -57,13 +58,13 @@ export async function jobCertificatePdf(c: any) {
   };
   const text = (
     value: unknown,
-    size = 12,
+    size = 11,
     opts: { bold?: boolean; indent?: number; gap?: number } = {},
   ) => {
     const font = opts.bold ? bold : regular,
       max = width - (opts.indent || 0),
       rows = lines(value, size, max);
-    ensure(rows.length * (size + 3) + (opts.gap || 0));
+    ensure(rows.length * (size + 2) + (opts.gap || 0));
     for (const row of rows) {
       page.drawText(row, {
         x: left + (opts.indent || 0),
@@ -72,19 +73,19 @@ export async function jobCertificatePdf(c: any) {
         font,
         color: rgb(0.05, 0.08, 0.1),
       });
-      y -= size + 3;
+      y -= size + 2;
     }
     y -= opts.gap || 0;
   };
   const center = (value: string, size: number, font = bold) => {
-    ensure(size + 10);
+    ensure(size + 5);
     page.drawText(value, {
       x: (W - font.widthOfTextAtSize(value, size)) / 2,
       y: y - size,
       size,
       font,
     });
-    y -= size + 10;
+    y -= size + 5;
   };
   const rule = () => {
     ensure(8);
@@ -126,7 +127,7 @@ export async function jobCertificatePdf(c: any) {
     text(c.completedWindows, 9, { gap: 5 });
   }
   questions.forEach((q, i) => {
-    ensure(55);
+    ensure(30);
     page.drawRectangle({
       x: left,
       y: y - 12,
@@ -156,7 +157,7 @@ export async function jobCertificatePdf(c: any) {
         font: regular,
       }),
     );
-    y -= Math.max(20, rows.length * 15 + 8);
+    y -= Math.max(18, rows.length * 15 + 3);
   });
   text(
     (complete
@@ -303,13 +304,20 @@ export async function jobCertificatePdf(c: any) {
     `Production Desk - Signed electronic certificate - Record ID ${clean(c.id)}`,
     {
       x: left,
-      y: bottom - 2,
+      y: y - 12,
       size: 7,
       font: regular,
       color: rgb(0.3, 0.35, 0.4),
     },
   );
-  return pdf.save();
+  // Crop to actual content, then fit the complete signed record on one Letter page.
+  const contentBottom = Math.max(0, y - 24);
+  const output = await PDFDocument.create();
+  const embedded = await output.embedPage(page, {left:0,bottom:contentBottom,right:W,top:H});
+  const target = output.addPage([612,792]);
+  const scale = Math.min(1, 720 / embedded.height, 552 / embedded.width);
+  target.drawPage(embedded,{x:(612-embedded.width*scale)/2,y:792-36-embedded.height*scale,xScale:scale,yScale:scale});
+  return output.save();
 }
 export async function jobCertificatePdfBase64(c: any) {
   return Buffer.from(await jobCertificatePdf(c)).toString("base64");

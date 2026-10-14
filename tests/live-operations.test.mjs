@@ -3892,3 +3892,15 @@ test('FS contact attempts preserve saved numbers, staff outcomes, and permission
  await act(fs,'contactOutcome',{id:textId,outcome:'Text sent',note:''});
  assert.equal(j.operations.contacts[0].outcome,'Text sent');
 });
+
+test('schedule resets require office role and reason and preserve job status and aging',async()=>{
+ const {resetJobSchedule}=await vite.ssrLoadModule('/lib/schedule-reset.ts');
+ for(const role of ['admin','supervisor','production_assistant']){
+  const job={stage:'Incomplete',received:'2026-09-01',incompleteSince:'2026-09-10',install:'2026-10-20',installEnd:'2026-10-21',installerId:'crew',operations:{pendingSchedule:{date:'2026-10-20'},services:[{id:'service',date:'2026-10-25'}]}};
+  assert.throws(()=>resetJobSchedule(job,'installation',' ',{role,id:'1',name:'Tester'},'now'),/reason/);
+  const result=resetJobSchedule(job,'installation','Customer unavailable',{role,id:'1',name:'Tester'},'now');
+  assert.equal(job.install,'');assert.equal(job.installEnd,'');assert.equal(job.stage,'Incomplete');assert.equal(job.received,'2026-09-01');assert.equal(job.incompleteSince,'2026-09-10');assert.equal(job.operations.pendingSchedule,null);assert.equal(job.operations.services.length,1);assert.equal(result.removed.installerId,'crew');
+  resetJobSchedule(job,'service','Customer request',{role,id:'1',name:'Tester'},'now');assert.equal(job.operations.services.length,0);assert.equal(job.operations.scheduleResets.length,2);
+ }
+ assert.throws(()=>resetJobSchedule({},'installation','Reason',{role:'installer',id:'2',name:'Crew'},'now'),/access required/);
+});

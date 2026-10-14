@@ -2689,6 +2689,7 @@ function JobFile({ j, data, change, clickAction, saving, onOpen }: any) {
             today={today}
             save={save}
           />
+          {['admin','supervisor','production_assistant'].includes(me.role) && (j.install || o.pendingSchedule || o.services?.length > 0) && <details className="op-disclosure"><summary>Remove from Schedule / Customer Reset</summary><p>Select the appointment to remove and enter the reason for the reset. The account and its documents remain available.</p><Form submitLabel="Remove from Schedule" successMessage="Appointment removed from the schedule. Reset reason saved to job history." onSave={async f=>save('resetSchedule',{target:field(f,'target'),reason:field(f,'reason')})}><label>Appointment<select name="target" required>{(j.install||o.pendingSchedule)&&<option value="installation">Installation · {j.install||o.pendingSchedule.date}</option>}{(o.services||[]).map((appointment:any)=><option key={appointment.id} value={appointment.id}>Service · {appointment.date} · {appointment.crew}</option>)}</select></label><label>Why is this job being reset?<textarea name="reason" required maxLength={2000} placeholder="Enter the customer reset or scheduling reason…" /></label></Form></details>}
         </details>
       )}
       {review && (

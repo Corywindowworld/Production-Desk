@@ -1,3 +1,4 @@
+import {resetJobSchedule} from "./schedule-reset";
 import {salesResultEmail} from "./sales-result-email";
 import { allowedCityChoice, cityDropdownChoices } from "./dropdown-cleanup";
 import { readProfileDetails } from "./account-profile";
@@ -1491,6 +1492,9 @@ export async function operation(m: Member, input: any) {
       );
       history = `Balance reconciled ${j.amount ?? "unknown"} → ${amount}. ${reference ? "Source: " + reference : "Updated by Administrator"}`;
       j.amount = amount;
+    } else if (action === "resetSchedule") {
+      const r=parse(z.object({target:z.string().min(1).max(200),reason:z.string().trim().min(1,"Enter a reset reason.").max(2000)}),input.data);
+      try {const result=resetJobSchedule(j,r.target,r.reason,m,at);history=result.text;await alert(result.removed.installerId,`Job #${j.number}: ${history}`);}catch(error){throw new ApiError(400,(error as Error).message);}
     } else if (action === "schedule") {
       await scheduleJob(input.data);
     } else if (action === "approveSchedule" || action === "rejectSchedule") {

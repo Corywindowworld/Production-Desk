@@ -1,19 +1,24 @@
 'use client';
-import {MAX_UPLOAD_BYTES} from './upload-validation';
-export async function uploadAttachment(jobId:string,kind:string,file:File){
- if(!file.size||file.size>MAX_UPLOAD_BYTES)throw new Error('Choose a nonempty file up to 15 MB.');
- async function api(body:unknown){const r=await fetch('/api/attachments',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const data=await r.json().catch(()=>({error:`Upload request failed (HTTP ${r.status}). Please retry.`}));if(!r.ok)throw new Error(data.error||'Upload failed');return data}
- const start=await api({action:'begin',jobId,kind,name:file.name.slice(0,255),size:file.size});
- const form=new FormData();form.append('cacheControl','0');form.append('',file);
- let uploaded:Response;
- try{uploaded=await fetch(start.uploadUrl,{method:'PUT',headers:{'x-upsert':'false'},body:form});}
- catch{throw new Error('The browser could not reach photo storage. Check your connection. If you are on a work network, it may be blocking Supabase uploads.');}
- if(!uploaded.ok){
-  const details=await uploaded.json().catch(()=>null);
-  const status=Number(details?.statusCode||uploaded.status);
-  if(status===413)throw new Error('Photo storage rejected the file size. Choose a file under 15 MB or ask an administrator to repair Photo storage in Account management.');
-  if(status===401||status===403)throw new Error('Photo storage rejected this upload. Select the file again; if it repeats, ask an administrator to check Photo storage in Account management.');
-  throw new Error(`Photo storage rejected the file (HTTP ${status}). Ask an administrator to check Photo storage in Account management.`);
- }
- return (await api({action:'finish',key:start.key})).attachment;
+async function preparePhoto(file:File):Promise<File>{
+ if(!/^image\/(jpeg|png|webp)$/i.test(file.type)||file.size<500000)return file;
+ try{
+  const bitmap=await createImageBitmap(file);const scale=Math.min(1,2400/Math.max(bitmap.width,bitmap.height));
+  const canvas=document.createElement('canvas');canvas.width=Math.round(bitmap.width*scale);canvas.height=Math.round(bitmap.height*scale);
+  const context=canvas.getContext('2d');if(!context){bitmap.close();return file;}context.fillStyle='#fff';context.fillRect(0,0,canvas.width,canvas.height);context.drawImage(bitmap,0,0,canvas.width,canvas.height);bitmap.close();
+  const blob=await new Promise<Blob|null>(resolve=>canvas.toBlob(resolve,'image/jpeg',.85));
+  return blob&&blob.size<file.size?new File([blob],file.name.replace(/\.[^.]+$/,'')+'.jpg',{type:'image/jpeg',lastModified:file.lastModified}):file;
+ }catch{return file;}
+}
+const waiters:Array<()=>void>=[];let running=0;
+async function slot(){if(running>=2)await new Promise<void>(resolve=>waiters.push(resolve));else running++;}
+function release(){const next=waiters.shift();if(next)next();else running--;}
+async function api(body:any){const response=await fetch('/api/attachments',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const data=await response.json();if(!response.ok)throw Error(data.error||'Photo upload failed. Please try again.');return data;}
+export async function uploadAttachment(jobId:string,kind:string,original:File){
+ await slot();try{
+  const file=await preparePhoto(original);
+  const start=await api({action:'begin',jobId,kind,name:file.name,size:file.size});
+  const response=await fetch(start.uploadUrl,{method:'PUT',headers:{'Content-Type':file.type||'application/octet-stream'},body:file});
+  if(!response.ok)throw Error('Photo transfer failed. Please select this photo again.');
+  const finish=await api({action:'finish',key:start.key});return finish.attachment;
+ }finally{release();}
 }

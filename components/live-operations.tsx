@@ -3875,6 +3875,7 @@ function Gallery({ attachments }: any) {
           target="_blank"
           rel="noreferrer"
         >
+          {/\.(jpe?g|png|webp|gif|heic|heif)$/i.test(a.name||"") && <img src={"/api/attachments?key="+encodeURIComponent(a.key)} alt={a.name} loading="lazy" style={{display:"block",width:220,height:165,maxWidth:"100%",objectFit:"cover",borderRadius:10,marginBottom:8}} />}
           {a.name}
           <small>{a.kind}</small>
         </a>
@@ -3888,27 +3889,14 @@ function InstallerReport({ j, save }: any) {
   const [status, setStatus] = useState("Complete"),
     [attachments, setAttachments] = useState<any[]>([]),
     [certificate, setCertificate] = useState<any>(null),
-    [busy, setBusy] = useState(false),
+    [uploadCount, setUploadCount] = useState(0),
     [error, setError] = useState("");
+  const busy = uploadCount > 0;
   const requirements = requiredReportKinds(status);
   const upload = async (kind: string, files: File[]) => {
     if (!files.length) return;
-    setBusy(true);
-    setError("");
-    try {
-      const uploaded: any[] = [];
-      for (const file of files)
-        uploaded.push(await uploadAttachment(j.id, kind, file));
-      setAttachments((old) =>
-        ["issue", "photos"].includes(kind)
-          ? [...old, ...uploaded]
-          : [...old.filter((v) => v.kind !== kind), uploaded[0]],
-      );
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
+    setUploadCount(n=>n+files.length);setError("");
+    await Promise.all(files.map(async file=>{try{const attachment=await uploadAttachment(j.id,kind,file);setAttachments(old=>[...( ["issue","photos"].includes(kind)?old:old.filter(v=>v.kind!==kind)),attachment]);}catch(e){setError(previous=>previous + (previous?"\n":"") + file.name + ": " + (e as Error).message);}finally{setUploadCount(n=>n-1);}}));
   };
   return (
     <>
@@ -3954,6 +3942,7 @@ function InstallerReport({ j, save }: any) {
           Job result
           <select
             value={status}
+            disabled={busy}
             onChange={(e) => {
               setStatus(e.target.value);
               setCertificate(null);
@@ -3998,8 +3987,7 @@ function InstallerReport({ j, save }: any) {
               type="file"
               multiple={kind === "issue"}
               accept="image/*,.pdf"
-              disabled={busy}
-              onChange={(e) => upload(kind, Array.from(e.target.files || []))}
+              onChange={(e) => {const files=Array.from(e.target.files||[]);e.target.value="";upload(kind,files);}}
             />
             <small>
               {attachments
@@ -4015,8 +4003,7 @@ function InstallerReport({ j, save }: any) {
             type="file"
             multiple
             accept="image/*"
-            disabled={busy}
-            onChange={(e) => upload("photos", Array.from(e.target.files || []))}
+            onChange={(e) => {const files=Array.from(e.target.files||[]);e.target.value="";upload("photos",files);}}
           />
           <small>
             {attachments
@@ -4025,7 +4012,7 @@ function InstallerReport({ j, save }: any) {
               .join(", ") || "Optional"}
           </small>
         </label>
-        {busy && <p>Uploading…</p>}
+        {busy && <p role="status">{uploadCount} photo(s) uploading or queued. You can select more photos while these finish.</p>}
         {error && <p className="op-red">{error}</p>}
       </Form>
     </>
@@ -4553,9 +4540,10 @@ function LinkedAccounts({ j, jobs, canEdit, save, onOpen }: any) {
 function JobPhotoUpload({ j, save }: any) {
   const [kind, setKind] = useState<string>("photos"),
     [photos, setPhotos] = useState<any[]>([]),
-    [busy, setBusy] = useState(false),
+    [uploadCount, setUploadCount] = useState(0),
     [error, setError] = useState(""),
     [saved, setSaved] = useState(false);
+  const busy = uploadCount > 0;
   return (
     <section className="live-completion">
       <h3>Add job photos</h3>
@@ -4577,7 +4565,6 @@ function JobPhotoUpload({ j, save }: any) {
           Photo category
           <select
             value={kind}
-            disabled={busy}
             onChange={(e) => setKind(e.target.value)}
           >
             {jobPhotoKinds.map((v) => (
@@ -4593,12 +4580,11 @@ function JobPhotoUpload({ j, save }: any) {
             type="file"
             multiple
             accept="image/*"
-            disabled={busy}
             onChange={async (e) => {
               const files = Array.from(e.target.files || []);
               e.target.value = "";
               if (!files.length) return;
-              setBusy(true);
+              setUploadCount(n=>n+1);
               setError("");
               setSaved(false);
               try {
@@ -4609,7 +4595,7 @@ function JobPhotoUpload({ j, save }: any) {
               } catch (e) {
                 setError((e as Error).message);
               } finally {
-                setBusy(false);
+                setUploadCount(n=>n-1);
               }
             }}
           />
@@ -4619,8 +4605,7 @@ function JobPhotoUpload({ j, save }: any) {
             {a.name} · {reportLabels[a.kind as keyof typeof reportLabels]}{" "}
             <button
               type="button"
-              disabled={busy}
-              onClick={() =>
+                onClick={() =>
                 setPhotos((old) => old.filter((v) => v.key !== a.key))
               }
             >

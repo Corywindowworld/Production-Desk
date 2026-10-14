@@ -2,6 +2,7 @@
 import { cityDropdownChoices, allowedCityChoice } from "@/lib/dropdown-cleanup";
 import { LeadRenovation } from "./lead-renovation";
 import { JobCertificateForm, SignedJobCertificate } from "./job-certificate";
+import {CustomerContact} from "./customer-contact";
 import { DigitalDocuments } from "./digital-documents";
 import { ReorderRequests } from "@/components/reorder-requests";
 import { canAddJobPhotos, jobPhotoKinds } from "@/lib/job-photo-access";
@@ -2490,6 +2491,7 @@ function JobFile({ j, data, change, clickAction, saving, onOpen }: any) {
       >
         {[j.address, j.city, j.state, j.zip].filter(Boolean).join(", ")} ↗
       </a>
+      {review && <CustomerContact j={j} save={save} />}
       <div className="op-detail-status">
         <div>
           <small>Customer phone</small>

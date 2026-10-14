@@ -3873,3 +3873,22 @@ test("email failures identify missing configuration and provider rejection", asy
 test("removed cities stay removed with punctuation and unusual whitespace",async()=>{const {cityDropdownChoices}=await vite.ssrLoadModule('/lib/dropdown-cleanup.ts');assert.deepEqual(cityDropdownChoices(['RUSKIN','Ruskin.',' ST. PETE ','PALM HARB,','BEVERLY\u00a0HI','Tampa','TAMPA','Palm Harbor']),['Palm Harbor','Tampa']);});
 
 test("city cleanup formats Brooksville and Riverview and excludes removed aliases", async()=>{const {cityDropdownChoices}=await vite.ssrLoadModule('/lib/dropdown-cleanup.ts');assert.deepEqual(cityDropdownChoices(['/pollo beach','ST PETE','BROOKSVILLE','RIVERVIEW','riverview']),['Brooksville','Riverview']);});
+
+test('FS contact attempts preserve saved numbers, staff outcomes, and permissions', async()=>{
+ await act(admin,'create',{number:'CONTACT-TEST',customer:'Contact Test',address:'1 Test St',amount:0,phone:'813-555-0100',phone2:'727-555-0101'});
+ const id=crypto.randomUUID();
+ await assert.rejects(()=>act(pa,'contactStart',{id,method:'Call',phoneField:'phone'}),/supervisor|administrator/i);
+ await act(fs,'contactStart',{id,method:'Call',phoneField:'phone2'});
+ assert.equal(j.operations.contacts[0].number,'727-555-0101');
+ assert.equal(j.operations.contacts[0].byId,fs.id);
+ assert.match(j.history[0].text,/initiated.*Outcome not yet confirmed/);
+ await assert.rejects(()=>act(admin,'contactOutcome',{id,outcome:'Spoke with customer',note:''}),/Only the person/);
+ await act(fs,'contactOutcome',{id,outcome:'Left voicemail',note:'Requested installation confirmation'});
+ assert.equal(j.operations.contacts[0].outcome,'Left voicemail');
+ assert.match(j.history[0].text,/Requested installation confirmation/);
+ await assert.rejects(()=>act(fs,'contactOutcome',{id,outcome:'No answer',note:''}),/already been saved/);
+ const textId=crypto.randomUUID();
+ await act(fs,'contactStart',{id:textId,method:'Text',phoneField:'phone'});
+ await act(fs,'contactOutcome',{id:textId,outcome:'Text sent',note:''});
+ assert.equal(j.operations.contacts[0].outcome,'Text sent');
+});

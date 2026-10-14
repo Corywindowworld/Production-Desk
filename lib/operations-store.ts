@@ -2143,6 +2143,25 @@ export async function operation(m: Member, input: any) {
       r.reviewedBy = m.name;
       r.reviewedAt = at;
       history = `${r.type} ${r.status.toLowerCase()}`;
+    } else if (action === "contactStart") {
+      assert(reviewer(m), "Field supervisor or administrator access required.");
+      const data=parse(z.object({id:z.string().uuid(),method:z.enum(["Call","Text"]),phoneField:z.enum(["phone","phone2","phone3"])}),input.data);
+      const number=String(j[data.phoneField]||"");
+      assert(number.replace(/\D/g,"").length>=10,"Select a valid saved customer phone number.",400);
+      assert(!(o.contacts||[]).some((c:any)=>c.id===data.id),"Contact already recorded.",409);
+      o.contacts=[{...data,number,at,by:m.name,byId:m.id},...(o.contacts||[])];
+      history=`${data.method} initiated to ${data.phoneField==="phone"?"Ph#1":data.phoneField==="phone2"?"Ph#2":"Ph#3"} (${number}). Outcome not yet confirmed.`;
+    } else if (action === "contactOutcome") {
+      assert(reviewer(m), "Field supervisor or administrator access required.");
+      const data=parse(z.object({id:z.string().uuid(),outcome:z.string().min(1).max(100),note:z.string().max(2000).default("")}),input.data);
+      const contact=(o.contacts||[]).find((c:any)=>c.id===data.id);
+      assert(contact,"Contact attempt not found.",404);
+      assert(contact.byId===m.id,"Only the person who initiated contact may confirm its outcome.",403);
+      const choices=contact.method==="Call"?["Spoke with customer","Left voicemail","No answer","Wrong number","Canceled / not called"]:["Text sent","Customer replied","Canceled / not sent","Wrong number"];
+      assert(choices.includes(data.outcome),"Select a valid contact outcome.",400);
+      assert(!contact.outcome,"This contact outcome has already been saved.",409);
+      Object.assign(contact,{outcome:data.outcome,note:(data.note || "").trim(),completedAt:at});
+      history=`${contact.method} to ${contact.number}: ${data.outcome}${(data.note || "").trim()?". "+(data.note || "").trim():""} (confirmed by staff).`;
     } else if (action === "delete") {
       assert(m.role === "admin", "Administrator access required.");
       for (const table of [

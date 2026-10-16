@@ -1,4 +1,5 @@
 "use client";
+import {PhotoUploadProgress} from "./upload-progress";
 import { cityDropdownChoices, allowedCityChoice } from "@/lib/dropdown-cleanup";
 import { LeadRenovation } from "./lead-renovation";
 import { JobCertificateForm, SignedJobCertificate } from "./job-certificate";
@@ -4012,7 +4013,7 @@ function InstallerReport({ j, save }: any) {
               .join(", ") || "Optional"}
           </small>
         </label>
-        {busy && <p role="status">{uploadCount} photo(s) uploading or queued. You can select more photos while these finish.</p>}
+        <PhotoUploadProgress jobId={j.id}/>{busy && <p role="status">{uploadCount} photo(s) uploading or queued. You can select more photos while these finish.</p>}
         {error && <p className="op-red">{error}</p>}
       </Form>
     </>
@@ -4600,6 +4601,7 @@ function JobPhotoUpload({ j, save }: any) {
             }}
           />
         </label>
+        <PhotoUploadProgress jobId={j.id}/>
         {photos.map((a) => (
           <p key={a.key}>
             {a.name} · {reportLabels[a.kind as keyof typeof reportLabels]}{" "}

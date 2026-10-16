@@ -3904,3 +3904,54 @@ test('schedule resets require office role and reason and preserve job status and
  }
  assert.throws(()=>resetJobSchedule({},'installation','Reason',{role:'installer',id:'2',name:'Crew'},'now'),/access required/);
 });
+
+test('emailed certificates are private, single-use, save PDFs and do not change balances or status',async()=>{
+ const {inviteCertificate,publicCertificate,signCertificate,linkKey,assertUsable}=await vite.ssrLoadModule('/lib/certificate-links.ts');
+ const {certificatesForJob}=await vite.ssrLoadModule('/lib/digital-documents.ts');
+ await act(admin,'create',{number:'REMOTE-SIGN',customer:'Remote Customer',address:'1 Main St',amount:100});
+ const jobId=j.id,stage=j.stage;
+ await assert.rejects(()=>inviteCertificate(installer,{jobId,type:'Complete',email:'remote@example.com',installerSignatureDataUrl:signature},'https://example.com'),/access required/);
+ await inviteCertificate(fs,{jobId,type:'Incomplete',email:'remote@example.com',completedWindows:'Windows 1, 2',installerSignatureDataUrl:signature},'https://example.com');
+ const mail=(await pg.query("SELECT body FROM production.operations_email WHERE recipient='remote@example.com' ORDER BY created DESC LIMIT 1")).rows[0];
+ const token=mail.body.match(/certificate\/([a-f0-9]{64})/)[1];
+ const publicData=await publicCertificate(token);
+ assert.equal(publicData.type,'Incomplete');assert.equal(publicData.completedWindows,'Windows 1, 2');
+ assert.equal(publicData.installerSignatureDataUrl,undefined);assert.equal(publicData.operations,undefined);
+ const stored=(await pg.query('SELECT id,payload FROM production.operations_config WHERE id=$1',[linkKey(token)])).rows[0];
+ assert.ok(!stored.id.includes(token));assert.ok(!JSON.stringify(stored.payload).includes(token));
+ await assert.rejects(()=>publicCertificate('a'.repeat(64)),/invalid/);
+ assert.throws(()=>assertUsable({expiresAt:'2000-01-01'}),/expired/);
+ await assert.rejects(()=>signCertificate(token,{...certificate('Complete'),paymentAmount:101,paymentMethod:'Check'}),/balance/);
+ await signCertificate(token,{...certificate('Complete'),homeownerName:'Remote Customer',type:'Complete',customerEmail:'attacker@example.com',completedWindows:'changed',paymentAmount:20,paymentMethod:'Check',paymentReference:'12345'});
+ const raw=(await pg.query('SELECT payload FROM production.jobs WHERE id=$1',[jobId])).rows[0].payload;
+ const saved=typeof raw==='string'?JSON.parse(raw):raw;
+ assert.equal(saved.stage,stage);assert.equal(saved.amount,100);
+ const record=certificatesForJob(saved)[0];
+ assert.equal(record.type,'Incomplete');assert.equal(record.completedWindows,'Windows 1, 2');assert.equal(record.customerEmail,'remote@example.com');assert.equal(record.paymentReference,'12345');assert.equal(record.installerName,fs.name);
+ const signedMail=(await pg.query("SELECT body FROM production.operations_email WHERE recipient='remote@example.com' AND body LIKE '%job-certificate%'")).rows[0];
+ const pkg=JSON.parse(signedMail.body);assert.equal(Buffer.from(pkg.pdfBase64,'base64').subarray(0,4).toString(),'%PDF');
+ await assert.rejects(()=>publicCertificate(token),/already been signed/);
+ await assert.rejects(()=>signCertificate(token,certificate('Incomplete')),/already been signed/);
+});
+
+test('approved results can be cleared without losing certificate or other pending requests',async()=>{
+ const row=(await pg.query("SELECT id,payload FROM production.jobs WHERE payload::text LIKE '%REMOTE-SIGN%'")).rows[0];
+ const job=typeof row.payload==='string'?JSON.parse(row.payload):row.payload;
+ job.operations.report={approved:true,pending:false,certificate:{id:'keep-me'}};
+ job.operations.requests=[{id:'pending',status:'Pending'}];
+ await pg.query('UPDATE production.jobs SET payload=$1 WHERE id=$2',[JSON.stringify(job),row.id]);
+ const live=(await operationsData(admin)).jobs.find(v=>v.id===row.id);
+ await assert.rejects(()=>operation(installer,{action:'dismissApproval',jobId:row.id,version:live.version,data:{}}),/access|required|assigned/i);
+ await operation(fs,{action:'dismissApproval',jobId:row.id,version:live.version,data:{}});
+ const saved=(await operationsData(admin)).jobs.find(v=>v.id===row.id);
+ assert.equal(saved.operations.report.approvalDismissed,true);assert.equal(saved.operations.report.certificate.id,'keep-me');assert.equal(saved.operations.requests[0].status,'Pending');
+});
+
+test('pipeline excludes completed service collection and UTI jobs across imported aliases',async()=>{
+ const {isPipelineJob}=await vite.ssrLoadModule('/lib/production-pipeline.ts');
+ for(const stage of ['Closed','COMP','SVC','SERV','Service','COLL','Collections','UTI','Unable To Install'])assert.equal(isPipelineJob({stage}),false,stage);
+ for(const stage of ['Ordered','Received','Production','InProgress','Incomplete'])assert.equal(isPipelineJob({stage}),true,stage);
+ assert.equal(isPipelineJob({stage:'Production',status:'COLL'}),false);
+ assert.equal(isPipelineJob({stage:'Closed',paymentMethod:'PO'}),false);
+ assert.equal(isPipelineJob({stage:'Received',paymentMethod:'PO'}),true);
+});

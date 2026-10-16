@@ -2,6 +2,7 @@ export function certificatesForJob(j: any) {
   const reports = [
       j?.operations?.report,
       ...(j?.operations?.previousReports || []),
+      ...(j?.operations?.remoteCertificates || []).map((certificate:any)=>({certificate})),
     ].filter(Boolean),
     seen = new Set<string>();
   return reports

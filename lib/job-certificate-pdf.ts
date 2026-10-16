@@ -120,7 +120,7 @@ export async function jobCertificatePdf(c: any) {
   if (complete) center("CONGRATULATIONS ON YOUR NEW WINDOWS!", 11, bold);
   field("Customer:", c.customerName);
   field("Customer ID #:", c.customerId);
-  field("Installer:", c.installerName);
+  field(c.signedByStaff ? "Staff preparer:" : "Installer:", c.installerName);
   field("Contractor ID #:", c.contractorId || "Not recorded");
   field("Date:", day(c.signedAt));
   field(
@@ -217,7 +217,7 @@ export async function jobCertificatePdf(c: any) {
     field("Amount Paid Today:", money(c.paymentAmount));
     field("Remaining Balance:", money(c.remainingBalance));
     field("Type of payment:", c.paymentMethod || "None recorded");
-    if (c.paymentReference) field("Payment / reference:", c.paymentReference);
+    if (c.paymentReference) field(c.paymentMethod === "Check" ? "Check number:" : "Payment / reference:", c.paymentReference);
     if (c.cardLastFour) field("Credit card ending:", c.cardLastFour);
     if (c.paymentDifferenceReason)
       field(
@@ -257,7 +257,7 @@ export async function jobCertificatePdf(c: any) {
     size: 8,
     font: regular,
   });
-  page.drawText("Installer Signature - " + clean(c.installerName), {
+  page.drawText((c.signedByStaff ? "Staff Signature - " : "Installer Signature - ") + clean(c.installerName), {
     x: left + 274,
     y,
     size: 8,

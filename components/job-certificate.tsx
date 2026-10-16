@@ -90,6 +90,7 @@ export function SignedJobCertificate({ record, defaultOpen = false }: any) {
           <strong>Payment acknowledgment:</strong> {money(record.paymentAmount)}{" "}
           · {record.paymentMethod || "None recorded"} · Remaining balance{" "}
           {money(record.remainingBalance)}
+          {record.paymentMethod === "Check" && record.paymentReference && <span> · Check number: {record.paymentReference}</span>}
         </p>
       )}
       <div className="certificate-signature-preview">
@@ -102,7 +103,7 @@ export function SignedJobCertificate({ record, defaultOpen = false }: any) {
             alt="Installer signature"
             src={record.installerSignatureDataUrl}
           />
-          <strong>Installer signature</strong>
+          <strong>{record.signedByStaff ? "Staff preparer signature" : "Installer signature"}</strong>
         </div>
       </div>
       {record.reviewedBy ? (
@@ -160,7 +161,7 @@ export function JobCertificateForm({ j, type, profile, onChange }: any) {
     referencePermission,
     paymentAmount: service ? 0 : paymentAmount,
     paymentMethod: service ? "" : paymentMethod,
-    paymentReference: service ? "" : paymentReference.trim(),
+    paymentReference: !service && paymentMethod === "Check" ? paymentReference.trim() : "",
     cardLastFour: service ? "" : cardLastFour.trim(),
     paymentDifferenceReason: service ? "" : paymentDifferenceReason.trim(),
     customerSignatureDataUrl: customerSignature,
@@ -199,6 +200,7 @@ export function JobCertificateForm({ j, type, profile, onChange }: any) {
   ]);
   const choosePayment = (value: string) => {
     setPaymentMethod(value);
+    if(value !== "Check")setPaymentReference("");
     if (value === "Paid In Full") setPaymentAmount(String(balance ?? 0));
   };
   const accept = () => {
@@ -482,6 +484,7 @@ export function JobCertificateForm({ j, type, profile, onChange }: any) {
                       </select>
                     </label>
                   </div>
+                  {paymentMethod === "Check" && <label>Check number<input value={paymentReference} maxLength={150} onChange={e=>setPaymentReference(e.target.value)} /></label>}
                   {paymentMethod === "Credit Card" && (
                     <label>
                       Card last four digits only

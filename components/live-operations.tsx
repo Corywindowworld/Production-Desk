@@ -1,9 +1,12 @@
 "use client";
+import {isPipelineJob} from "@/lib/production-pipeline";
+import { printJobCertificate } from "@/lib/print-job-certificate";
 import {PhotoUploadProgress} from "./upload-progress";
 import { cityDropdownChoices, allowedCityChoice } from "@/lib/dropdown-cleanup";
 import { LeadRenovation } from "./lead-renovation";
 import { JobCertificateForm, SignedJobCertificate } from "./job-certificate";
 import {CustomerContact} from "./customer-contact";
+import {CertificateInvite} from "./certificate-invite";
 import { DigitalDocuments } from "./digital-documents";
 import { ReorderRequests } from "@/components/reorder-requests";
 import { canAddJobPhotos, jobPhotoKinds } from "@/lib/job-photo-access";
@@ -394,6 +397,7 @@ export default function LiveOperations() {
     (j: any) =>
       j.operations?.pendingSchedule ||
       j.operations?.report?.pending ||
+      (j.operations?.report?.approved && !j.operations?.report?.approvalDismissed) ||
       j.operations?.requests?.some((r: any) => r.status === "Pending"),
   );
   return (
@@ -1010,7 +1014,7 @@ function JobList({
   const rows = jobs
     .filter(
       (j: any) =>
-        (!pipeline || j.stage !== "Closed") &&
+        (!pipeline || isPipelineJob(j)) &&
         matchesJobFilter(j, today, statusFilter, statuses),
     )
     .sort(
@@ -1530,13 +1534,14 @@ function Approvals({ jobs, me, review, saving, change, onOpen }: any) {
       )}
       {!jobs.length && <p>No pending requests.</p>}
       {jobs.map((j: any) => (
-        <article className="live-approval-card" key={j.id}>
+        <article className="live-approval-card" key={j.id} style={j.operations.report?.approved && !j.operations.pendingSchedule && !j.operations.requests?.some((r:any)=>r.status==="Pending") ? {display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",padding:12} : undefined}>
           <h3>
             {j.customer} · #{j.number}
           </h3>
           <button className="live-button" onClick={() => onOpen(j.id)}>
             View job
           </button>
+          {j.operations.report?.approved && !j.operations.report?.approvalDismissed && <div className="op-schedule-actions" style={{display:"flex",alignItems:"center",gap:12,padding:10}}><strong>Approved · {j.operations.report.status}</strong>{j.operations.report.certificate && <button className="live-button" onClick={()=>printJobCertificate(j.operations.report.certificate)}>Print Certificate</button>}{review && <button className="live-button" disabled={saving} onClick={()=>act(j,"dismissApproval",{})}>Clear from list</button>}</div>}
           {j.operations.pendingSchedule && (
             <section>
               <h4>Schedule request</h4>
@@ -3176,6 +3181,7 @@ function JobFile({ j, data, change, clickAction, saving, onOpen }: any) {
           hidden={workspaceTab !== "documents"}
           style={{ display: workspaceTab === "documents" ? "block" : "none" }}
         >
+          {(data.canEdit || review) && <CertificateInvite key={j.id} j={j}/>}
           <DigitalDocuments j={j} />
         </section>
         <section

@@ -189,6 +189,7 @@ export function publicJob(m: Member, j: any) {
       salesKeys: j.operations?.salesKeys,
       report: j.operations?.report,
       previousReports: j.operations?.previousReports || [],
+      remoteCertificates: j.operations?.remoteCertificates || [],
       services: (j.operations?.services || []).filter(
         (s: any) => s.installerId === m.id,
       ),
@@ -305,7 +306,7 @@ export async function operationsData(
       ? (
           await db
             .prepare(
-              "SELECT payload FROM production.operations_config WHERE id NOT LIKE 'crew-colors:%' ORDER BY id DESC",
+              "SELECT payload FROM production.operations_config WHERE id NOT LIKE 'crew-colors:%' AND id NOT LIKE 'certificate-link:%' ORDER BY id DESC",
             )
             .all()
         ).results.flatMap((r: any) => {
@@ -2030,6 +2031,11 @@ export async function operation(m: Member, input: any) {
         j.installerId,
         `Job #${j.number}: report ${approve ? `approved and moved to ${j.stage === "Closed" ? "COMP" : "INC"}` : "returned for correction"}.`,
       );
+    } else if (action === "dismissApproval") {
+      assert(reviewer(m), "Supervisor or administrator access required.");
+      assert(o.report?.approved, "Approve the result first.", 409);
+      o.report.approvalDismissed = true;
+      history = "Approved result cleared from approvals; certificate retained in Digital Documents";
     } else if (action === "confirmStatus") {
       assert(reviewer(m), "Supervisor or administrator access required.");
       assert(

@@ -98,3 +98,11 @@ return. It uses a separate Geoapify routing request (or OSRM route request). If 
 geometry fails, the preview explains this and retains the stop list and estimates;
 it never draws a straight line and labels it as a driving route. Map tiles use the
 existing OpenStreetMap tile layer and attribution.
+
+Opening the optimizer and choosing a crew automatically checks that day's addresses.
+Verified locations are saved against the current address and reused. Only unmatched
+addresses show an inline street/city/state/ZIP editor, with autocomplete. Saving
+verifies the correction, updates the customer account and job history, and clears
+stale route estimates. Permission checks and address fingerprint checks prevent
+installer access and overwriting a concurrent address edit. Provider outages offer
+a retry instead of asking staff to change a valid address.

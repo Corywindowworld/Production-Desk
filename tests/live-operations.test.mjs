@@ -3957,7 +3957,7 @@ test('pipeline excludes completed service collection and UTI jobs across importe
 });
 
 test('own routing previews preserve assignments, require all stops and apply atomically with stale checks',async()=>{
- const {saveWarehouse,previewRoute,applyRoute,routingSettings}=await vite.ssrLoadModule('/lib/routing/store.ts');
+ const {saveWarehouse,previewRoute,applyRoute,routingSettings,verifyRouteAddresses,correctRouteAddress}=await vite.ssrLoadModule('/lib/routing/store.ts');
  const {addressKey}=await vite.ssrLoadModule('/lib/routing/address.ts');
  const {installAppointments}=await vite.ssrLoadModule('/lib/install-calendar.ts');
  const wh={name:'Test warehouse',address:'100 Test St',latitude:27.9,longitude:-82.4,start:'07:00',end:'17:00',loadingMinutes:30,travelFactor:1.2,returnToWarehouse:false};
@@ -3979,6 +3979,12 @@ test('own routing previews preserve assignments, require all stops and apply ato
   await assert.rejects(()=>routingSettings(installer),/permission/);
   await assert.rejects(()=>previewRoute(pa,{...values,stops:[entries[0]]}),/all scheduled stops/);
   await assert.rejects(()=>previewRoute(pa,{...values,stops:entries.map(s=>({...s,location:{...s.location,addressKey:'wrong'}}))}),/Confirm the map/);
+  await assert.rejects(()=>verifyRouteAddresses(installer,{crewId:installer.id,day}),/permission/);
+  const verified=await verifyRouteAddresses(pa,{crewId:installer.id,day});assert.ok(verified.stops.every(s=>s.status==='verified'));
+  await assert.rejects(()=>correctRouteAddress(pa,{jobId:ids[0],expectedKey:'stale',address:'1 Main St',city:'Tampa',state:'FL',zip:'33601'}),/address changed/);
+  const corrected=await correctRouteAddress(pa,{jobId:ids[0],expectedKey:entries[0].location.addressKey,address:'10 Main St',city:'Tampa',state:'fl',zip:'33601'});assert.equal(corrected.state,'FL');
+  const correctedRaw=(await pg.query('SELECT payload FROM production.jobs WHERE id=$1',[ids[0]])).rows[0].payload;const correctedJob=typeof correctedRaw==='string'?JSON.parse(correctedRaw):correctedRaw;assert.equal(correctedJob.address,'10 Main St');assert.equal(correctedJob.stage,'Production');assert.equal(correctedJob.installerId,installer.id);assert.match(correctedJob.history[0].text,/route optimizer/);
+  entries[0].location.addressKey=addressKey(correctedJob);
   const plan=await previewRoute(pa,{...values,stops:entries.map(({location,...s})=>s)});assert.ok(plan.result.optimized);assert.equal(plan.result.optimized.visits.length,2);assert.equal(plan.geometry.type,'MultiLineString');assert.ok(plan.stops.every(s=>s.location.addressKey));
   await assert.rejects(()=>applyRoute(fs,plan.id),/your own/);
   await applyRoute(pa,plan.id);

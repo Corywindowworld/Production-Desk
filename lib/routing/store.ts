@@ -73,3 +73,40 @@ export async function applyRoute(m:Member,id:string){
   return {ok:true};
  });
 }
+
+const routeDaySchema=z.object({crewId:z.string().uuid(),day:date});
+async function persistRouteLocation(m:Member,jobId:string,expectedKey:string,fields:any,location:any){
+ return database().transaction(async tx=>{
+  const row=await tx.prepare('SELECT payload FROM jobs WHERE id=? FOR UPDATE').bind(jobId).first();
+  if(!row)throw new ApiError(404,'Job no longer exists.');const job=storedObject(row.payload);
+  if(addressKey(job)!==expectedKey)throw new ApiError(409,'This address changed. Check addresses again.');
+  const at=new Date().toISOString(),updated={...job,...fields,routingLocation:location};
+  if(fields){updated.operations={...job.operations,routing:{}};updated.history=[{at,by:m.name,text:'Customer address corrected and verified from the route optimizer.'},...(job.history||[])];}
+  await tx.prepare('UPDATE jobs SET payload=?,version=version+1,updated=? WHERE id=?').bind(JSON.stringify(updated),at,jobId).run();
+  return updated;
+ });
+}
+export async function verifyRouteAddresses(m:Member,input:unknown){
+ access(m);const v=routeDaySchema.parse(input),db=database();await activeCrew(db,v.crewId,v.day);
+ const rows=await db.prepare('SELECT id,payload,version FROM jobs').all(),jobs=rows.results.map((r:any)=>({...storedObject(r.payload),id:r.id,version:r.version})),stops=crewStops(jobs,v.crewId,v.day);
+ if(stops.length>8)throw new ApiError(400,'This version supports up to 8 stops per crew per day.');
+ const results=[],checked=new Map<string,any>();
+ for(const stop of stops){
+  let result=checked.get(stop.jobId);
+  if(!result){
+   try{const key=addressKey(stop),location=stop.location?.addressKey===key?stop.location:{...await resolveAddress(stop),addressKey:key};
+    if(location!==stop.location)await persistRouteLocation(m,stop.jobId,key,null,location);
+    result={status:'verified',addressKey:key,location};
+   }catch(e){const error=e as ApiError;result={status:error.status===400?'needs-address':'error',message:error.message,addressKey:addressKey(stop)};}
+   checked.set(stop.jobId,result);
+  }
+  results.push({id:stop.id,jobId:stop.jobId,...result});
+ }
+ return {stops:results};
+}
+export async function correctRouteAddress(m:Member,input:unknown){
+ access(m);const v=z.object({jobId:z.string().uuid(),expectedKey:z.string().max(700),address:z.string().trim().min(5).max(300),city:z.string().trim().min(1).max(100),state:z.string().trim().regex(/^[A-Za-z]{2}$/).transform(s=>s.toUpperCase()),zip:z.string().trim().regex(/^\d{5}(?:-\d{4})?$/)}).parse(input);
+ const fields={address:v.address,city:v.city,state:v.state,zip:v.zip},location={...await resolveAddress(fields),addressKey:addressKey(fields)};
+ await persistRouteLocation(m,v.jobId,v.expectedKey,fields,location);
+ return {...fields,location};
+}

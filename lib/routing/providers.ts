@@ -12,13 +12,18 @@ async function json(url: string, key?: string, body?: unknown) {
   try {
     const r = await fetch(url, {method: body ? 'POST' : 'GET', body: body ? JSON.stringify(body) : undefined, headers: {...(key ? {Authorization: `Bearer ${key}`} : {}), ...(body ? {'Content-Type': 'application/json'} : {})}, cache: 'no-store', redirect: 'error', signal: AbortSignal.timeout(10000)});
     if (r.status === 429) throw new ApiError(429, 'Map service usage limit reached. Try again later; manual address entry is still available.');
-    if (!r.ok) throw Error('Upstream failed');
+    if (!r.ok) {
+      // Never log the request URL: hosted-service URLs contain the private API key.
+      console.warn('Map service request failed', {provider: new URL(url).hostname, status: r.status});
+      if (new URL(url).hostname === 'api.geoapify.com' && [401, 403].includes(r.status)) throw new ApiError(503, 'Geoapify rejected the API key or its access restrictions. Ask Admin to check GEOAPIFY_API_KEY in Vercel and the key restrictions in Geoapify, then redeploy.');
+      throw Error('Upstream failed');
+    }
     return await r.json();
   } catch (error) {if (error instanceof ApiError) throw error; throw new ApiError(503, 'The map service is unavailable. Try again or enter the address manually.');}
 }
 export async function searchAddresses(q: string) {
-  if (process.env.GEOAPIFY_API_KEY) {
-    const params = new URLSearchParams({text: q, limit: '6', lang: 'en', filter: 'countrycode:us', apiKey: process.env.GEOAPIFY_API_KEY});
+  if (process.env.GEOAPIFY_API_KEY?.trim()) {
+    const params = new URLSearchParams({text: q, limit: '6', lang: 'en', filter: 'countrycode:us', apiKey: process.env.GEOAPIFY_API_KEY.trim()});
     return geoapifyAddresses(await json(`https://api.geoapify.com/v1/geocode/autocomplete?${params}`));
   }
   const base = serviceUrl(process.env.PHOTON_BASE_URL, 'Address autofill');
@@ -27,9 +32,9 @@ export async function searchAddresses(q: string) {
 }
 export async function drivingMatrix(points: Point[]) {
   if (points.length < 2 || points.length > 9 || points.some(p => !Number.isFinite(p.latitude) || !Number.isFinite(p.longitude) || Math.abs(p.latitude) > 90 || Math.abs(p.longitude) > 180)) throw new ApiError(400, 'Check the map coordinates for every stop.');
-  if (process.env.GEOAPIFY_API_KEY) {
+  if (process.env.GEOAPIFY_API_KEY?.trim()) {
     const locations = points.map(p => ({location: [p.longitude, p.latitude]}));
-    const data = await json(`https://api.geoapify.com/v1/routematrix?${new URLSearchParams({apiKey: process.env.GEOAPIFY_API_KEY})}`, undefined, {mode: 'drive', sources: locations, targets: locations});
+    const data = await json(`https://api.geoapify.com/v1/routematrix?${new URLSearchParams({apiKey: process.env.GEOAPIFY_API_KEY.trim()})}`, undefined, {mode: 'drive', sources: locations, targets: locations});
     const rows = data?.sources_to_targets;
     if (!Array.isArray(rows) || rows.length !== points.length || rows.some((r: any, i: number) => !Array.isArray(r) || r.length !== points.length || r.some((v: any, j: number) => !v || v.source_index !== i || v.target_index !== j || (v.time !== null && (typeof v.time !== 'number' || !Number.isFinite(v.time) || v.time < 0))))) throw new ApiError(503, 'The road service returned an invalid driving-time matrix.');
     return rows.map((r: any[]) => r.map(v => v.time)) as (number | null)[][];

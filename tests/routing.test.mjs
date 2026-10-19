@@ -55,6 +55,7 @@ test('Geoapify hosted adapter normalizes addresses, preserves road times/nulls, 
   assert.equal(calls[1].opts.method,'POST');assert.deepEqual(JSON.parse(calls[1].opts.body).sources,[{location:[-82,27]},{location:[-81,28]}]);
   assert.ok(calls.every(c=>c.url.startsWith('https://api.geoapify.com/')));
   globalThis.fetch=async()=>Response.json({sources_to_targets:[[{time:0,source_index:1,target_index:0}]]});await assert.rejects(()=>drivingMatrix(points),/invalid driving/);
+  for(const status of [401,403]){globalThis.fetch=async()=>new Response('',{status});await assert.rejects(()=>searchAddresses('123 Main'),e=>/rejected the API key/.test(e.message)&&!e.message.includes('private-test-key'));}
   globalThis.fetch=async()=>new Response('',{status:429});await assert.rejects(()=>searchAddresses('123 Main'),/usage limit/);
   globalThis.fetch=async()=>{throw Error('secret URL private-test-key')};await assert.rejects(()=>searchAddresses('123 Main'),e=>!e.message.includes('private-test-key')&&/unavailable/.test(e.message));
  }finally{globalThis.fetch=prior.fetch;if(prior.key===undefined)delete process.env.GEOAPIFY_API_KEY;else process.env.GEOAPIFY_API_KEY=prior.key}

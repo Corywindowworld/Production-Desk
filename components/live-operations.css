@@ -1138,3 +1138,16 @@ html:is(
 }
 
 .certificate-currency-input{display:flex;align-items:center;gap:10px}.certificate-currency-input>span{font-size:22px;font-weight:700}.certificate-currency-input input{flex:1;min-width:0}.certificate-retainage-note{padding:14px 18px;background:#edf5fc;border-left:3px solid #064b88;font-size:14px;line-height:1.6}
+
+.route-planner { margin: 16px 0; }
+.routing-controls { display: grid; grid-template-columns: repeat(auto-fit,minmax(190px,1fr)); gap: 12px; align-items: end; }
+.routing-controls label { display: grid; gap: 6px; }
+.routing-stop { border: 1px solid var(--op-border,#cbd5e1); border-radius: 12px; padding: 14px; margin: 12px 0; }
+.routing-stop h4 { margin: 0 0 6px; }
+.routing-preview { border: 2px solid #1e65a8; border-radius: 16px; padding: 18px; margin: 14px 0; }
+.routing-preview li { padding: 8px 0; }
+.route-planner > button { margin: 12px 0; }
+.route-planner .address-autocomplete { position: relative; }
+.route-planner .address-autocomplete ul { position: absolute; z-index: 30; background: var(--op-panel,#fff); border: 1px solid #cbd5e1; border-radius: 10px; padding: 6px; width: 100%; max-height: 260px; overflow-y: auto; list-style: none; }
+.route-planner .address-autocomplete li { padding: 10px; cursor: pointer; }
+.address-autocomplete li[aria-selected=true] { outline: 2px solid #2879c8; }

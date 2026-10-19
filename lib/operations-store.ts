@@ -2,6 +2,7 @@ import {resetJobSchedule} from "./schedule-reset";
 import {salesResultEmail} from "./sales-result-email";
 import { allowedCityChoice, cityDropdownChoices } from "./dropdown-cleanup";
 import { readProfileDetails } from "./account-profile";
+import {addressKey} from "./routing/address";
 import { certificateEmailHtml, certificateSnapshot } from "./job-certificate";
 import { jobCertificatePdfBase64 } from "./job-certificate-pdf";
 import { reorderOperation } from "@/lib/reorder-requests";
@@ -189,6 +190,7 @@ export function publicJob(m: Member, j: any) {
       salesKeys: j.operations?.salesKeys,
       report: j.operations?.report,
       previousReports: j.operations?.previousReports || [],
+      routing: j.operations?.routing || {},
       remoteCertificates: j.operations?.remoteCertificates || [],
       services: (j.operations?.services || []).filter(
         (s: any) => s.installerId === m.id,
@@ -306,7 +308,7 @@ export async function operationsData(
       ? (
           await db
             .prepare(
-              "SELECT payload FROM production.operations_config WHERE id NOT LIKE 'crew-colors:%' AND id NOT LIKE 'certificate-link:%' ORDER BY id DESC",
+              "SELECT payload FROM production.operations_config WHERE id NOT LIKE 'crew-colors:%' AND id NOT LIKE 'certificate-link:%' AND id NOT LIKE 'route-plan:%' AND id NOT LIKE 'routing-warehouse:%' ORDER BY id DESC",
             )
             .all()
         ).results.flatMap((r: any) => {
@@ -1150,6 +1152,7 @@ export async function operation(m: Member, input: any) {
         j.supervisorId = "";
         j.supervisor = "";
       }
+      o.routing = {};
       j.install = s.date;
       j.installEnd = s.endDate || s.date;
       j.installTime = s.time || "";
@@ -2236,6 +2239,7 @@ export async function operation(m: Member, input: any) {
         )
         .run();
     }
+    if(j.routingLocation?.addressKey !== addressKey(j))j.routingLocation=null;
     j.history = [{ at, by: m.name, text: history }, ...(j.history || [])];
     if (version)
       await tx

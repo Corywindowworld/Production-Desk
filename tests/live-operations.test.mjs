@@ -3955,3 +3955,48 @@ test('pipeline excludes completed service collection and UTI jobs across importe
  assert.equal(isPipelineJob({stage:'Closed',paymentMethod:'PO'}),false);
  assert.equal(isPipelineJob({stage:'Received',paymentMethod:'PO'}),true);
 });
+
+test('own routing previews preserve assignments, require all stops and apply atomically with stale checks',async()=>{
+ const {saveWarehouse,previewRoute,applyRoute,routingSettings}=await vite.ssrLoadModule('/lib/routing/store.ts');
+ const {addressKey}=await vite.ssrLoadModule('/lib/routing/address.ts');
+ const {installAppointments}=await vite.ssrLoadModule('/lib/install-calendar.ts');
+ const wh={name:'Test warehouse',address:'100 Test St',latitude:27.9,longitude:-82.4,start:'07:00',end:'17:00',loadingMinutes:30,travelFactor:1.2,returnToWarehouse:false};
+ await assert.rejects(()=>saveWarehouse(pa,wh),/Administrator/);
+ const warehouse=await saveWarehouse(admin,wh),day='2030-04-15',ids=[];
+ for(let i=0;i<2;i++){
+  await act(admin,'create',{number:'ROUTE-'+i,customer:'Route Customer '+i,address:(i+1)+' Main St',city:'Tampa',state:'FL',zip:'33601',amount:0});
+  const raw=(await pg.query('SELECT payload FROM production.jobs WHERE id=$1',[j.id])).rows[0].payload;
+  const job=typeof raw==='string'?JSON.parse(raw):raw;
+  Object.assign(job,{install:day,installEnd:day,installPeriod:'AM',stopNumber:i+1,installerId:installer.id,stage:'Production'});
+  await pg.query('UPDATE production.jobs SET payload=$1 WHERE id=$2',[JSON.stringify(job),j.id]);ids.push(j.id);
+ }
+ const entries=await Promise.all(ids.map(async id=>{const raw=(await pg.query('SELECT payload FROM production.jobs WHERE id=$1',[id])).rows[0].payload;const job=typeof raw==='string'?JSON.parse(raw):raw;return {id:id+':installation',serviceMinutes:60,location:{latitude:27.95,longitude:-82.46,addressKey:addressKey(job)}}}));
+ const values={warehouseId:warehouse.id,crewId:installer.id,day,stops:entries},oldFetch=globalThis.fetch,oldUrl=process.env.OSRM_BASE_URL;
+ process.env.OSRM_BASE_URL='https://routing.example.test';
+ globalThis.fetch=async()=>Response.json({code:'Ok',durations:[[0,1800,300],[300,0,300],[300,300,0]]});
+ try{
+  await assert.rejects(()=>routingSettings(installer),/permission/);
+  await assert.rejects(()=>previewRoute(pa,{...values,stops:[entries[0]]}),/all scheduled stops/);
+  await assert.rejects(()=>previewRoute(pa,{...values,stops:entries.map(s=>({...s,location:{...s.location,addressKey:'wrong'}}))}),/Confirm the map/);
+  const plan=await previewRoute(pa,values);assert.ok(plan.result.optimized);assert.equal(plan.result.optimized.visits.length,2);
+  await assert.rejects(()=>applyRoute(fs,plan.id),/your own/);
+  await applyRoute(pa,plan.id);
+  for(const id of ids){const raw=(await pg.query('SELECT payload FROM production.jobs WHERE id=$1',[id])).rows[0].payload;const job=typeof raw==='string'?JSON.parse(raw):raw;assert.equal(job.install,day);assert.equal(job.installerId,installer.id);assert.equal(job.stage,'Production');assert.equal(job.amount,0);assert.equal(job.installPeriod,'AM');assert.ok(installAppointments(job,[day])[0].routeEta>=450);assert.match(job.history[0].text,/Optimized route/)}
+  await assert.rejects(()=>applyRoute(pa,plan.id),/already applied/);
+  const stale=await previewRoute(pa,values);await pg.query('UPDATE production.jobs SET version=version+1 WHERE id=$1',[ids[0]]);await assert.rejects(()=>applyRoute(pa,stale.id),/changed after preview/);
+  const changedWarehouse=await previewRoute(pa,values);await saveWarehouse(admin,{...warehouse,loadingMinutes:45});await assert.rejects(()=>applyRoute(pa,changedWarehouse.id),/Warehouse settings changed/);
+  await saveWarehouse(admin,{...warehouse,start:'13:00'});
+  const afternoon=await previewRoute(pa,values);assert.equal(afternoon.result.optimized,null);
+  await saveWarehouse(admin,warehouse);
+  const offKey='day-off:'+installer.id+':'+day;await pg.query('INSERT INTO production.operations_config(id,payload,updated_by,updated) VALUES($1,$2,$3,$4)',[offKey,JSON.stringify({installerId:installer.id,date:day}),admin.id,'now']);
+  await assert.rejects(()=>previewRoute(pa,values),/not working/);await pg.query('DELETE FROM production.operations_config WHERE id=$1',[offKey]);
+ }finally{globalThis.fetch=oldFetch;if(oldUrl===undefined)delete process.env.OSRM_BASE_URL;else process.env.OSRM_BASE_URL=oldUrl}
+});
+
+test('address edits invalidate saved routing coordinates while unrelated edits preserve them',async()=>{
+ const {addressKey}=await vite.ssrLoadModule('/lib/routing/address.ts');
+ const job={address:'10 Test St',city:'Tampa',state:'FL',zip:'33601'};
+ await act(admin,'create',{number:'ROUTE-PIN',customer:'Pinned Customer',...job,amount:0,routingLocation:{latitude:27.95,longitude:-82.46,addressKey:addressKey(job)}});
+ assert.ok(j.routingLocation);await act(admin,'edit',{notes:'Updated notes'});assert.ok(j.routingLocation);
+ await act(admin,'edit',{address:'20 Test St'});assert.equal(j.routingLocation,null);
+});

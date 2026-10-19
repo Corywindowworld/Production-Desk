@@ -9,6 +9,6 @@ export function remainingWorkdays(day:string,end:string){
 export function installAppointments(j:any,dates:string[]){
  if(!j.install)return [];
  const end=j.installEnd||j.install,multi=end>j.install;
- return dates.filter(d=>d>=j.install&&d<=end&&(!multi||isWorkday(d))&&(!j.scheduleCompletedOn||d<=j.scheduleCompletedOn)).map(d=>({...j,date:d,period:j.installPeriod,time:j.installTime||'',stop:j.stopNumber,multi,daysLeft:multi?remainingWorkdays(d,end):1}));
+ return dates.filter(d=>d>=j.install&&d<=end&&(!multi||isWorkday(d))&&(!j.scheduleCompletedOn||d<=j.scheduleCompletedOn)).map(d=>({...j,date:d,period:j.installPeriod,time:j.installTime||'',stop:j.operations?.routing?.[d]?.installation?.stop||j.stopNumber,routeEta:j.operations?.routing?.[d]?.installation?.etaMinutes,multi,daysLeft:multi?remainingWorkdays(d,end):1}));
 }
 export function hourLabel(time:string){const hour=Number(time.slice(0,2));return `${hour%12||12}:00 ${hour<12?'AM':'PM'}`}

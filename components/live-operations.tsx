@@ -1,6 +1,8 @@
 "use client";
 import {isPipelineJob} from "@/lib/production-pipeline";
 import { printJobCertificate } from "@/lib/print-job-certificate";
+import {CustomerAddress} from "./address-input";
+import {RoutePlanner} from "./routing/route-planner";
 import {PhotoUploadProgress} from "./upload-progress";
 import { cityDropdownChoices, allowedCityChoice } from "@/lib/dropdown-cleanup";
 import { LeadRenovation } from "./lead-renovation";
@@ -324,10 +326,12 @@ export default function LiveOperations() {
       setTab(initial!);
     if (params.get("job")) setSelected(params.get("job"));
     load();
+    const routeRefresh=()=>{void load()};
+    window.addEventListener("production-desk-route-applied",routeRefresh);
     const id = setInterval(() => {
       if (!document.hidden) load();
     }, 60000);
-    return () => clearInterval(id);
+    return () => {clearInterval(id);window.removeEventListener("production-desk-route-applied",routeRefresh)};
   }, [load]);
   const change = async (action: string, values: any, job?: any) => {
     setSaving(true);
@@ -1176,6 +1180,7 @@ function Calendar({
     ...(j.operations?.services || []).map((s: any) => ({
       ...j,
       ...s,
+      routeEta:j.operations?.routing?.[s.date]?.[s.id]?.etaMinutes,
       id: j.id,
       service: true,
     })),
@@ -1262,6 +1267,7 @@ function Calendar({
           </>
         )}
       </div>
+      {!installer && !overview && saveDayOff && <RoutePlanner jobs={jobs} team={team} day={day} />}
       {printError && (
         <p role="alert" className="op-red">
           {printError}
@@ -1407,6 +1413,7 @@ function Calendar({
                     {j.service ? "Service" : `Stop ${j.stop || 1}`} · {j.crew}
                   </b>
                   <span>{j.customer}</span>
+                  {j.routeEta != null && <small>Route estimate: {Math.floor(j.routeEta/60)%12||12}:{String(j.routeEta%60).padStart(2,"0")} {j.routeEta<720?"AM":"PM"}</small>}
                   {j.deliveryOnly && (
                     <strong className="live-delivery-badge">
                       DELIVERY ONLY
@@ -1803,7 +1810,7 @@ function CustomerForm({
     [scheduleNow, setScheduleNow] = useState(false),
     [multiSchedule, setMultiSchedule] = useState(false),
     [scanRep, setScanRep] = useState<any>(null),
-    [scanCity, setScanCity] = useState<string>(""),
+    [scanCity, setScanCity] = useState<string | null>(null),
     [product, setProduct] = useState(j?.product || "Windows"),
     [noPermitRequired, setNoPermitRequired] = useState(false),
     [permitReceived, setPermitReceived] = useState(false),
@@ -1869,6 +1876,7 @@ function CustomerForm({
           ...linkDefaults,
           ...Object.fromEntries(keys.map((k) => [k, field(f, k)])),
         };
+        values.routingLocation = field(f, "routingLocation") ? JSON.parse(field(f, "routingLocation")) : null;
         if (!j) {
           values.serviceCompletionJob = serviceJob;
           values.inspectionComplete = f.has("inspectionComplete");
@@ -2073,16 +2081,11 @@ function CustomerForm({
         }
         required
       />
-      <Input
-        label="Street address"
-        name="address"
-        value={j?.address}
-        required
-      />
+      <CustomerAddress initial={j} onCity={setScanCity} />
       <CityField
         key={"city:" + fillSequence + ":" + scanCity}
         options={cities}
-        initial={scanCity || j?.city || ""}
+        initial={scanCity ?? j?.city ?? ""}
       />
       <Input label="State" name="state" value={j?.state || "FL"} required />
       <Input

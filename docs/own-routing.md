@@ -1,8 +1,8 @@
 # Production Desk routing — first version
 
 The app owns its stop optimizer and authenticated `/api/routing` API. It uses a
-self-hosted OSRM road-time matrix and self-hosted Photon address search backed by
-OpenStreetMap. Google is not used for either function. Existing navigation links
+hosted Geoapify driving-time matrices and address autocomplete when configured,
+or self-hosted OSRM and Photon as an alternative. Google is not used for either function. Existing navigation links
 may still open a user's maps application.
 
 ## What is included
@@ -23,30 +23,45 @@ may still open a user's maps application.
   Information, and retain selected coordinates. Editing the address invalidates
   its old coordinates. Manual addresses and manually confirmed coordinates work.
 
-## Connect the map services
+## Connect the free hosted service (recommended)
 
-1. Provision OSRM and Photon on infrastructure controlled by the company. Import
-   road and address data covering all operating areas (Florida, Texas, Louisiana).
-   Regional import sizes and memory requirements must be checked against the
-   selected OSRM/Photon releases and data extracts before sizing that host.
-2. Keep these long-running services outside Vercel functions. Put HTTPS and an
-   authenticated reverse proxy in front of them. Both must be reachable from the
-   app's server environment; do not expose their administrative/import endpoints.
-3. Set server-only Vercel environment variables, then redeploy:
-   - `OSRM_BASE_URL`: root of your OSRM HTTP service.
-   - `PHOTON_BASE_URL`: root of your Photon HTTP service.
-   - `MAP_SERVICE_TOKEN`: bearer secret checked by your reverse proxy (if enabled).
-   Never use a `NEXT_PUBLIC_` name for that secret or commit it to GitHub.
-4. Admin opens Schedule → Optimize crew route → Warehouse setup. Enter a name,
-   full warehouse address and confirmed coordinates, hours and loading time.
-5. Choose the planning date, crew and warehouse. Enter each job's estimated work
-   duration, confirm map locations and preview. Save after reviewing every stop.
+1. Sign up at https://myprojects.geoapify.com/ using a company-controlled account.
+   Select Free and create a Production Desk project. No credit card is required.
+2. Put its key in Vercel as the **server-only** `GEOAPIFY_API_KEY` for the intended
+   environments and redeploy. Never paste the key into chat or commit it to git.
+3. Verify Add Customer address suggestions, street/city/state/ZIP population and
+   an actual crew route before promoting the deployment to production.
+4. Admin opens Schedule → Optimize crew route → Warehouse setup and adds each
+   warehouse with confirmed coordinates, working hours and loading time.
 
-No paid hosting resources or map servers are provisioned by this code update.
-Without the configured services, routing is unavailable and address entry stays
-manual. Public OSRM/Photon demo servers and public Nominatim autocomplete are not
-used as fallbacks. No new database migration is required: warehouse and preview
-records use the existing operations configuration table.
+The app sends address search text and route coordinates to Geoapify, not customer
+names, account IDs or job instructions. The key stays on the server. No paid plan
+or auto-upgrade is enabled by this code. Address input is debounced (600ms), and
+routing is requested only on preview. Check usage in the provider dashboard.
+
+As checked October 19, 2026, Free permits commercial production use with attribution,
+3,000 credits/day and up to 5 requests/second. A route matrix uses multiple credits:
+a warehouse plus four jobs is a 5×5 matrix, normally 25 credits; a warehouse plus
+eight jobs is 9×9, normally 81. Long distances can add credits. Address autocomplete
+uses one credit per request, not per completed customer. Free does not mean unlimited.
+Quota errors leave manual entry available and never substitute made-up travel times.
+
+Geoapify supplies road times; Production Desk's own optimizer chooses stop order.
+Census Geocoder accepts full US street addresses and calculates coordinates along
+address ranges; it does not provide address autocomplete or driving-time matrices.
+It is therefore not used as a replacement for these two functions.
+
+Optional self-hosting remains available by leaving `GEOAPIFY_API_KEY` blank and
+setting `OSRM_BASE_URL`, `PHOTON_BASE_URL` and optionally `MAP_SERVICE_TOKEN`.
+Use HTTPS with authentication and matching data coverage. Hosted Geoapify takes
+precedence when its key is present. No public demo endpoint is used as a fallback.
+No map server purchase or database migration is required for the hosted option.
+
+Sources:
+- https://www.geoapify.com/pricing/
+- https://apidocs.geoapify.com/docs/route-matrix/
+- https://apidocs.geoapify.com/docs/geocoding/address-autocomplete/
+- https://geocoding.geo.census.gov/geocoder/Geocoding_Services_API.html
 
 ## Limits and next steps
 

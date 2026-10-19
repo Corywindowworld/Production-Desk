@@ -43,3 +43,19 @@ test('self-hosted adapters keep secrets on the server, validate the matrix, and 
   globalThis.fetch=async()=>Response.json({code:'Ok',durations:[[0],[30]]});await assert.rejects(()=>drivingMatrix([{latitude:27,longitude:-82},{latitude:28,longitude:-81}]),/invalid driving/);
  }finally{globalThis.fetch=prior.fetch;for(const [key,value]of [['OSRM_BASE_URL',prior.osrm],['PHOTON_BASE_URL',prior.photon],['MAP_SERVICE_TOKEN',prior.token]]){if(value===undefined)delete process.env[key];else process.env[key]=value}}
 });
+test('Geoapify hosted adapter normalizes addresses, preserves road times/nulls, and rejects corrupt matrices and quota errors',async()=>{
+ const prior={key:process.env.GEOAPIFY_API_KEY,fetch:globalThis.fetch};
+ process.env.GEOAPIFY_API_KEY='private-test-key';
+ const points=[{latitude:27,longitude:-82},{latitude:28,longitude:-81}];
+ try{
+  let calls=[];
+  globalThis.fetch=async(url,opts)=>{calls.push({url,opts});return Response.json(url.includes('routematrix')?{sources_to_targets:[[{time:0,source_index:0,target_index:0},{time:null,source_index:0,target_index:1}],[{time:45,source_index:1,target_index:0},{time:0,source_index:1,target_index:1}]]}:{features:[{geometry:{coordinates:[-82,27]},properties:{country_code:'us',housenumber:'123',street:'Main St',city:'Tampa',state_code:'FL',postcode:'33601'}}]})};
+  const addresses=await searchAddresses('123 Main');assert.equal(addresses[0].street,'123 Main St');assert.equal(addresses[0].state,'FL');assert.equal(addresses[0].source,'Geoapify');assert.ok(!JSON.stringify(addresses).includes('private-test-key'));
+  assert.deepEqual(await drivingMatrix(points),[[0,null],[45,0]]);
+  assert.equal(calls[1].opts.method,'POST');assert.deepEqual(JSON.parse(calls[1].opts.body).sources,[{location:[-82,27]},{location:[-81,28]}]);
+  assert.ok(calls.every(c=>c.url.startsWith('https://api.geoapify.com/')));
+  globalThis.fetch=async()=>Response.json({sources_to_targets:[[{time:0,source_index:1,target_index:0}]]});await assert.rejects(()=>drivingMatrix(points),/invalid driving/);
+  globalThis.fetch=async()=>new Response('',{status:429});await assert.rejects(()=>searchAddresses('123 Main'),/usage limit/);
+  globalThis.fetch=async()=>{throw Error('secret URL private-test-key')};await assert.rejects(()=>searchAddresses('123 Main'),e=>!e.message.includes('private-test-key')&&/unavailable/.test(e.message));
+ }finally{globalThis.fetch=prior.fetch;if(prior.key===undefined)delete process.env.GEOAPIFY_API_KEY;else process.env.GEOAPIFY_API_KEY=prior.key}
+});

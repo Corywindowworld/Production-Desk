@@ -1,4 +1,4 @@
-export type AddressSuggestion = { street: string; city: string; state: string; zip: string; formatted: string; latitude: number; longitude: number; source: 'OpenStreetMap' };
+export type AddressSuggestion = { street: string; city: string; state: string; zip: string; formatted: string; latitude: number; longitude: number; source: 'OpenStreetMap' | 'Geoapify' };
 const states = Object.fromEntries('AL:Alabama|AK:Alaska|AZ:Arizona|AR:Arkansas|CA:California|CO:Colorado|CT:Connecticut|DE:Delaware|FL:Florida|GA:Georgia|HI:Hawaii|ID:Idaho|IL:Illinois|IN:Indiana|IA:Iowa|KS:Kansas|KY:Kentucky|LA:Louisiana|ME:Maine|MD:Maryland|MA:Massachusetts|MI:Michigan|MN:Minnesota|MS:Mississippi|MO:Missouri|MT:Montana|NE:Nebraska|NV:Nevada|NH:New Hampshire|NJ:New Jersey|NM:New Mexico|NY:New York|NC:North Carolina|ND:North Dakota|OH:Ohio|OK:Oklahoma|OR:Oregon|PA:Pennsylvania|RI:Rhode Island|SC:South Carolina|SD:South Dakota|TN:Tennessee|TX:Texas|UT:Utah|VT:Vermont|VA:Virginia|WA:Washington|WV:West Virginia|WI:Wisconsin|WY:Wyoming|DC:District of Columbia'.split('|').map(s => { const [code, name] = s.split(':'); return [name.toLowerCase(), code]; }));
 export const addressKey = (j: any) => [j.address, j.city, j.state, j.zip].map(v => String(v || '').trim().toLowerCase().replace(/\s+/g, ' ')).join('|');
 export function photonAddresses(data: any): AddressSuggestion[] {
@@ -12,4 +12,13 @@ export function photonAddresses(data: any): AddressSuggestion[] {
     if (seen.has(key)) return []; seen.add(key);
     return [{street, city, state, zip, formatted, latitude, longitude, source: 'OpenStreetMap' as const}];
   }).slice(0, 6);
+}
+
+// Reuse the strict street-address validation and normalization for hosted results.
+export function geoapifyAddresses(data: any): AddressSuggestion[] {
+  const features = (Array.isArray(data?.features) ? data.features : []).map((f: any) => {
+    const p = f?.properties || {};
+    return {...f, properties: {...p, countrycode: p.country_code, statecode: p.state_code}};
+  });
+  return photonAddresses({features}).map(a => ({...a, source: 'Geoapify'}));
 }

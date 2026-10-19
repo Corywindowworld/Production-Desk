@@ -51,6 +51,11 @@ export async function reorderOperation({tx,j,m,data,at,alert,assigned}:any){
  }
  check(review,'Field Supervisor or Administrator review required.');
  const r=o.reorders.find((r:any)=>r.id===data.id);check(r,'Reorder request not found.');
+ if(data.command==='clearApproval'){
+  check(r.status!=='Submitted','Review the reorder before clearing its approval.');
+  r.approvalDismissed=true;event(r,'Cleared from approvals; reorder retained in customer file.');
+  return 'Reorder approval cleared; form retained in customer file';
+ }
  if(data.command==='delete'){
   check(m.role==='admin','Only Administrators can delete reorders.');
   o.deletedReorders=[...(o.deletedReorders||[]),{...r,deletedAt:at,deletedBy:m.id}];

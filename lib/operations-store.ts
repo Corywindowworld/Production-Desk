@@ -620,6 +620,16 @@ export async function operation(m: Member, input: any) {
       .run();
     return;
   }
+  if(action==='deleteSurvey'){
+    assert(m.role==='admin','Administrator access required.');
+    const v=parse(z.object({id:z.string().min(1),expectedDate:z.string(),expectedRatings:z.array(z.number().nullable()).length(4)}),input.data);
+    await db.transaction(async tx=>{
+      const old=await tx.prepare('SELECT * FROM production.operations_surveys WHERE id=? FOR UPDATE').bind(v.id).first();assert(old,'Survey not found.',404);
+      const previous=normalizedSurvey(old);assert(previous.completed_on===v.expectedDate&&JSON.stringify(previous.ratings)===JSON.stringify(v.expectedRatings),'This survey changed. Refresh and review the latest values.',409);
+      await tx.prepare('INSERT INTO account_audit(id,actor_id,member_id,action,created) VALUES(?,?,?,?,?)').bind(crypto.randomUUID(),m.id,old.installer_id,JSON.stringify({action:'GQ survey deleted',survey:previous}),at).run();
+      await tx.prepare('DELETE FROM production.operations_surveys WHERE id=?').bind(v.id).run();
+    });return;
+  }
   if (action === "editSurvey") {
     assert(m.role === "admin", "Administrator access required.");
     const v = parse(

@@ -4007,3 +4007,22 @@ test('address edits invalidate saved routing coordinates while unrelated edits p
  assert.ok(j.routingLocation);await act(admin,'edit',{notes:'Updated notes'});assert.ok(j.routingLocation);
  await act(admin,'edit',{address:'20 Test St'});assert.equal(j.routingLocation,null);
 });
+
+test('only Admin deletes GQ surveys with stale protection and a retained audit',async()=>{
+ const id=crypto.randomUUID(),ratings=[5,4,3,null];
+ await pg.query('INSERT INTO production.operations_surveys(id,external_id,customer_id,installer_id,completed_on,ratings,entered_by,created) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',[id,'DELETE-'+id,'OLD-CUSTOMER',installer.id,today,JSON.stringify(ratings),admin.id,new Date().toISOString()]);
+ const data={id,expectedDate:today,expectedRatings:ratings};
+ for(const member of [pa,fs,installer])await assert.rejects(()=>operation(member,{action:'deleteSurvey',data}),/Administrator/);
+ await assert.rejects(()=>operation(admin,{action:'deleteSurvey',data:{...data,expectedRatings:[1,1,1,1]}}),/changed/);
+ await operation(admin,{action:'deleteSurvey',data});
+ assert.equal((await pg.query('SELECT id FROM production.operations_surveys WHERE id=$1',[id])).rows.length,0);
+ const audit=(await pg.query('SELECT action FROM production.account_audit WHERE action LIKE $1',['%GQ survey deleted%'])).rows.find(r=>String(r.action).includes(id));assert.ok(audit);
+});
+test('reviewed reorder approvals can be cleared without deleting forms or changing the job stage',async()=>{
+ await act(admin,'create',{number:'CLEAR-REORDER',customer:'Clear approval',address:'123 Main St',city:'Tampa',state:'FL',zip:'33601',amount:0});
+ await act(fs,'reorderRequest',{command:'submit',reason:'Replace screen',acknowledged:true,items:[{type:'Screen Frame',window:'1',quantity:1,serial:'ABC',photos:[]}]});
+ const reorder=j.operations.reorders[0],stage=j.stage;
+ await assert.rejects(()=>act(pa,'reorderRequest',{command:'clearApproval',id:reorder.id}),/Only assigned|review required/);
+ await act(fs,'reorderRequest',{command:'clearApproval',id:reorder.id});
+ assert.equal(j.operations.reorders.length,1);assert.equal(j.operations.reorders[0].approvalDismissed,true);assert.equal(j.operations.reorders[0].status,'Approved');assert.equal(j.stage,stage);
+});

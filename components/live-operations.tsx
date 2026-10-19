@@ -308,15 +308,14 @@ export default function LiveOperations() {
   }, []);
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const initial = params.get("tab");
+    const requested = params.get("tab");
+    const initial = ["Aging reports","Job visits"].includes(requested||"") ? "Jobs" : requested;
     if (
       [
         "Overview",
         "Schedule",
         "Jobs",
-        "Aging reports",
         "Approvals",
-        "Job visits",
         "Quality",
         "Installers",
         "Connections",
@@ -348,6 +347,8 @@ export default function LiveOperations() {
         (["create", "edit"].includes(action) && values.scheduleWork)
       )
         setSavedNotice("✓ Job saved to the schedule.");
+      else if (action === "deleteSurvey")
+        setSavedNotice("✓ Survey deleted. Quality scores recalculated.");
       else if (action === "editSurvey")
         setSavedNotice("✓ Survey updated. Quality scores recalculated.");
       else if (action === "create") setSavedNotice("✓ Customer account saved.");
@@ -387,9 +388,7 @@ export default function LiveOperations() {
     ...(!installer
       ? [
           ["Jobs", FolderOpen],
-          ["Aging reports", Clock],
           ["Approvals", ClipboardCheck],
-          ["Job visits", MapPin],
           ["Quality", Star],
           ["Installers", UsersRound],
         ]
@@ -513,8 +512,9 @@ export default function LiveOperations() {
           {tab === "Overview" && (
             <>
               {!!notices.length && (
-                <details className="op-disclosure">
-                  <summary>Job alerts ({notices.length})</summary>
+                <details className="op-disclosure job-alert-menu">
+                  <summary>Job alerts <span className="job-alert-count">{notices.length}</span></summary>
+                  <div className="job-alert-toolbar">
                   <button
                     className="live-button"
                     disabled={saving}
@@ -533,8 +533,9 @@ export default function LiveOperations() {
                       }
                     }}
                   >
-                    Clear All Alerts
-                  </button>
+                    Clear all
+                  </button></div>
+                  <div className="job-alert-scroll" role="region" aria-label="Job alerts" tabIndex={0}>
                   {notices.map((n) => (
                     <div className="live-alert" key={n.id}>
                       <button onClick={() => setSelected(n.job_id)}>
@@ -553,10 +554,10 @@ export default function LiveOperations() {
                           }
                         }}
                       >
-                        Read
+                        Dismiss
                       </button>
                     </div>
-                  ))}
+                  ))}</div>
                 </details>
               )}
               {!installer && (
@@ -642,7 +643,7 @@ export default function LiveOperations() {
               {!installer && review && metrics.unknownDates > 0 && (
                 <button
                   className="op-callout"
-                  onClick={() => setTab("Aging reports")}
+                  onClick={() => {setTab("Jobs");setStatusFilter("AGED")}}
                 >
                   Fix {metrics.unknownDates} missing aging dates → Open bulk
                   date editor
@@ -676,7 +677,8 @@ export default function LiveOperations() {
                       </button>
                     </div>
                   )}
-                  <JobList
+                  {review&&<details className="op-disclosure"><summary>Update aging dates</summary><AgingDateEditor jobs={jobs} today={today} save={(values:any)=>change("agingDates",values)} onOpen={setSelected}/></details>}
+              <JobList
                     allJobs={jobs}
                     jobs={filtered}
                     today={today}
@@ -746,7 +748,7 @@ export default function LiveOperations() {
             jobs
               .filter((j: any) =>
                 j.operations?.reorders?.some(
-                  (r: any) => r.status === "Submitted",
+                  (r: any) => !r.approvalDismissed,
                 ),
               )
               .map((j: any) => (
@@ -772,7 +774,7 @@ export default function LiveOperations() {
               onOpen={setSelected}
             />
           )}
-          {tab === "Job visits" && <Visits onOpen={setSelected} />}
+
           {tab === "Quality" && (
             <Quality
               data={data}
@@ -783,19 +785,6 @@ export default function LiveOperations() {
           )}
           {tab === "Installers" && !installer && (
             <InstallerDirectory onSaved={load} />
-          )}
-          {tab === "Aging reports" && !installer && (
-            <>
-              {review && (
-                <AgingDateEditor
-                  jobs={jobs}
-                  today={today}
-                  save={(values: any) => change("agingDates", values)}
-                  onOpen={setSelected}
-                />
-              )}
-              <AgingReport jobs={jobs} today={today} onOpen={setSelected} />
-            </>
           )}
           {tab === "Connections" && me.role === "admin" && <Connections />}
           {tab === "Settings" && (
@@ -4097,6 +4086,7 @@ function Quality({ data, change, reload, onOpenJob }: any) {
                     <SurveyDetails
                       canEdit={me.role === "admin"}
                       onSave={(values: any) => change("editSurvey", values)}
+                      onDelete={(values:any)=>change("deleteSurvey",values)}
                       installer={m}
                       surveys={surveys}
                       jobs={data.jobs}

@@ -10,7 +10,7 @@ may still open a user's maps application.
 - Schedule → Optimize crew route, with up to eight assigned stops on one day.
 - Admin-managed warehouses for each market, morning loading time, working hours,
   optional warehouse return, and a configurable driving-time allowance.
-- Estimated work time entered for each stop. AM/PM and specified start times are
+- Estimated work time entered in hours for each stop. AM/PM and specified start times are
   constraints on when a visit starts. Work must finish within crew working hours.
 - Exhaustive ordering of small daily routes, minimizing finish time and then
   driving time. No job is silently omitted and no straight-line distance is used
@@ -32,7 +32,7 @@ may still open a user's maps application.
 3. Verify Add Customer address suggestions, street/city/state/ZIP population and
    an actual crew route before promoting the deployment to production.
 4. Admin opens Schedule → Optimize crew route → Warehouse setup and adds each
-   warehouse with confirmed coordinates, working hours and loading time.
+   warehouse with working hours and loading time; its address is located automatically.
 
 The app sends address search text and route coordinates to Geoapify, not customer
 names, account IDs or job instructions. The key stays on the server. No paid plan
@@ -83,3 +83,18 @@ Primary documentation:
 - https://github.com/komoot/photon/blob/master/docs/api-v1.md
 - https://github.com/komoot/photon/blob/master/docs/usage.md
 - https://www.openstreetmap.org/copyright
+
+## Route preview map and automatic locations
+
+The planner resolves full job addresses on the server when no current saved address
+location exists. It requires an unambiguous street/city/state/ZIP match; an unmatched
+address identifies the job to correct rather than requesting manual coordinates.
+Warehouse setup also resolves its address automatically. No coordinate boxes or
+manual confirmation are needed. Existing address-matched locations are reused.
+Work duration is entered in hours (for example, 1.5) and converted to integer minutes
+for optimization and storage. The preview displays warehouse and numbered stops
+with actual road geometry in optimized order, including the optional warehouse
+return. It uses a separate Geoapify routing request (or OSRM route request). If road
+geometry fails, the preview explains this and retains the stop list and estimates;
+it never draws a straight line and labels it as a driving route. Map tiles use the
+existing OpenStreetMap tile layer and attribution.

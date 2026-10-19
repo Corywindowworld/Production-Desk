@@ -3971,14 +3971,15 @@ test('own routing previews preserve assignments, require all stops and apply ato
   await pg.query('UPDATE production.jobs SET payload=$1 WHERE id=$2',[JSON.stringify(job),j.id]);ids.push(j.id);
  }
  const entries=await Promise.all(ids.map(async id=>{const raw=(await pg.query('SELECT payload FROM production.jobs WHERE id=$1',[id])).rows[0].payload;const job=typeof raw==='string'?JSON.parse(raw):raw;return {id:id+':installation',serviceMinutes:60,location:{latitude:27.95,longitude:-82.46,addressKey:addressKey(job)}}}));
- const values={warehouseId:warehouse.id,crewId:installer.id,day,stops:entries},oldFetch=globalThis.fetch,oldUrl=process.env.OSRM_BASE_URL;
+ const values={warehouseId:warehouse.id,crewId:installer.id,day,stops:entries},oldFetch=globalThis.fetch,oldUrl=process.env.OSRM_BASE_URL,oldPhoton=process.env.PHOTON_BASE_URL;
+ process.env.PHOTON_BASE_URL='https://address.example.test';
  process.env.OSRM_BASE_URL='https://routing.example.test';
- globalThis.fetch=async()=>Response.json({code:'Ok',durations:[[0,1800,300],[300,0,300],[300,300,0]]});
+ globalThis.fetch=async(url)=>{if(url.includes('/api/?')){const q=new URL(url).searchParams.get('q');return Response.json({features:[{geometry:{coordinates:[-82.46,27.95]},properties:{countrycode:'us',housenumber:q.split(' ')[0],street:q.includes('Test')?'Test St':'Main St',city:'Tampa',state:'Florida',postcode:'33601'}}]})}return Response.json({code:'Ok',durations:[[0,1800,300],[300,0,300],[300,300,0]],routes:[{geometry:{type:'LineString',coordinates:[[-82.4,27.9],[-82.46,27.95]]}}]})};
  try{
   await assert.rejects(()=>routingSettings(installer),/permission/);
   await assert.rejects(()=>previewRoute(pa,{...values,stops:[entries[0]]}),/all scheduled stops/);
   await assert.rejects(()=>previewRoute(pa,{...values,stops:entries.map(s=>({...s,location:{...s.location,addressKey:'wrong'}}))}),/Confirm the map/);
-  const plan=await previewRoute(pa,values);assert.ok(plan.result.optimized);assert.equal(plan.result.optimized.visits.length,2);
+  const plan=await previewRoute(pa,{...values,stops:entries.map(({location,...s})=>s)});assert.ok(plan.result.optimized);assert.equal(plan.result.optimized.visits.length,2);assert.equal(plan.geometry.type,'MultiLineString');assert.ok(plan.stops.every(s=>s.location.addressKey));
   await assert.rejects(()=>applyRoute(fs,plan.id),/your own/);
   await applyRoute(pa,plan.id);
   for(const id of ids){const raw=(await pg.query('SELECT payload FROM production.jobs WHERE id=$1',[id])).rows[0].payload;const job=typeof raw==='string'?JSON.parse(raw):raw;assert.equal(job.install,day);assert.equal(job.installerId,installer.id);assert.equal(job.stage,'Production');assert.equal(job.amount,0);assert.equal(job.installPeriod,'AM');assert.ok(installAppointments(job,[day])[0].routeEta>=450);assert.match(job.history[0].text,/Optimized route/)}
@@ -3990,7 +3991,7 @@ test('own routing previews preserve assignments, require all stops and apply ato
   await saveWarehouse(admin,warehouse);
   const offKey='day-off:'+installer.id+':'+day;await pg.query('INSERT INTO production.operations_config(id,payload,updated_by,updated) VALUES($1,$2,$3,$4)',[offKey,JSON.stringify({installerId:installer.id,date:day}),admin.id,'now']);
   await assert.rejects(()=>previewRoute(pa,values),/not working/);await pg.query('DELETE FROM production.operations_config WHERE id=$1',[offKey]);
- }finally{globalThis.fetch=oldFetch;if(oldUrl===undefined)delete process.env.OSRM_BASE_URL;else process.env.OSRM_BASE_URL=oldUrl}
+ }finally{globalThis.fetch=oldFetch;if(oldUrl===undefined)delete process.env.OSRM_BASE_URL;else process.env.OSRM_BASE_URL=oldUrl;if(oldPhoton===undefined)delete process.env.PHOTON_BASE_URL;else process.env.PHOTON_BASE_URL=oldPhoton}
 });
 
 test('address edits invalidate saved routing coordinates while unrelated edits preserve them',async()=>{

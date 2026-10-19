@@ -5,7 +5,7 @@ import {resolve} from 'node:path';
 const vite=await createServer({configFile:false,resolve:{alias:{'@':resolve('.')}},server:{middlewareMode:true,hmr:false}});
 const {optimizeRoute}=await vite.ssrLoadModule('/lib/routing/optimizer.ts');
 const {photonAddresses,addressKey}=await vite.ssrLoadModule('/lib/routing/address.ts');
-const {drivingMatrix,searchAddresses}=await vite.ssrLoadModule('/lib/routing/providers.ts');
+const {drivingMatrix,searchAddresses,resolveAddress,routeGeometry}=await vite.ssrLoadModule('/lib/routing/providers.ts');
 test.after(()=>vite.close());
 const options={start:420,end:1020,loadingMinutes:30,travelFactor:1,returnToWarehouse:false};
 const jobs=[{id:'A',serviceMinutes:60,windowStart:480,windowEnd:719},{id:'B',serviceMinutes:60,windowStart:480,windowEnd:719},{id:'C',serviceMinutes:60,windowStart:720,windowEnd:1020}];
@@ -58,5 +58,21 @@ test('Geoapify hosted adapter normalizes addresses, preserves road times/nulls, 
   for(const status of [401,403]){globalThis.fetch=async()=>new Response('',{status});await assert.rejects(()=>searchAddresses('123 Main'),e=>/rejected the API key/.test(e.message)&&!e.message.includes('private-test-key'));}
   globalThis.fetch=async()=>new Response('',{status:429});await assert.rejects(()=>searchAddresses('123 Main'),/usage limit/);
   globalThis.fetch=async()=>{throw Error('secret URL private-test-key')};await assert.rejects(()=>searchAddresses('123 Main'),e=>!e.message.includes('private-test-key')&&/unavailable/.test(e.message));
+ }finally{globalThis.fetch=prior.fetch;if(prior.key===undefined)delete process.env.GEOAPIFY_API_KEY;else process.env.GEOAPIFY_API_KEY=prior.key}
+});
+
+test('automatic full-address resolution rejects ambiguous matches and geometry follows ordered road waypoints',async()=>{
+ const prior={key:process.env.GEOAPIFY_API_KEY,fetch:globalThis.fetch};process.env.GEOAPIFY_API_KEY='test';
+ const feature={geometry:{coordinates:[-82,27]},properties:{country_code:'us',housenumber:'123',street:'Main Street',city:'Tampa',state_code:'FL',postcode:'33601'}};
+ try{
+  globalThis.fetch=async()=>Response.json({features:[feature]});
+  assert.deepEqual(await resolveAddress({address:'123 Main St',city:'Tampa',state:'FL',zip:'33601'}),{latitude:27,longitude:-82});
+  await assert.rejects(()=>resolveAddress({address:'124 Main St',city:'Tampa',state:'FL',zip:'33601'}),/Could not uniquely locate/);
+  await assert.rejects(()=>resolveAddress({address:'123 Main St',city:'Dallas',state:'TX',zip:'75201'}),/Could not uniquely locate/);
+  globalThis.fetch=async()=>Response.json({features:[feature,{...feature,properties:{...feature.properties,postcode:'33602'}}]});
+  await assert.rejects(()=>resolveAddress({address:'123 Main St'}),/uniquely/);
+  globalThis.fetch=async(url)=>{assert.equal(new URL(url).searchParams.get('waypoints'),'27,-82|28,-81');return Response.json({features:[{geometry:{type:'MultiLineString',coordinates:[[[-82,27],[-81,28]]]}}]})};
+  assert.equal((await routeGeometry([{latitude:27,longitude:-82},{latitude:28,longitude:-81}])).type,'MultiLineString');
+  globalThis.fetch=async()=>Response.json({features:[{geometry:{type:'MultiLineString',coordinates:[[[null,27],[-81,28]]]}}]});await assert.rejects(()=>routeGeometry([{latitude:27,longitude:-82},{latitude:28,longitude:-81}]),/unavailable/);
  }finally{globalThis.fetch=prior.fetch;if(prior.key===undefined)delete process.env.GEOAPIFY_API_KEY;else process.env.GEOAPIFY_API_KEY=prior.key}
 });

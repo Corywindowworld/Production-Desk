@@ -45,3 +45,30 @@ export async function drivingMatrix(points: Point[]) {
   if (data.code !== 'Ok' || !Array.isArray(data.durations) || data.durations.length !== points.length || data.durations.some((r: any) => !Array.isArray(r) || r.length !== points.length || r.some((v: any) => v !== null && (typeof v !== 'number' || !Number.isFinite(v) || v < 0)))) throw new ApiError(503, 'The road service returned an invalid driving-time matrix.');
   return data.durations as (number | null)[][];
 }
+
+export async function resolveAddress(address: {address:string;city?:string;state?:string;zip?:string}) {
+  const text=[address.address,address.city,address.state,address.zip].filter(Boolean).join(', ');
+  let matches;
+  if(process.env.GEOAPIFY_API_KEY?.trim()) {
+    const params=new URLSearchParams({text,filter:'countrycode:us',limit:'5',apiKey:process.env.GEOAPIFY_API_KEY.trim()});
+    matches=geoapifyAddresses(await json(`https://api.geoapify.com/v1/geocode/search?${params}`));
+  } else matches=await searchAddresses(text);
+  const normalize=(s:string)=>s.toLowerCase().replace(/[.,]/g,'').replace(/\b(street|road|drive|avenue|boulevard|lane|court|place|highway|north|south|east|west)\b/g,v=>({street:'st',road:'rd',drive:'dr',avenue:'ave',boulevard:'blvd',lane:'ln',court:'ct',place:'pl',highway:'hwy',north:'n',south:'s',east:'e',west:'w'}[v]!)).replace(/\s+/g,' ').trim();
+  const street=normalize(address.address.split(',')[0].replace(/\s+(?:apt\.?|unit|suite|#)\s*.*$/i,''));
+  const valid=matches.filter(a=>normalize(a.street)===street&&(!address.state||a.state.toUpperCase()===address.state.toUpperCase())&&(!address.zip||a.zip.slice(0,5)===address.zip.slice(0,5))&&(!!address.zip||!address.city||normalize(a.city)===normalize(address.city)));
+  if(valid.length!==1)throw new ApiError(400,`Could not uniquely locate ${text}. Correct the street address, city, state and ZIP in the job information, then preview again.`);
+  return {latitude:valid[0].latitude,longitude:valid[0].longitude};
+}
+export async function routeGeometry(points: Point[]): Promise<{type:'MultiLineString';coordinates:number[][][]}> {
+  let geometry:any;
+  if(process.env.GEOAPIFY_API_KEY?.trim()) {
+    const params=new URLSearchParams({waypoints:points.map(p=>`${p.latitude},${p.longitude}`).join('|'),mode:'drive',apiKey:process.env.GEOAPIFY_API_KEY.trim()});
+    const data=await json(`https://api.geoapify.com/v1/routing?${params}`);geometry=data?.features?.[0]?.geometry;
+  } else {
+    const base=serviceUrl(process.env.OSRM_BASE_URL,'Road routing');
+    const data=await json(`${base}/route/v1/driving/${points.map(p=>`${p.longitude},${p.latitude}`).join(';')}?overview=full&geometries=geojson`,process.env.MAP_SERVICE_TOKEN);
+    if(data?.code==='Ok'&&data.routes?.[0]?.geometry?.type==='LineString')geometry={type:'MultiLineString',coordinates:[data.routes[0].geometry.coordinates]};
+  }
+  if(geometry?.type!=='MultiLineString'||!Array.isArray(geometry.coordinates)||!geometry.coordinates.length||geometry.coordinates.some((line:any)=>!Array.isArray(line)||line.length<2||line.some((p:any)=>!Array.isArray(p)||p.length<2||!Number.isFinite(p[0])||!Number.isFinite(p[1])||Math.abs(p[0])>180||Math.abs(p[1])>90)))throw new ApiError(503,'Road route map unavailable.');
+  return {type:'MultiLineString',coordinates:geometry.coordinates};
+}

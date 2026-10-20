@@ -2347,18 +2347,8 @@ test("intake scheduling and reusable sales contacts are atomic and permission ch
     ).install,
     today,
   );
-  await assert.rejects(
-    () =>
-      operation(fs, {
-        action: "create",
-        data: {
-          ...base,
-          number: "FS-UNASSIGNED",
-          scheduleWork: { ...base.scheduleWork, installerId: "" },
-        },
-      }),
-    /installer/i,
-  );
+  await operation(fs,{action:'create',data:{...base,number:'FS-UNASSIGNED',scheduleWork:{...base.scheduleWork,installerId:''}}});
+  assert.equal((await operationsData(admin)).jobs.find(v=>v.number==='FS-UNASSIGNED').crew,'Unassigned');
   const { displayBonusDate } = await vite.ssrLoadModule("/lib/display-date.ts");
   assert.equal(displayBonusDate("2026-09-29"), "September 29 2026");
 });
@@ -4025,4 +4015,23 @@ test('reviewed reorder approvals can be cleared without deleting forms or changi
  await assert.rejects(()=>act(pa,'reorderRequest',{command:'clearApproval',id:reorder.id}),/Only assigned|review required/);
  await act(fs,'reorderRequest',{command:'clearApproval',id:reorder.id});
  assert.equal(j.operations.reorders.length,1);assert.equal(j.operations.reorders[0].approvalDismissed,true);assert.equal(j.operations.reorders[0].status,'Approved');assert.equal(j.stage,stage);
+});
+
+test('FS and Admin may schedule unassigned and assign crews later',async()=>{
+ for(const member of [fs,admin]){
+  await act(admin,'create',{number:'UNASSIGNED-'+member.role,customer:'Unassigned crew test',address:'123 Main',amount:0,noPermitRequired:true});
+  await act(member,'schedule',{date:'2031-04-07',period:'AM',installerId:'',stop:1});
+  assert.equal(j.installerId,'');assert.equal(j.crew,'Unassigned');assert.equal(j.install,'2031-04-07');
+  await act(member,'edit',{assignedInstallerId:installer.id});assert.equal(j.installerId,installer.id);assert.equal(j.install,'2031-04-07');
+ }
+});
+test('Admin can clear RCVD date and return to ORD without removing materials or schedule',async()=>{
+ await act(admin,'create',{number:'CLEAR-RECEIVED',customer:'Receipt correction',address:'123 Main',amount:50,noPermitRequired:true});
+ await act(pa,'receive',{received:today,materials:[{materialType:'Window',brand:'CWS',bay:'A1'}]});
+ await act(admin,'schedule',{date:'2031-04-07',period:'AM',installerId:'',stop:1});
+ for(const member of [fs,pa,installer])await assert.rejects(()=>act(member,'clearReceived',{}),/Administrator|not assigned/);
+ await act(admin,'clearReceived',{reason:'Receipt entered on wrong account'});
+ assert.equal(j.stage,'Ordered');assert.equal(j.received,'');assert.equal(j.install,'2031-04-07');assert.equal(j.materials[0].bay,'A1');assert.match(j.history[0].text,/returned job to ORD/);
+ await assert.rejects(()=>act(admin,'clearReceived',{}),/Only an RCVD/);
+ await act(admin,'receive',{received:today,materials:[{materialType:'Window',brand:'CWS',bay:'A1'}]});assert.equal(j.stage,'Received');assert.equal(j.received,today);
 });

@@ -833,7 +833,7 @@ export default function LiveOperations() {
             jobs={data.jobs}
             cities={data.cities}
             salesReps={data.salesReps}
-            allowUnassigned={me.role === "production_assistant"}
+            allowUnassigned={["admin","supervisor","production_assistant"].includes(me.role)}
             departments={data.buildingDepartments}
             team={team}
             onSave={async (v: any) => {
@@ -2577,7 +2577,7 @@ function JobFile({ j, data, change, clickAction, saving, onOpen }: any) {
             jobs={data.jobs}
             cities={data.cities}
             salesReps={data.salesReps}
-            allowUnassigned={me.role === "production_assistant"}
+            allowUnassigned={["admin","supervisor","production_assistant"].includes(me.role)}
             departments={data.buildingDepartments}
             key={j.version}
             j={j}
@@ -2620,6 +2620,7 @@ function JobFile({ j, data, change, clickAction, saving, onOpen }: any) {
           <details className="op-disclosure">
             <summary>1. Enter RCVD info {j.received ? "✓" : ""}</summary>
             <ReceiveForm j={j} save={save} />
+            {me.role==='admin'&&j.stage==='Received'&&<details className="op-disclosure"><summary>Clear received date / Return to ORD</summary><p>Remove the materials received date and return this job to Ordered.</p><Form submitLabel="Clear received date and move to ORD" successMessage="Received date cleared. Job returned to ORD." onSave={async f=>save('clearReceived',{reason:field(f,'reason')})}><label>Reason (optional)<textarea name="reason" maxLength={1000}/></label></Form></details>}
           </details>
         </>
       )}
@@ -2672,7 +2673,7 @@ function JobFile({ j, data, change, clickAction, saving, onOpen }: any) {
             </div>
           )}
           <ScheduleForm
-            allowUnassigned={me.role === "production_assistant"}
+            allowUnassigned={["admin","supervisor","production_assistant"].includes(me.role)}
             j={j}
             team={team}
             today={today}

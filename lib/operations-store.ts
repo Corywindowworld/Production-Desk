@@ -1238,8 +1238,8 @@ export async function operation(m: Member, input: any) {
         );
       } else
         assert(
-          m.role === "production_assistant",
-          "Select an installer. Only Production Assistants can create an unassigned schedule.",
+          ["admin", "supervisor", "production_assistant"].includes(m.role),
+          "Select an installer. Only Admin, Field Supervisors and Production Assistants can schedule without a crew.",
           400,
         );
       assert(
@@ -1524,6 +1524,13 @@ export async function operation(m: Member, input: any) {
         o.pendingSchedule = null;
         history = "Schedule request declined";
       }
+    } else if (action === "clearReceived") {
+      assert(m.role === 'admin','Only an Administrator may clear the received date.');
+      assert(j.stage === 'Received','Only an RCVD job can be returned to ORD by clearing its received date.',400);
+      const reason=parse(z.string().trim().max(1000).default(''),input.data?.reason);
+      const previous=j.received||'unknown';
+      j.received='';j.stage='Ordered';o.routing={};
+      history='Administrator cleared received date '+previous+' and returned job to ORD.'+(reason?' Reason: '+reason:'');
     } else if (action === "receive") {
       edit();
       const r = input.data.materials

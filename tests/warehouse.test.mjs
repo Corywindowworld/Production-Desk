@@ -1,0 +1,64 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import {resolve} from 'node:path';
+import {PGlite} from '@electric-sql/pglite';
+import {createServer} from 'vite';
+const pg=new PGlite();for(const name of ['001_initial','003_account_permissions','008_live_operations','014_warehouse'])await pg.exec(readFileSync(`supabase/migrations/${name}.sql`,'utf8'));
+const wrap=c=>({query:async(sql,args)=>{const r=await c.query(sql,args);return {rows:r.rows,changes:r.affectedRows??r.rows.length}},transaction:fn=>c.transaction(tx=>fn(wrap(tx)))});
+const vite=await createServer({configFile:false,resolve:{alias:{'@':resolve('.')}},plugins:[{name:'warehouse-test-db',enforce:'pre',resolveId(id){if(id==='@/db/raw'||/\/db\/raw(?:\.ts)?$/.test(id))return '\0db'},load(id){if(id==='\0db')return 'export const database=()=>globalThis.__warehouseDb'}}]});
+const {createDatabase,compileQuery}=await vite.ssrLoadModule('/db/adapter.ts');globalThis.__warehouseDb=createDatabase(wrap(pg));
+const {warehouseOperation:op,warehouseData}=await vite.ssrLoadModule('/lib/warehouse-store.ts');
+const {parseWarehouseManifest,splitWarehousePO,normalizeWarehouseBarcode}=await vite.ssrLoadModule('/lib/warehouse.ts');
+const {warehouseSchemaSQL}=await vite.ssrLoadModule('/lib/warehouse-schema.ts');
+const admin={id:'owner',role:'admin',name:'Admin',active:1},warehouse={id:crypto.randomUUID(),role:'warehouse',name:'Warehouse',active:1},installer={id:crypto.randomUUID(),role:'installer',name:'Installer',active:1},pa={id:crypto.randomUUID(),role:'production_assistant',name:'PA',active:1},outsider={id:crypto.randomUUID(),role:'installer',name:'Other',active:1};
+for(const m of [admin,warehouse,installer,pa,outsider])await pg.query('INSERT INTO production.members(id,email,name,role) VALUES($1,$2,$3,$4)',[m.id,m.id+'@example.com',m.name,m.role]);
+const jobId=crypto.randomUUID();await pg.query('INSERT INTO production.jobs(id,payload,updated) VALUES($1,$2,$3)',[jobId,JSON.stringify({id:jobId,number:'686442',customer:'Test customer',product:'Windows',stage:'Ordered',installerId:installer.id,history:[]}),new Date().toISOString()]);
+const item={externalId:'%TEST001',po:'073-686442',order:'45687662',aq:'9663995-1-1',description:'Double hung'};
+const shipment={action:'import',reference:'TEST-ROUTE',name:'Test shipment',store:'073',items:[item,{...item,externalId:'%TEST002'}]};
+const get=async()=> (await warehouseData(warehouse)).items.find(i=>i.external_id==='%TEST001');
+test('store and CID remain separate; manifest preserves individual units with the same AQ',()=>{assert.deepEqual(splitWarehousePO('073-686442'),{store:'073',cid:'686442'});const rows=parseWarehouseManifest('GA %TEST001 45687662 073-686442 9663995-1-1 Test One\nGA %TEST002 45687662 073-686442 9663995-1-1 Test Two');assert.equal(rows.length,2);assert.equal(rows[0].aq,rows[1].aq);assert.throws(()=>parseWarehouseManifest('%TEST001 1 073-1 1-1-1 %TEST001 1 073-1 1-1-1'));});
+test('Code 39 raw and extended results identify the same item; PO suffixes retain the CID',()=>{assert.equal(normalizeWarehouseBarcode('\x7fPLWG9M3WA8T       '),'%YPLWG9M3WA8T');assert.equal(normalizeWarehouseBarcode('%YPLWG9M3WA8T       '),'%YPLWG9M3WA8T');assert.deepEqual(splitWarehousePO('073-660530-1-8-R'),{store:'073',cid:'660530'});assert.equal(parseWarehouseManifest('%YTEST123 45690433 073-660530-1-8-R 9706621-1-1')[0].po,'073-660530-1-8-R');assert.throws(()=>parseWarehouseManifest('%YGOOD 1 073-1 1-1-1 %YBAD unknown'));});
+test('migration can be repeated; schema setup uses equivalent SQL through the adapter',async()=>{await pg.exec(readFileSync('supabase/migrations/014_warehouse.sql','utf8'));await pg.exec(compileQuery(warehouseSchemaSQL));const row=await pg.query("SELECT role FROM production.members WHERE id=$1",[warehouse.id]);assert.equal(row.rows[0].role,'warehouse');});
+test('receiving and returns use exact inventory identity, protected transitions and audit',async()=>{
+ await assert.rejects(op(pa,shipment),/permission/);await assert.rejects(op(installer,shipment),/permission/);
+ assert.deepEqual(await op(warehouse,shipment),{added:2,skipped:0});assert.deepEqual(await op(warehouse,shipment),{added:0,skipped:2});
+ let i=await get();assert.equal(i.job_id,jobId);assert.equal(i.status,'Expected');assert.equal((await warehouseData(outsider)).items.length,0);assert.equal((await warehouseData(installer)).items.length,2);
+ await assert.rejects(op(warehouse,{...shipment,items:[{...item,aq:'999-1-1'}]}),/different account/);
+ await assert.rejects(op(warehouse,{...shipment,store:'074'}),/store numbers/);
+ await assert.rejects(op(warehouse,{action:'receive',id:i.id,version:i.version}),/bay/);
+ await op(warehouse,{action:'receive',id:i.id,version:i.version,bay:'A1'});
+ await assert.rejects(op(warehouse,{action:'receive',id:i.id,version:i.version,bay:'A1'}),/changed/);
+ i=await get();await assert.rejects(op(outsider,{action:'return',id:i.id,version:i.version,reason:'Wrong size'}),/permission/);
+ await assert.rejects(op(installer,{action:'return',id:i.id,version:i.version,reason:'Wrong size'}),/photo/);
+ const key=`jobs/${jobId}/warehouse/${crypto.randomUUID()}`;await pg.query("INSERT INTO production.attachment_uploads(key,staging_key,job_id,kind,member_id,name,expires,status) VALUES($1,$2,$3,'warehouse',$4,'test.jpg',$5,'ready')",[key,'pending/test',jobId,installer.id,Date.now()+10000]);
+ await op(installer,{action:'return',id:i.id,version:i.version,reason:'Incorrect fit',photoKey:key});i=await get();assert.equal(i.status,'Return Pending');
+ await assert.rejects(op(installer,{action:'confirmReturn',id:i.id,version:i.version,bay:'R1'}),/permission/);
+ await op(warehouse,{action:'confirmReturn',id:i.id,version:i.version,bay:'R1'});i=await get();assert.equal(i.status,'Returned');assert.equal(i.bay,'R1');
+ const j=JSON.parse((await pg.query('SELECT payload FROM production.jobs WHERE id=$1',[jobId])).rows[0].payload);assert.equal(j.stage,'Ordered');assert.ok(j.history.length>=3);
+ assert.ok((await pg.query('SELECT * FROM production.notifications WHERE recipient_id=$1',[pa.id])).rows.length>0);
+});
+test('missing items block RCVD; photos and barcodes cannot be borrowed from another item',async()=>{
+ let i=(await warehouseData(warehouse)).items.find(i=>i.external_id==='%TEST002');await op(warehouse,{action:'missing',id:i.id,version:i.version,reason:'Not on truck'});i=(await warehouseData(warehouse)).items.find(i=>i.external_id==='%TEST002');
+ await assert.rejects(op(warehouse,{action:'ready',jobId,confirmed:true,received:'2026-10-20',materials:[{materialType:'Window',brand:'Simonton',bay:'A1'}]}),/Every expected/);
+ await op(warehouse,{action:'barcode',id:i.id,version:i.version,barcode:'4568766201'});let other=await get();await assert.rejects(op(warehouse,{action:'barcode',id:other.id,version:other.version,barcode:'4568766201'}),/different item/);
+});
+test('job receipt requires all usable units; retains the materials format used by existing job files',async()=>{
+ const id=crypto.randomUUID();await pg.query('INSERT INTO production.jobs(id,payload,updated) VALUES($1,$2,$3)',[id,JSON.stringify({id,number:'123456',customer:'Ready job',product:'Windows',stage:'Ordered'}),new Date().toISOString()]);
+ await op(warehouse,{...shipment,reference:'SECOND',items:[{...item,externalId:'%READY',po:'073-123456'}]});let i=(await warehouseData(warehouse)).items.find(i=>i.external_id==='%READY');await op(warehouse,{action:'receive',id:i.id,version:i.version,bay:'B1'});
+ const payload={action:'ready',jobId:id,confirmed:true,received:'2026-10-20',materials:[{materialType:'Window',brand:'Simonton',bay:'B1'}]};
+ await assert.rejects(op(warehouse,{...payload,received:'2099-01-01'}),/future/);
+ await op(warehouse,payload);const j=JSON.parse((await pg.query('SELECT payload FROM production.jobs WHERE id=$1',[id])).rows[0].payload);assert.equal(j.stage,'Received');assert.equal(j.materials[0].bay,'B1');
+});
+test('unmatched accounts remain reviewable; manual linking must use the PO CID',async()=>{
+ await op(warehouse,{...shipment,reference:'UNMATCHED',items:[{...item,externalId:'%UNKNOWN',po:'073-999999'}]});const i=(await warehouseData(warehouse)).items.find(i=>i.external_id==='%UNKNOWN');assert.equal(i.job_id,null);await assert.rejects(op(warehouse,{action:'link',id:i.id,version:i.version,jobId}),/customer ID/);await op(warehouse,{...shipment,reference:'OTHER-STORE',store:'074',items:[{...item,externalId:'%OTHERSTORE',po:'074-686442'}]});assert.equal((await warehouseData(warehouse)).items.find(i=>i.external_id==='%OTHERSTORE').job_id,null);
+});
+test('older unlisted returns need assignment and owned evidence; never change the job status',async()=>{
+ const key=`jobs/${jobId}/warehouse/${crypto.randomUUID()}`;await pg.query("INSERT INTO production.attachment_uploads(key,staging_key,job_id,kind,member_id,name,expires,status) VALUES($1,$2,$3,'warehouse',$4,'old-return.jpg',$5,'ready')",[key,'pending/unlisted',jobId,installer.id,Date.now()+10000]);
+ const input={action:'unlistedReturn',jobId,barcode:'OLD-123',order:'OLD-ORDER',aq:'OLD-AQ',reason:'Unused window from older job',photoKey:key};
+ await assert.rejects(op(outsider,input),/permission/);await assert.rejects(op(pa,input),/permission/);
+ await op(installer,input);const i=(await warehouseData(warehouse)).items.find(i=>i.external_id==='OLD-123');assert.equal(i.status,'Return Pending');assert.equal(i.job_id,jobId);
+ await assert.rejects(op(installer,input),/already in inventory/);
+ const j=JSON.parse((await pg.query('SELECT payload FROM production.jobs WHERE id=$1',[jobId])).rows[0].payload);assert.equal(j.stage,'Ordered');
+});
+test.after(async()=>{await vite.close();await pg.close();delete globalThis.__warehouseDb});

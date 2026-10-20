@@ -1,4 +1,4 @@
-export const uploadKinds=['completion','incomplete','reorder','photos','front','rear','left','right','issue','visit'] as const;
+export const uploadKinds=['completion','incomplete','reorder','photos','front','rear','left','right','issue','visit','warehouse'] as const;
 export const MAX_UPLOAD_BYTES=15*1024*1024;
 export function fileType(bytes:Uint8Array,kind:string){
  const ascii=(start:number,end:number)=>String.fromCharCode(...bytes.slice(start,end));

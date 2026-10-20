@@ -1,6 +1,6 @@
 import {currentSession} from '@/lib/auth-session';
 import { database } from '@/db/raw';
-export type Member={id:string;email:string;user_id?:string;name:string;role:'admin'|'office'|'production_assistant'|'supervisor'|'installer';supervisor_id?:string;can_edit_jobs?:number;can_score_all_installers?:number;active:number};
+export type Member={id:string;email:string;user_id?:string;name:string;role:'admin'|'office'|'production_assistant'|'supervisor'|'installer'|'warehouse';supervisor_id?:string;can_edit_jobs?:number;can_score_all_installers?:number;active:number};
 export class ApiError extends Error {constructor(public status:number,message:string){super(message)}}
 export async function actor(request:Request):Promise<Member>{
  const session=await currentSession(request);

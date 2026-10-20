@@ -1,4 +1,5 @@
 "use client";
+import Warehouse from './warehouse';
 import {isPipelineJob} from "@/lib/production-pipeline";
 import { printJobCertificate } from "@/lib/print-job-certificate";
 import {CustomerAddress} from "./address-input";
@@ -294,7 +295,7 @@ export default function LiveOperations() {
       setData(d);
       setTab((prev) =>
         d.me.role === "installer" &&
-        !["Overview", "Schedule", "Settings"].includes(prev)
+        !["Overview", "Schedule", "Warehouse", "Settings"].includes(prev)
           ? "Overview"
           : prev === "Connections" && d.me.role !== "admin"
             ? "Overview"
@@ -319,6 +320,7 @@ export default function LiveOperations() {
         "Quality",
         "Installers",
         "Connections",
+        "Warehouse",
         "Settings",
       ].includes(initial || "")
     )
@@ -394,6 +396,7 @@ export default function LiveOperations() {
         ]
       : []),
     ...(me.role === "admin" ? [["Connections", Plug]] : []),
+    ["Warehouse", FolderOpen],
     ["Settings", Settings],
   ];
   const approvals = jobs.filter(
@@ -691,6 +694,7 @@ export default function LiveOperations() {
               )}
             </>
           )}
+          {tab === "Warehouse" && <Warehouse/>}
           {tab === "Map" && <MapDashboard />}
           {tab === "Schedule" && (
             <Calendar

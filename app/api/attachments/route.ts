@@ -9,6 +9,7 @@ export const maxDuration=60;
 const beginSchema=z.object({action:z.literal('begin'),jobId:z.string().uuid(),kind:z.enum(uploadKinds),name:z.string().min(1).max(255),size:z.number().int().positive().max(MAX_UPLOAD_BYTES)});
 const finishSchema=z.object({action:z.literal('finish'),key:z.string().max(250)});
 async function uploadAccess(member:Member,jobId:string,kind:string){
+ if(kind==='warehouse'&&member.role==='warehouse'){const item=await database().prepare('SELECT id FROM jobs WHERE id=?').bind(jobId).first();if(!item)throw new ApiError(404,'Job not found.');return;}
  if(kind==='visit'&&member.role!=='supervisor'&&member.role!=='admin')throw new ApiError(403,'Only supervisors and administrators can upload visit photos.');
  const job=kind==='visit'?await visitJobFor(member,jobId):await jobFor(member,jobId);
  if(kind!=='visit'&&member.role!=='installer'&&member.role!=='supervisor'&&member.role!=='admin'&&!canEditJob(member,job))throw new ApiError(403,'You do not have permission to update job attachments.');
@@ -54,8 +55,8 @@ export async function POST(request:Request){try{
 }catch(e){return apiError(e)}}
 export async function GET(request:Request){try{
  const member=await actor(request),key=new URL(request.url).searchParams.get('key')||'';
- if(!/^jobs\/[0-9a-f-]+\/(completion|incomplete|reorder|photos|front|rear|left|right|issue|visit)\/[0-9a-f-]+$/.test(key))throw new ApiError(404,'File not found.');
- if(key.split('/')[2]==='visit')await visitJobFor(member,key.split('/')[1]);else await jobFor(member,key.split('/')[1]);
+ if(!/^jobs\/[0-9a-f-]+\/(completion|incomplete|reorder|photos|front|rear|left|right|issue|visit|warehouse)\/[0-9a-f-]+$/.test(key))throw new ApiError(404,'File not found.');
+ if(key.split('/')[2]==='warehouse')await uploadAccess(member,key.split('/')[1],'warehouse');else if(key.split('/')[2]==='visit')await visitJobFor(member,key.split('/')[1]);else await jobFor(member,key.split('/')[1]);
  if(!await bucket.head(key))throw new ApiError(404,'File not found.');
  const {data,error}=await storage().createSignedUrl(key,60);if(error||!data)throw new ApiError(404,'File not found.');
  return new Response(null,{status:302,headers:{Location:data.signedUrl,'Cache-Control':'private, no-store','Referrer-Policy':'no-referrer'}});

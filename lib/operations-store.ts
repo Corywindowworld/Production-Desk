@@ -202,6 +202,7 @@ export async function operationsData(
   m: Member,
   onStep: (step: DashboardStep) => void = () => {},
 ) {
+  if(m.role==='warehouse')throw new ApiError(403,'Use the Warehouse workspace.');
   const db = database(),
     today = localDay();
   onStep("jobs-query");
@@ -454,6 +455,7 @@ export async function operationsData(
 }
 // All job changes lock the row and compare versions inside one transaction. Side effects are queued with the change.
 export async function operation(m: Member, input: any) {
+  if(m.role==='warehouse')throw new ApiError(403,'Use the Warehouse workspace.');
   const db = database(),
     at = new Date().toISOString(),
     today = localDay(),

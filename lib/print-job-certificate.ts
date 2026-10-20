@@ -1,3 +1,4 @@
+import {withPrintExit} from './print-exit';
 import { certificateLogoPng } from "./certificate-logo";
 import {
   certificateQuestions,
@@ -47,6 +48,6 @@ export function printJobCertificate(c: any) {
   const w = window.open("", "_blank");
   if (!w) throw Error("Allow pop-ups to print the signed certificate.");
   w.document.open();
-  w.document.write(jobCertificatePrintHtml(c));
+  w.document.write(withPrintExit(jobCertificatePrintHtml(c)));
   w.document.close();
 }

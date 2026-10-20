@@ -640,15 +640,6 @@ export default function LiveOperations() {
                   </div>
                 </>
               )}
-              {!installer && review && metrics.unknownDates > 0 && (
-                <button
-                  className="op-callout"
-                  onClick={() => {setTab("Jobs");setStatusFilter("AGED")}}
-                >
-                  Fix {metrics.unknownDates} missing aging dates → Open bulk
-                  date editor
-                </button>
-              )}
               {installer ? (
                 <>
                   <InstallerQualitySurveys
@@ -677,8 +668,7 @@ export default function LiveOperations() {
                       </button>
                     </div>
                   )}
-                  {review&&<details className="op-disclosure"><summary>Update aging dates</summary><AgingDateEditor jobs={jobs} today={today} save={(values:any)=>change("agingDates",values)} onOpen={setSelected}/></details>}
-              <JobList
+                  <JobList
                     allJobs={jobs}
                     jobs={filtered}
                     today={today}
@@ -789,6 +779,7 @@ export default function LiveOperations() {
           {tab === "Connections" && me.role === "admin" && <Connections />}
           {tab === "Settings" && (
             <section className="op-panel live-settings">
+              {review&&<details className="op-disclosure"><summary>Update Aging Dates</summary><AgingDateEditor jobs={jobs} today={today} save={(values:any)=>change("agingDates",values)} onOpen={setSelected}/></details>}
               {me.role === "admin" ? (
                 <>
                   <nav

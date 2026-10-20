@@ -3500,7 +3500,7 @@ test("lead renovation print preserves all answers and uses safe reorder-style pr
   assert.ok(html.includes("Lead Installer"));
   assert.ok(html.includes("10-09-2026"));
   assert.ok(html.includes("size:letter portrait;margin:0"));
-  assert.ok(html.includes("padding:0.6in 0.65in!important"));
+  assert.ok(html.includes("padding:.55in .62in!important"));
   assert.equal((html.match(/class="choices"/g) || []).length, 13);
   assert.ok(!html.includes("overflow:hidden"));
   assert.ok(!html.includes("height:11in"));

@@ -17,3 +17,6 @@ export function warehouseTransition(status:string,action:string){
 
 // Full ASCII Code 39 readers decode the printed %Y prefix to DEL (127).
 export function normalizeWarehouseBarcode(value:string){return value.trim().replace(/^\x7f/,'%Y').toUpperCase();}
+
+export function manualWarehouseReference(current:string,day:string,id:string){return current.trim()||'MANUAL-'+day+'-'+id.slice(0,8);}
+export const warehouseImportSchema=z.object({reference:z.string().trim().min(1,'Enter a shipment reference.').max(150,'Shipment reference must be 150 characters or fewer.'),name:z.string().trim().min(1,'Enter a shipment name.').max(180),store:z.string().trim().regex(/^\d+$/,'Enter a numeric store number, such as 073.').max(10),sourceText:z.string().max(500000).default(''),items:z.array(warehouseItemSchema).min(1,'Add at least one item before importing.').max(5000)});

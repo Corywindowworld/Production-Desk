@@ -1,7 +1,7 @@
 import {database} from '@/db/raw';
 import {ApiError,Member,canSeeJob} from './access';
 import {storedObject} from './stored-data';
-import {warehouseManagers,warehouseViewers,warehouseItemSchema,warehouseTransition,splitWarehousePO,normalizeWarehouseBarcode} from './warehouse';
+import {warehouseManagers,warehouseViewers,warehouseItemSchema,warehouseTransition,splitWarehousePO,normalizeWarehouseBarcode,warehouseImportSchema} from './warehouse';
 import {localDay,receiveItemsSchema,allowedMaterials} from './operations';
 import {z} from 'zod';
 const allowed=(ok:boolean,message='You do not have permission for this warehouse action.',status=403)=>{if(!ok)throw new ApiError(status,message)};
@@ -18,7 +18,7 @@ export async function warehouseOperation(m:Member,input:any){
  allowed(warehouseViewers.includes(m.role));const manage=warehouseManagers.includes(m.role),at=new Date().toISOString(),db=database();
  const action=String(input.action||'');
  if(action==='import'){
-  allowed(manage);const v=z.object({reference:z.string().trim().min(1).max(150),name:z.string().trim().min(1).max(180),store:z.string().regex(/^\d+$/).max(10),sourceText:z.string().max(500000).default(''),items:z.array(warehouseItemSchema).min(1).max(5000)}).parse(input);
+  allowed(manage);const v=warehouseImportSchema.parse(input);
   allowed(new Set(v.items.map(i=>i.externalId)).size===v.items.length,'Duplicate item IDs in this import.',400);
   allowed(v.items.every(i=>splitWarehousePO(i.po).store===v.store),'Some PO store numbers differ from this shipment. Separate those items before importing.',400);
   return db.transaction(async tx=>{

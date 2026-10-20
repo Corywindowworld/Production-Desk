@@ -1,6 +1,6 @@
 # Warehouse receiving and returns
 
-Open **Warehouse** in the dashboard. Admin must select **Set up warehouse database** once if the new tables are missing. Alternatively run migration `014_warehouse.sql` through the existing migration runner. After setup, Admin can create or edit an account with role **Warehouse** under Settings → Accounts.
+Open **Warehouse** in the dashboard. Admin can select **Set up warehouse database** once if the new tables are missing. Saving a **Warehouse** account under Settings → Accounts also initializes the warehouse schema automatically. Alternatively run migration `014_warehouse.sql` through the existing migration runner.
 
 Warehouse and Admin manage manifests, receiving, discrepancies, barcode aliases and bays. FS/PA view inventory. Installers see inventory linked to their assigned jobs and can submit returns with a reason and uploaded photo. Warehouse accounts do not inherit job, payment, account-management or bonus-edit permissions.
 

@@ -19,7 +19,7 @@ export function LaborImport({jobs,reload}:{jobs:any[];reload:()=>Promise<any>}){
   const matches=matchingLaborJobs(jobs,customerId);
   if(!matches.length)throw Error(`No account found for CID #${customerId}. Create the account or correct the CID below.`);
   if(matches.length>1)throw Error(`More than one account has CID #${customerId}. Resolve the duplicate CID before attaching this file.`);
-  if(parsed.lines.length<10)throw Error('The full labor table could not be read. Please upload the original downloaded labor PDF; this file was not attached because its values were incomplete.');
+  if(parsed.lines.length<10)throw Object.assign(Error(`CID #${customerId} matched ${matches[0].customer}, but only ${parsed.lines.length} labor rows could be read. The labor table needs a clearer scan; this page has not been attached.`),{customerId,customer:matches[0].customer});
   const job=matches[0],response=await fetch('/api/labor?format=json&jobId='+encodeURIComponent(job.id),{cache:'no-store'}),current=await response.json();if(!response.ok)throw Error(current.error||'Account could not load. Try again.');
   const source=await uploadAttachment(job.id,'labor',file),saved=await post({action:'import',automatic:true,jobId:job.id,version:current.job.version,customerId,lines:parsed.lines,sourceKey:source.key});
   return {file,customerId,jobId:job.id,customer:job.customer,lines:parsed.lines,status:saved.duplicate?'Already attached':saved.importStatus==='Imported'?'Attached — current installer entries kept':'Attached and prefilled',error:''};
@@ -35,7 +35,7 @@ export function LaborImport({jobs,reload}:{jobs:any[];reload:()=>Promise<any>}){
     const file=new File([new Uint8Array(pages[index])],original.name.replace(/\.pdf$/i,'')+`-page-${index+1}.pdf`,{type:'application/pdf'});
     const label=`${original.name} · Page ${index+1} of ${pages.length}`;
     setProgress(`Reading ${label}`);
-    let result;try{result=await attach(file,undefined,label);}catch(e){result={file,error:(e as Error).message,customerId:'',status:'Needs attention'};}
+    let result;try{result=await attach(file,undefined,label);}catch(e){result={file,error:(e as Error).message,customerId:(e as any).customerId||'',customer:(e as any).customer||'',status:'Needs attention'};}
     setResults(a=>[...a,{...result,label,id:crypto.randomUUID()}]);
    }
   }await reload();}finally{setBusy(false);setProgress('');}

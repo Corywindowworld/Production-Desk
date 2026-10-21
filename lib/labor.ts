@@ -9,7 +9,7 @@ export function parseLaborText(text:string){
  const customerId=laborHeaderCid(text)||text.match(/(?:CID|Customer\s*ID|Cust\s*ID)\s*#?\s*:?\s*((?:\d{3}-)?\d+)/i)?.[1]||text.match(/ID\s*#\s*:?\s*(\d+)/i)?.[1]||text.match(/ID\s*#\s*:[^\n]*\n\s*(\d+)\s+C\d+/i)?.[1]||text.match(/(?:Customer\s*ID|Cust\s*ID|CID|ID\s*#)\s*:?[^\n\d]*\n(?:[^\n\d]*\n)?\s*((?:\d{3}-)?\d{6,8})(?![\d-])/i)?.[1]||'';
  const lines:any[]=[];
  for(const line of text.split('\n')){
-  const m=line.match(/^\s*(.*?)\s+(?:(\d+(?:\.\d+)?)\s+)?[x×]\s*\$?([\d,]+(?:\.\d+)?)(?:\s|$)/i);
+  const m=line.replace(/[|_]/g,' ').replace(/[{}]/g,' ').match(/^\s*(.*?)\s+(?:(\d+(?:\.\d+)?)\s+)?[x×]\s*\$?([\d,]+(?:\.\d+)?)(?:\s|$)/i);
   if(m&&m[1].trim())lines.push({description:m[1].trim(),contract:Number(m[2]||0),rate:Number(m[3].replaceAll(',','')),actual:null,reason:'',extra:false});
  }
  return {customerId,lines};

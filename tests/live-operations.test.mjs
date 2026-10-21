@@ -4123,8 +4123,8 @@ test('uploaded labor originals appear in documents once per file key',async()=>{
 
 test('LS-2500 reproduces the supplied 27 labor rows and rates without copying sample quantities',async()=>{
  const {blankLaborTemplate,templateDetailsValid}=await vite.ssrLoadModule('/lib/labor-template.ts');
- const rows=blankLaborTemplate();assert.equal(rows.length,27);assert.deepEqual(rows.map(l=>l.rate),[20,20,40,86,25,15,5,27,150,5,3,35,25,115,400,150,50,15,25,20,285,485,75,8,180,null,20]);assert.ok(rows.every(l=>l.contract===0&&l.actual===null));
- const counts={0:4,1:16,2:4,3:17,4:17,6:9,12:16,19:17,26:1};assert.equal(rows.reduce((sum,l,i)=>sum+(counts[i]||0)*(l.rate||0),0),3252);assert.equal(templateDetailsValid(rows),true);rows[3].rate=1;assert.equal(templateDetailsValid(rows),false);
+ const rows=blankLaborTemplate();assert.equal(rows.length,27);assert.deepEqual(rows.map(l=>l.rate),[20,20,40,86,25,15,5,27,150,5,3,35,25,115,400,150,50,15,25,20,285,485,75,8,180,null,null]);assert.ok(rows.every(l=>l.contract===0&&l.actual===null));
+ const counts={0:4,1:16,2:4,3:17,4:17,6:9,12:16,19:17,26:1};assert.equal(rows.reduce((sum,l,i)=>sum+(counts[i]||0)*(l.rate||0),0),3232);assert.equal(templateDetailsValid(rows),true);rows[3].rate=1;assert.equal(templateDetailsValid(rows),false);
 });
 test('printed labor template drafts preserve fields, protect rates and submit exact totals',async()=>{
  const {laborAction}=await vite.ssrLoadModule('/lib/labor-store.ts');const id=crypto.randomUUID(),at=new Date().toISOString(),job={id,number:'123450',customer:'Template Test',installerId:installer.id,amount:0,operations:{},history:[]};await pg.query('INSERT INTO production.jobs(id,payload,version,updated) VALUES($1,$2,1,$3)',[id,JSON.stringify(job),at]);
@@ -4181,3 +4181,5 @@ test('combined labor PDFs isolate each customer page and its values before attac
  for(const bytes of pages){assert.equal((await PDFDocument.load(bytes)).getPageCount(),1);const doc=await pdfjs.getDocument({data:new Uint8Array(bytes),isEvalSupported:false}).promise;try{const content=await (await doc.getPage(1)).getTextContent();parsed.push(parseLaborText(content.items.filter(i=>'str' in i).map(i=>i.str).join('\n')));}finally{await doc.destroy();}}
  assert.deepEqual(parsed.map(p=>p.customerId),['684452','785431','']);assert.deepEqual(parsed.map(p=>p.lines[0].contract),[2,7,1]);assert.ok(parsed.every(p=>p.lines.length===1));
 });
+
+test('labor quantities reject fractions and travel pay starts blank and remains editable',async()=>{const {laborLine}=await vite.ssrLoadModule('/lib/labor.ts'),{blankLaborTemplate,templateDetailsValid}=await vite.ssrLoadModule('/lib/labor-template.ts');const line={description:'Install',contract:1,rate:86,actual:1};assert.equal(laborLine.safeParse(line).success,true);assert.equal(laborLine.safeParse({...line,contract:1.5}).success,false);assert.equal(laborLine.safeParse({...line,actual:1.5}).success,false);const rows=blankLaborTemplate(),trip=rows.find(l=>l.description==='Trip Charge');assert.equal(trip.rate,null);trip.rate=75;assert.equal(templateDetailsValid(rows),true);});

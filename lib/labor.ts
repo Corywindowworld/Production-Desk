@@ -1,5 +1,5 @@
 import {z} from 'zod';
-export const laborLine=z.object({description:z.string().trim().min(1).max(250),contract:z.number().finite().min(0).max(10000),rate:z.number().finite().min(0).max(100000),actual:z.number().finite().min(0).max(10000).nullable().default(null),reason:z.string().trim().max(1500).default(''),extra:z.boolean().default(false)});
+export const laborLine=z.object({description:z.string().trim().min(1).max(250),contract:z.number().finite().int('Enter whole numbers for labor units.').min(0).max(10000),rate:z.number().finite().min(0).max(100000),actual:z.number().finite().int('Enter whole numbers for labor units.').min(0).max(10000).nullable().default(null),reason:z.string().trim().max(1500).default(''),extra:z.boolean().default(false)});
 export const laborLines=z.array(laborLine).min(1).max(100);
 export const laborTotal=(lines:any[])=>Math.round(lines.reduce((total,l)=>total+Math.round((l.actual??0)*l.rate*100),0))/100;
 export const laborCustomerId=(value:unknown)=>{const s=String(value??'').trim();return s.match(/^(?:\d{3}[-–]\s*)?(\d+)$/)?.[1]||'';};

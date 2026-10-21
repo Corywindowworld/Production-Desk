@@ -1,3 +1,4 @@
+import {laborHeaderCid} from './labor-cid';
 import {z} from 'zod';
 export const laborLine=z.object({description:z.string().trim().min(1).max(250),contract:z.number().finite().int('Enter whole numbers for labor units.').min(0).max(10000),rate:z.number().finite().min(0).max(100000),actual:z.number().finite().int('Enter whole numbers for labor units.').min(0).max(10000).nullable().default(null),reason:z.string().trim().max(1500).default(''),extra:z.boolean().default(false)});
 export const laborLines=z.array(laborLine).min(1).max(100);
@@ -5,7 +6,7 @@ export const laborTotal=(lines:any[])=>Math.round(lines.reduce((total,l)=>total+
 export const laborCustomerId=(value:unknown)=>{const s=String(value??'').trim();return s.match(/^(?:\d{3}[-–]\s*)?(\d+)$/)?.[1]||'';};
 export function parseLaborText(text:string){
  text=text.replace(/\u00a0/g,' ');
- const customerId=text.match(/(?:CID|Customer\s*ID|Cust\s*ID)\s*#?\s*:?\s*((?:\d{3}-)?\d+)/i)?.[1]||text.match(/ID\s*#\s*:?\s*(\d+)/i)?.[1]||text.match(/ID\s*#\s*:[^\n]*\n\s*(\d+)\s+C\d+/i)?.[1]||text.match(/(?:Customer\s*ID|Cust\s*ID|CID|ID\s*#)\s*:?[^\n\d]*\n(?:[^\n\d]*\n)?\s*((?:\d{3}-)?\d{6,8})(?![\d-])/i)?.[1]||'';
+ const customerId=laborHeaderCid(text)||text.match(/(?:CID|Customer\s*ID|Cust\s*ID)\s*#?\s*:?\s*((?:\d{3}-)?\d+)/i)?.[1]||text.match(/ID\s*#\s*:?\s*(\d+)/i)?.[1]||text.match(/ID\s*#\s*:[^\n]*\n\s*(\d+)\s+C\d+/i)?.[1]||text.match(/(?:Customer\s*ID|Cust\s*ID|CID|ID\s*#)\s*:?[^\n\d]*\n(?:[^\n\d]*\n)?\s*((?:\d{3}-)?\d{6,8})(?![\d-])/i)?.[1]||'';
  const lines:any[]=[];
  for(const line of text.split('\n')){
   const m=line.match(/^\s*(.*?)\s+(?:(\d+(?:\.\d+)?)\s+)?[x×]\s*\$?([\d,]+(?:\.\d+)?)(?:\s|$)/i);

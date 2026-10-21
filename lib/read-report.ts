@@ -1,3 +1,4 @@
+import {laborHeaderCid} from './labor-cid';
 import {joinPdfTextItems} from './pdf-text-lines';
 // All document recognition runs locally in the browser, with same-origin workers/models.
 export async function readReport(file:File,progress:(message:string)=>void,options:{forceOcr?:boolean;laborLayout?:boolean}={}){
@@ -12,7 +13,14 @@ export async function readReport(file:File,progress:(message:string)=>void,optio
    for(let p=1;p<=pdf.numPages;p++){progress(`Reading page ${p} of ${pdf.numPages}`);const page=await pdf.getPage(p),content=await page.getTextContent();const lines=new Map<number,{x:number;text:string;width?:number;height?:number}[]>();
     for(const item of content.items){if(!('str' in item)||!item.str.trim())continue;const y=Math.round(item.transform[5]/3)*3;lines.set(y,[...(lines.get(y)||[]),{x:item.transform[4],text:item.str,width:item.width,height:Math.abs(item.transform[3])}])}
     let text=[...lines.entries()].sort((a,b)=>b[0]-a[0]).map(([,items])=>options.laborLayout?joinPdfTextItems(items):items.sort((a,b)=>a.x-b.x).map(i=>i.text).join(' ')).join('\n');
-    if(options.forceOcr||text.trim().length<80){const viewport=page.getViewport({scale:2}),canvas=document.createElement('canvas');canvas.width=viewport.width;canvas.height=viewport.height;await page.render({canvas,canvasContext:canvas.getContext('2d')!,viewport}).promise;text=await recognize(canvas);if(options.laborLayout){const crop=async(x:number,y:number,w:number,h:number)=>{const c=document.createElement('canvas');c.width=Math.round(canvas.width*w);c.height=Math.round(canvas.height*h);c.getContext('2d')!.drawImage(canvas,canvas.width*x,canvas.height*y,c.width,c.height,0,0,c.width,c.height);const result=await recognize(c);c.width=0;c.height=0;return result;};text=(await crop(.02,.03,.96,.18))+'\n'+(await crop(.02,.18,.67,.49));}canvas.width=0;canvas.height=0}
+    if(options.forceOcr||text.trim().length<80){const viewport=page.getViewport({scale:options.laborLayout?3:2}),canvas=document.createElement('canvas');canvas.width=viewport.width;canvas.height=viewport.height;await page.render({canvas,canvasContext:canvas.getContext('2d')!,viewport}).promise;text=await recognize(canvas);if(options.laborLayout){const crop=async(x:number,y:number,w:number,h:number)=>{const c=document.createElement('canvas');c.width=Math.round(canvas.width*w);c.height=Math.round(canvas.height*h);c.getContext('2d')!.drawImage(canvas,canvas.width*x,canvas.height*y,c.width,c.height,0,0,c.width,c.height);const result=await recognize(c);c.width=0;c.height=0;return result;};const header=await crop(.02,.03,.96,.18),table=await crop(.02,.18,.67,.49);
+     // The boxed ID is at the top center. Table borders often make full-page OCR skip it.
+     await worker!.setParameters({tessedit_pageseg_mode:'6' as any});
+     const idField=await crop(.43,.045,.24,.105);
+     let cid=laborHeaderCid(idField)||laborHeaderCid(header);
+     if(!cid){await worker!.setParameters({tessedit_char_whitelist:'0123456789',tessedit_pageseg_mode:'6' as any});const digits=await crop(.50,.045,.15,.105);cid=laborHeaderCid(digits,true);}
+     await worker!.setParameters({tessedit_char_whitelist:'',tessedit_pageseg_mode:'3' as any});
+     text=(cid?'Customer ID: '+cid+'\n':'')+header+'\n'+table;}canvas.width=0;canvas.height=0}
     pages.push(text);page.cleanup();
    }return pages.join('\n');
   }finally{await pdf.destroy()}

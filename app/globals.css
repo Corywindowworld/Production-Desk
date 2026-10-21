@@ -358,7 +358,7 @@ button.tracking-outline:disabled{opacity:.55;cursor:wait}
     box-sizing: border-box;
   }
   :where(a[href]) { display: inline-flex; align-items: center; gap: 6px; }
-  :is(button, input[type=button], input[type=submit], [role=button], summary, a[href]) {
+  :is(button, input[type=button], input[type=submit], [role=button], summary, a[href]):not(.crew-colored-job) {
     border-style: solid !important;
     border-width: 1.5px !important;
     border-color: color-mix(in srgb, currentColor 55%, transparent) !important;
@@ -369,4 +369,11 @@ button.tracking-outline:disabled{opacity:.55;cursor:wait}
   }
   :is(button, summary, a[href]):hover { box-shadow: 0 0 0 1px currentColor; }
   :is(button, input[type=button], input[type=submit]):disabled { cursor: not-allowed; opacity: .55; }
+}
+
+/* Crew identity takes precedence over generic control and theme borders. */
+@media screen {
+  .op-calendar-day > button.crew-colored-job {
+    border-left: 5px solid var(--crew-color, #2879c8) !important;
+  }
 }

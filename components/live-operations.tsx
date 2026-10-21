@@ -1392,9 +1392,11 @@ function Calendar({
               .map((j: any, i: number) => (
                 <button
                   key={j.id + i}
+                  className="crew-colored-job"
                   style={{
                     borderLeftColor: colors[j.installerId] || "#2879c8",
-                  }}
+                    "--crew-color": colors[j.installerId] || "#2879c8",
+                  } as React.CSSProperties}
                   onClick={() => onOpen(j.id)}
                 >
                   <b>

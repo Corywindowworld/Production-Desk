@@ -7,5 +7,5 @@ export function laborPaymentSummary(job:any){
  const method=methods[c.paymentMethod]||(c.paymentMethod&&c.paymentMethod!=='Paid In Full'?c.paymentMethod:job.paymentMethod)||'Not recorded';
  const paidInFull=c.paymentMethod==='Paid In Full'||typeof c.remainingBalance==='number'&&c.remainingBalance===0||typeof job.amount==='number'&&job.amount===0;
  const paymentAmount=typeof c.paymentAmount==='number'?c.paymentAmount:null;
- return {status,method,paidInFull,paymentAmount,label:`${status} ${paidInFull?'PIF':'Balance due'} via ${method}`};
+ return {status,method,paidInFull,paymentAmount,checkNumber:method==='CHK'||method==='Check'?String(c.paymentReference||'').trim():'',label:`${status} ${paidInFull?'PIF':'Balance due'} via ${method}`};
 }

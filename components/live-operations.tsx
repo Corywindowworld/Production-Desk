@@ -1,4 +1,6 @@
 "use client";
+import {LaborImport,LaborSheet} from './labor-paperwork';
+import {CompletionBatches} from './completion-batches';
 import Warehouse from './warehouse';
 import {isPipelineJob} from "@/lib/production-pipeline";
 import { printJobCertificate } from "@/lib/print-job-certificate";
@@ -758,6 +760,7 @@ export default function LiveOperations() {
                   />
                 </section>
               ))}
+          {tab === "Approvals" && me.role!=="installer" && <><LaborImport jobs={jobs} reload={load}/><CompletionBatches key={jobs.map((j:any)=>j.version).join(",")}/>{jobs.filter((j:any)=>j.operations?.laborSheets?.some((s:any)=>s.status==="Submitted")).map((j:any)=><section className="op-panel" key={j.id}><h3>{j.customer} · #{j.number}</h3><LaborSheet j={j} me={me} profile={data.leadProfile} reload={load}/></section>)}</>}
           {tab === "Approvals" && (
             <Approvals
               jobs={approvals}
@@ -851,6 +854,7 @@ export default function LiveOperations() {
         <Drawer title={current.customer} onClose={() => setSelected(null)}>
           <JobFile
             key={current.id}
+            reload={load}
             j={current}
             data={data}
             change={change}
@@ -2427,7 +2431,7 @@ function CustomerForm({
     </Form>
   );
 }
-function JobFile({ j, data, change, clickAction, saving, onOpen }: any) {
+function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) {
   const { me, team, today } = data,
     isInstaller = me.role === "installer",
     review = data.canReview,
@@ -2934,6 +2938,7 @@ function JobFile({ j, data, change, clickAction, saving, onOpen }: any) {
           hidden={workspaceTab !== "completion"}
           style={{ display: workspaceTab === "completion" ? "block" : "none" }}
         >
+          <LaborSheet j={j} me={me} profile={data.leadProfile} reload={reload}/>
           {j.leadRenovationJob && (
             <LeadRenovation
               j={j}

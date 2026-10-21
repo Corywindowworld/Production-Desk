@@ -13,6 +13,7 @@ export function DigitalDocuments({ j }: any) {
     certificates = certificatesForJob(j),
     lead = j.operations?.leadRenovation,
     reorders = j.operations?.reorders || [],
+    labor = (j.operations?.laborSheets||[]).filter((s:any)=>s.status==="Approved"),
     uploads = uploadedDocumentsForJob(j);
   const safe = (fn: () => void) => {
     setError("");
@@ -23,7 +24,7 @@ export function DigitalDocuments({ j }: any) {
     }
   };
   const total =
-    certificates.length + (lead ? 1 : 0) + reorders.length + uploads.length;
+    labor.length + certificates.length + (lead ? 1 : 0) + reorders.length + uploads.length;
   return (
     <section className="digital-documents">
       <div className="digital-documents-header">
@@ -63,6 +64,7 @@ export function DigitalDocuments({ j }: any) {
           ))}
         </div>
       )}
+      {labor.map((s:any)=><div className="digital-document-row" key={s.id}><strong>Approved labor · {s.approvedAt.slice(0,10)} · ${s.approvedTotal.toFixed(2)}</strong><a className="live-button" target="_blank" rel="noreferrer" href={"/api/labor?jobId="+j.id+"&sheetId="+s.id}>View / Print PDF</a></div>)}
       {lead && (
         <div className="digital-document-row">
           <div>

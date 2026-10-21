@@ -129,8 +129,8 @@ export function JobCertificateForm({ j, type, profile, onChange }: any) {
     [complete, setComplete] = useState(false),
     [confirmed, setConfirmed] = useState(false),
     [error, setError] = useState("");
-  const [answers, setAnswers] = useState<boolean[]>(
-    Array(questions.length).fill(true),
+  const [answers, setAnswers] = useState<(boolean|null)[]>(
+    Array(questions.length).fill(null),
   );
   const [customerSignature, setCustomerSignature] = useState(""),
     [installerSignature, setInstallerSignature] = useState(
@@ -169,7 +169,7 @@ export function JobCertificateForm({ j, type, profile, onChange }: any) {
     confirmed: accepted,
   });
   useEffect(() => {
-    setAnswers(Array(questions.length).fill(true));
+    setAnswers(Array(questions.length).fill(null));
     setPaymentAmount("");
     setPaymentMethod("");
     setCompletedWindows("");
@@ -213,6 +213,8 @@ export function JobCertificateForm({ j, type, profile, onChange }: any) {
       return setError("Enter the homeowner’s printed name.");
     if (type === "Incomplete" && !completedWindows.trim())
       return setError("List the windows or frames completed today.");
+    if (answers.some(answer=>answer===null))
+      return setError("Please answer every question before accepting the certificate.");
     if (answers.includes(false) && !explanation.trim())
       return setError("Please explain each No answer.");
     if (paymentAmount > 0 && !paymentMethod)

@@ -4052,3 +4052,43 @@ test('GQ report import skips a customer already entered manually with another re
  const result=await importGuild(admin,{rows:[row]});assert.equal(result.inserted,0);assert.equal(result.skipped,1);
  await assert.rejects(()=>importGuild(admin,{rows:[{...row,ratings:[0,0,0,0]}]}),/already has a different quality score/);
 });
+
+test('labor requests protect contract rates, require FS approval and freeze one batch per visit',async()=>{
+ await pg.exec("DO $$ BEGIN IF NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname='anon') THEN CREATE ROLE anon; END IF; IF NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname='authenticated') THEN CREATE ROLE authenticated; END IF; END $$;");
+ const {laborAction}=await vite.ssrLoadModule('/lib/labor-store.ts');
+ const {batchAction,batchData}=await vite.ssrLoadModule('/lib/completion-batches.ts');
+ const {certificateSnapshot,certificateInputSchema}=await vite.ssrLoadModule('/lib/job-certificate.ts');
+ assert.equal(certificateInputSchema.safeParse({...certificate('Complete'),answers:Array(7).fill(null)}).success,false);
+ const id=crypto.randomUUID(),at=new Date().toISOString(),job={id,leadRenovationJob:true,number:'LABOR-TEST',customer:'Labor Test',address:'1 Test Street',installerId:installer.id,amount:0,operations:{},history:[]};
+ const cert=certificateSnapshot(job,installer,certificate('Complete'),{},at);job.operations.report={approved:true,status:'Complete',certificate:cert,installed:today};
+ await pg.query('INSERT INTO production.jobs(id,payload,version,updated) VALUES($1,$2,1,$3)',[id,JSON.stringify(job),at]);
+ const source='jobs/'+id+'/labor/test';await pg.query("INSERT INTO production.attachment_uploads(key,staging_key,job_id,kind,member_id,name,expires,status) VALUES($1,$1,$2,'labor',$3,'Labor.pdf',0,'ready')",[source,id,pa.id]);
+ const current=async()=>{const r=(await pg.query('SELECT payload,version FROM production.jobs WHERE id=$1',[id])).rows[0];return {...JSON.parse(r.payload),version:r.version};};
+ const lines=[{description:'Standard installation',contract:3,rate:86,actual:null,reason:'',extra:false}];
+ await assert.rejects(()=>laborAction(installer,{action:'import',jobId:id,version:1,lines,sourceKey:source,customerId:job.number,confirmed:true}),/Office access/);
+ await laborAction(pa,{action:'import',jobId:id,version:1,lines,sourceKey:source,customerId:job.number,confirmed:true});
+ let saved=await current(),sheet=saved.operations.laborSheets[0];
+ await assert.rejects(()=>laborAction(installer,{action:'submit',jobId:id,version:saved.version,sheetId:sheet.id,lines:[{...lines[0],rate:100,actual:3}],signature,confirmed:true}),/cannot be changed/);
+ await laborAction(installer,{action:'submit',jobId:id,version:saved.version,sheetId:sheet.id,lines:[{...lines[0],actual:2,reason:'One window requires reorder'}],signature,confirmed:true});
+ saved=await current();await assert.rejects(()=>laborAction(pa,{action:'review',jobId:id,version:saved.version,sheetId:sheet.id,approve:true,approvedUnits:[2],note:''}),/FS\/Admin/);
+ await pg.query('UPDATE production.members SET profile_details=$1::jsonb WHERE id=$2',[JSON.stringify({savedDrawnSignature:signature}),fs.id]);
+ await assert.rejects(()=>laborAction(fs,{action:'review',jobId:id,version:saved.version,sheetId:sheet.id,approve:true,approvedUnits:[2],note:''}),/Lead Renovation/);
+ saved.operations.leadRenovation={answers:Array(13).fill(true),signatureDataUrl:signature,renovatorName:'Test Installer',renovatorId:'C123',epaCertification:'EPA-TEST',signedAt:at};
+ await pg.query('UPDATE production.jobs SET payload=$1 WHERE id=$2',[JSON.stringify(saved),id]);
+ await laborAction(fs,{action:'review',jobId:id,version:saved.version,sheetId:sheet.id,approve:true,approvedUnits:[2],note:'Verified work',chargeback:10,chargebackReason:'Test adjustment'});
+ saved=await current();assert.equal(saved.operations.laborSheets[0].approvedTotal,162);
+ await assert.rejects(()=>batchAction(installer,{items:[{jobId:id,laborId:sheet.id}]}),/Office access/);
+ saved=await current();saved.operations.report={approved:false,status:'Incomplete',certificate:{id:'new-visit'}};await pg.query('UPDATE production.jobs SET payload=$1 WHERE id=$2',[JSON.stringify(saved),id]);
+ const listed=await batchData(pa);assert.ok(listed.jobs.some(row=>row.laborId===sheet.id&&!row.batched));
+ const b=await batchAction(pa,{items:[{jobId:id,laborId:sheet.id}]});const download=await batchData(pa,b.id);assert.ok(download.pdf_base64.startsWith('JVBER'));
+ await assert.rejects(()=>batchAction(pa,{items:[{jobId:id,laborId:sheet.id}]}),/already in a batch/);
+ await batchAction(pa,{action:'sent',id:b.id});await assert.rejects(()=>batchAction(pa,{action:'sent',id:b.id}),/already marked sent/);
+ const after=await batchData(pa,b.id);assert.equal(after.pdf_base64,download.pdf_base64);
+ const {writeFileSync}=await import('node:fs');writeFileSync('/tmp/completion-batch-test.pdf',Buffer.from(download.pdf_base64,'base64'));
+});
+
+test('labor PDF text extraction finds customer and contracted quantities without treating rates as units',async()=>{
+ const {parseLaborText,laborTotal}=await vite.ssrLoadModule('/lib/labor.ts');
+ const p=parseLaborText('Customer: Test ID#: 684452 Crew: C824\nInstallation - Standard 17 x 86 1462\nInstall Custom Int/Ext Trim x 15\nTrip Charge 1 x 20 20');
+ assert.equal(p.customerId,'684452');assert.equal(p.lines[0].contract,17);assert.equal(p.lines[0].rate,86);assert.equal(p.lines[1].contract,0);assert.equal(laborTotal(p.lines.map(l=>({...l,actual:l.contract}))),1482);
+});

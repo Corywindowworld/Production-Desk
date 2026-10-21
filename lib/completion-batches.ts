@@ -19,8 +19,8 @@ export async function batchData(m:Member,id?:string){
  const rows=(await db.prepare('SELECT payload FROM jobs').all()).results,used=new Set((await db.prepare('SELECT labor_id FROM production.completion_batch_items').all()).results.map((r:any)=>r.labor_id));
  return {jobs:rows.map((r:any)=>obj(r.payload)).flatMap((j:any)=>{
  const sheets=j.operations?.laborSheets||[],approved=sheets.filter((s:any)=>s.status==='Approved');
- const entries=approved.map((l:any)=>{const snap=l.packetJob||j;return {id:l.id,jobId:j.id,customer:snap.customer,number:snap.number,date:snap.operations.report.installed||l.approvedAt.slice(0,10),status:snap.operations.report.status,missing:[],batched:used.has(l.id),laborId:l.id};});
- const current=laborReady(j);if(j.operations?.report?.approved&&current.missing.length)entries.push({id:j.id,jobId:j.id,customer:j.customer,number:j.number,date:j.operations.report.installed||j.operations.report.reviewedAt?.slice(0,10)||'',status:j.operations.report.status,missing:current.missing,batched:false,laborId:''});return entries;
+ const entries=approved.map((l:any)=>{const snap=l.packetJob||j;return {id:l.id,jobId:j.id,customer:snap.customer,number:snap.number,date:snap.operations.report.installed||l.approvedAt.slice(0,10),status:snap.operations.report.certificate?.type==='Service'?'Service':snap.operations.report.status,missing:[],batched:used.has(l.id),laborId:l.id};});
+ const current=laborReady(j);if(j.operations?.report?.approved&&current.missing.length)entries.push({id:j.id,jobId:j.id,customer:j.customer,number:j.number,date:j.operations.report.installed||j.operations.report.reviewedAt?.slice(0,10)||'',status:j.operations.report.certificate?.type==='Service'?'Service':j.operations.report.status,missing:current.missing,batched:false,laborId:''});return entries;
  }),batches:(await db.prepare('SELECT id,created,created_by,sent_at,sent_by FROM production.completion_batches ORDER BY created DESC').all()).results};
 }
 export async function batchAction(m:Member,input:any){

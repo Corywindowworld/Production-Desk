@@ -4088,7 +4088,32 @@ test('labor requests protect contract rates, require FS approval and freeze one 
 });
 
 test('labor PDF text extraction finds customer and contracted quantities without treating rates as units',async()=>{
- const {parseLaborText,laborTotal}=await vite.ssrLoadModule('/lib/labor.ts');
+ const {parseLaborText,laborTotal,laborVisitType}=await vite.ssrLoadModule('/lib/labor.ts');
+ assert.equal(laborVisitType({stage:'Closed',operations:{report:{certificate:{type:'Service'}}}}),'Service');assert.equal(laborVisitType({stage:'Closed',incompleteSince:today}),'Completion');
  const p=parseLaborText('Customer: Test ID#: 684452 Crew: C824\nInstallation - Standard 17 x 86 1462\nInstall Custom Int/Ext Trim x 15\nTrip Charge 1 x 20 20');
  assert.equal(p.customerId,'684452');assert.equal(p.lines[0].contract,17);assert.equal(p.lines[0].rate,86);assert.equal(p.lines[1].contract,0);assert.equal(laborTotal(p.lines.map(l=>({...l,actual:l.contract}))),1482);
+});
+
+test('assigned installers create blank service labor, save partial drafts and submit for FS approval',async()=>{
+ const {laborAction}=await vite.ssrLoadModule('/lib/labor-store.ts'),{batchAction,batchData}=await vite.ssrLoadModule('/lib/completion-batches.ts'),{certificateSnapshot}=await vite.ssrLoadModule('/lib/job-certificate.ts');
+ const id=crypto.randomUUID(),at=new Date().toISOString(),job={id,number:'SERVICE-LABOR',customer:'Service labor customer',address:'2 Test Street',stage:'SVC',installerId:installer.id,amount:0,operations:{},history:[]};
+ job.operations.report={approved:true,status:'Complete',installed:today,certificate:certificateSnapshot(job,installer,certificate('Service'),{},at)};
+ await pg.query('INSERT INTO production.jobs(id,payload,version,updated) VALUES($1,$2,1,$3)',[id,JSON.stringify(job),at]);
+ const current=async()=>{const r=(await pg.query('SELECT payload,version FROM production.jobs WHERE id=$1',[id])).rows[0];return {...JSON.parse(r.payload),version:r.version};};
+ await assert.rejects(()=>laborAction({...installer,id:crypto.randomUUID()},{action:'start',jobId:id,version:1,visitType:'Service'}),/Job access/);
+ await laborAction(installer,{action:'start',jobId:id,version:1,visitType:'Service'});
+ let saved=await current(),sheet=saved.operations.laborSheets[0];assert.equal(sheet.source,'manual');assert.equal(sheet.visitType,'Service');assert.deepEqual(sheet.lines,[]);
+ await assert.rejects(()=>laborAction(installer,{action:'start',jobId:id,version:saved.version,visitType:'Service'}),/already open/);
+ const line={description:'Replace lock',contract:0,actual:null,rate:null,reason:'',extra:false};
+ await laborAction(installer,{action:'draft',jobId:id,version:saved.version,sheetId:sheet.id,lines:[line]});
+ saved=await current();assert.equal(saved.operations.laborSheets[0].lines[0].rate,null);assert.equal(saved.operations.laborSheets[0].status,'Draft');
+ await assert.rejects(()=>laborAction(installer,{action:'submit',jobId:id,version:saved.version,sheetId:sheet.id,lines:[line],signature,confirmed:true}));
+ await laborAction(installer,{action:'submit',jobId:id,version:saved.version,sheetId:sheet.id,lines:[{...line,actual:2,rate:50}],signature,confirmed:true});
+ saved=await current();assert.equal(saved.operations.laborSheets[0].requestedTotal,100);
+ await assert.rejects(()=>laborAction(pa,{action:'review',jobId:id,version:saved.version,sheetId:sheet.id,approve:true,approvedUnits:[2],note:''}),/FS\/Admin/);
+ await pg.query('UPDATE production.members SET profile_details=$1::jsonb WHERE id=$2',[JSON.stringify({savedDrawnSignature:signature}),fs.id]);
+ await laborAction(fs,{action:'review',jobId:id,version:saved.version,sheetId:sheet.id,approve:true,approvedUnits:[2],note:''});
+ saved=await current();assert.equal(saved.operations.laborSheets[0].approvedTotal,100);assert.equal(saved.operations.laborSheets[0].approvedLines[0].extra,false);
+ const packets=await batchData(pa);const entry=packets.jobs.find(r=>r.laborId===sheet.id);assert.equal(entry.status,'Service');assert.deepEqual(entry.missing,[]);
+ const batch=await batchAction(pa,{items:[{jobId:id,laborId:sheet.id}]});assert.ok((await batchData(pa,batch.id)).pdf_base64.startsWith('JVBER'));
 });

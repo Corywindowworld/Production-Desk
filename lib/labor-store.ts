@@ -1,34 +1,46 @@
 import {database} from '@/db/raw';
 import {ApiError,canSeeJob,type Member} from './access';
 import {drawnSignature,readProfileDetails} from './account-profile';
-import {laborLines,laborTotal,reportKey} from './labor';
+import {laborLines,laborTotal,reportKey,laborVisitType} from './labor';
 import {z} from 'zod';
 const office=(m:Member)=>['admin','supervisor','office','production_assistant'].includes(m.role);
 const fail=(ok:any,message:string,status=400)=>{if(!ok)throw new ApiError(status,message)};
 const object=(v:any)=>typeof v==='string'?JSON.parse(v):v;
 export async function laborAction(m:Member,input:any){
- const base=z.object({jobId:z.string().uuid(),version:z.number().int(),action:z.enum(['import','submit','review']),sheetId:z.string().uuid().optional()}).parse(input);
+ const base=z.object({jobId:z.string().uuid(),version:z.number().int(),action:z.enum(['start','import','draft','submit','review']),sheetId:z.string().uuid().optional()}).parse(input);
  return database().transaction(async tx=>{
   const row=await tx.prepare('SELECT payload,version FROM jobs WHERE id=? FOR UPDATE').bind(base.jobId).first();fail(row,'Job not found.',404);
   const j=object(row.payload);fail(canSeeJob(m,j),'Job access required.',403);fail(row.version===base.version,'This job changed. Refresh before saving.',409);
   j.operations||={};const sheets=j.operations.laborSheets||=[];j.operations.laborSheets=sheets;const at=new Date().toISOString();let message='';
-  if(base.action==='import'){
+  if(base.action==='start'){
+   fail(office(m)||m.role==='installer'&&canSeeJob(m,j),'Assigned installer or office access required.',403);
+   fail(!sheets.some((s:any)=>['Draft','Submitted','Returned'].includes(s.status)),'A labor sheet is already open for this job. Continue that sheet.',409);
+   const kind=z.enum(['Installation','Completion','Service']).parse(input.visitType);
+   sheets.push({id:crypto.randomUUID(),status:'Draft',source:'manual',visitType:kind,lines:[],originalLines:[],createdAt:at,createdBy:m.name});message=`Blank ${kind.toLowerCase()} labor sheet opened`;
+  }else if(base.action==='import'){
    fail(office(m),'Office access required.',403);
    const v=z.object({lines:laborLines,sourceKey:z.string().min(1).max(250),customerId:z.string(),confirmed:z.literal(true),replace:z.boolean().default(false)}).parse(input);
    fail(v.customerId.trim()===String(j.number).trim(),'Customer ID must match this job.');
    const source=await tx.prepare("SELECT key FROM attachment_uploads WHERE key=? AND job_id=? AND member_id=? AND kind='labor' AND status='ready'").bind(v.sourceKey,j.id,m.id).first();fail(source,'Upload the original labor PDF to this job first.');
    const draft=sheets.find((s:any)=>['Draft','Submitted','Returned'].includes(s.status));fail(!draft||v.replace,'A labor sheet already exists. Select Replace after reviewing the existing sheet.',409);
    if(draft){fail(draft.status!=='Submitted','Return the submitted sheet for correction before replacing it.',409);draft.status='Replaced';}
-   sheets.push({id:crypto.randomUUID(),status:'Draft',lines:v.lines.map(l=>({...l,actual:null,extra:false,reason:''})),sourceKey:v.sourceKey,createdAt:at,createdBy:m.name});message='Sales-order labor sheet imported and verified';
+   sheets.push({id:crypto.randomUUID(),status:'Draft',source:'upload',visitType:laborVisitType(j),lines:v.lines.map(l=>({...l,actual:sheets.some((s:any)=>s.status==='Approved')?null:l.contract,extra:false,reason:''})),sourceKey:v.sourceKey,createdAt:at,createdBy:m.name});message='Sales-order labor sheet imported and verified';
   }else{
    const sheet=sheets.find((s:any)=>s.id===base.sheetId);fail(sheet,'Labor sheet not found.',404);
-   if(base.action==='submit'){
-    fail(office(m)||m.role==='installer'&&j.installerId===m.id,'Assigned installer or office access required.',403);
+   if(base.action==='draft'){
+    fail(office(m)||m.role==='installer'&&canSeeJob(m,j),'Assigned installer or office access required.',403);
+    fail(['Draft','Returned'].includes(sheet.status),'Only an open labor draft can be edited.',409);
+    const line=z.object({description:z.string().max(250),contract:z.number().finite().min(0).max(10000),rate:z.number().finite().min(0).max(100000).nullable(),actual:z.number().finite().min(0).max(10000).nullable(),reason:z.string().max(1500),extra:z.boolean()});
+    const v=z.object({lines:z.array(line).min(1).max(100)}).parse(input),original=sheet.originalLines||sheet.lines;
+    if(sheet.source!=='manual'){fail(v.lines.length>=original.length,'Keep every sales-order labor item.');original.forEach((l:any,i:number)=>fail(v.lines[i].description===l.description&&v.lines[i].contract===l.contract&&v.lines[i].rate===l.rate,'Sales-order labor details cannot be changed.'));sheet.originalLines=original;}
+    sheet.lines=v.lines;message='Labor draft saved';
+   }else if(base.action==='submit'){
+    fail(office(m)||m.role==='installer'&&canSeeJob(m,j),'Assigned installer or office access required.',403);
     fail(['Draft','Returned'].includes(sheet.status),'This sheet has already been submitted.',409);
     const v=z.object({lines:laborLines,signature:drawnSignature,confirmed:z.literal(true)}).parse(input);
     const original=sheet.originalLines||sheet.lines;fail(v.lines.length>=original.length,'Keep every sales-order labor item.');
-    v.lines.forEach((l,i)=>{fail(l.actual!==null,'Enter actual units for every line, including zero.');if(i<original.length){const old=original[i];fail(l.description===old.description&&l.contract===old.contract&&l.rate===old.rate,'Contract descriptions, quantities and rates cannot be changed by the installer.');if(l.actual!==l.contract)fail(l.reason,'Explain each quantity change.');}else{fail(l.reason,'Explain extra labor.');l.extra=true;}});
-    const crew=await tx.prepare('SELECT name,installer_code,profile_details FROM members WHERE id=?').bind(j.installerId).first();
+    v.lines.forEach((l,i)=>{fail(l.actual!==null,'Enter actual units for every line, including zero.');if(sheet.source==='manual'){l.contract=0;l.extra=false;}else if(i<original.length){const old=original[i];fail(l.description===old.description&&l.contract===old.contract&&l.rate===old.rate,'Contract descriptions, quantities and rates cannot be changed by the installer.');if(l.actual!==l.contract)fail(l.reason,'Explain each quantity change.');}else{fail(l.reason,'Explain extra labor.');l.extra=true;}});
+    const crew=await tx.prepare('SELECT name,installer_code,profile_details FROM members WHERE id=?').bind(m.role==='installer'?m.id:j.installerId).first();
     const crewProfile=readProfileDetails(crew?.profile_details);
     Object.assign(sheet,{installerName:crew?.name||j.crew||m.name,contractorId:crewProfile.contractorNumber||crew?.installer_code||'',originalLines:original,lines:v.lines,status:'Submitted',submittedAt:at,submittedBy:m.name,installerSignature:v.signature,requestedTotal:laborTotal(v.lines)});message='Installer labor submitted for FS/Admin review';
    }else{
@@ -36,7 +48,7 @@ export async function laborAction(m:Member,input:any){
     const v=z.object({approve:z.boolean(),note:z.string().trim().max(2000),approvedUnits:z.array(z.number().finite().min(0).max(10000)).max(100).optional(),chargeback:z.number().finite().min(0).max(100000).default(0),chargebackReason:z.string().trim().max(2000).default('')}).parse(input);
     if(!v.approve){fail(v.note,'Explain the correction needed.');Object.assign(sheet,{status:'Returned',reviewNote:v.note});message='Labor returned for correction';}
     else{
-     fail(j.operations.report?.approved&&reportKey(j.operations.report),'Approve the completion/incompletion certificate first.');
+     fail(j.operations.report?.approved&&reportKey(j.operations.report),'Approve the completion, incompletion or service certificate first.');
      fail(!sheets.some((s:any)=>s.status==='Approved'&&s.reportKey===reportKey(j.operations.report)),'Labor is already approved for this certificate. Use a new visit certificate for additional labor.',409);
      fail(v.approvedUnits?.length===sheet.lines.length,'Review every requested labor line.');
      const lines=sheet.lines.map((l:any,i:number)=>({...l,actual:v.approvedUnits![i]}));

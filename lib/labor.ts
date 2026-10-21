@@ -14,9 +14,11 @@ export function parseLaborText(text:string){
 export function laborReady(j:any){
  const o=j.operations||{},r=o.report,l=(o.laborSheets||[]).find((s:any)=>s.status==='Approved'&&s.reportKey===reportKey(r));
  const missing=[];
- if(!r?.approved||!r?.certificate)missing.push('Approved COMP/INC certificate');
+ if(!r?.approved||!r?.certificate)missing.push('Approved completion / incompletion / service certificate');
  if(!l)missing.push('Approved labor');
  if(j.leadRenovationJob&&!o.leadRenovation?.signatureDataUrl)missing.push('Signed Lead Renovation sheet');
  return {labor:l,missing};
 }
 export function reportKey(r:any){return r?.certificate?.id||r?.certificate?.signedAt||r?.submittedAt||'';}
+
+export function laborVisitType(j:any):'Installation'|'Completion'|'Service'{return j.stage==='SVC'||j.operations?.report?.certificate?.type==='Service'?'Service':j.stage==='Incomplete'||j.incompleteSince||j.serviceCompletionJob||j.operations?.previousReports?.length?'Completion':'Installation';}

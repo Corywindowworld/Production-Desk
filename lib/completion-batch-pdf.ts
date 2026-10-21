@@ -15,8 +15,9 @@ export async function paperworkPdf(job:any,sheet:any,kind:'labor'|'lead'){
  line(kind==='labor'?'Window World Tampa Bay - Approved Labor':'Window World Tampa Bay - Lead Renovation',17,true);
  line(`${job.customer} | Customer ID: ${job.number}`,12,true);line([job.address,job.city,job.state,job.zip].filter(Boolean).join(', '));
  if(kind==='labor'){
-  line(`Installer: ${sheet.installerName||sheet.submittedBy} | Contractor: ${sheet.contractorId||"Not recorded"} | Approved: ${displayDate(sheet.approvedAt.slice(0,10))}`);line('Original / Requested / Approved quantities and rates',11,true);
-  sheet.lines.forEach((l:any,i:number)=>{const approved=sheet.approvedLines[i];line(`${l.description}${l.extra?' (Extra labor)':''}`,10,true);line(`Contract: ${l.contract} | Requested: ${l.actual} | Approved: ${approved.actual} x $${l.rate.toFixed(2)} = $${(approved.actual*l.rate).toFixed(2)}`);if(l.reason)line('Reason: '+l.reason);});
+  line(`Visit: ${sheet.visitType||'Installation'}`,11,true);
+  line(`Installer: ${sheet.installerName||sheet.submittedBy} | Contractor: ${sheet.contractorId||"Not recorded"} | Approved: ${displayDate(sheet.approvedAt.slice(0,10))}`);line(sheet.source==='manual'?'Installer-entered labor / FS approval':'Original / Requested / Approved quantities and rates',11,true);
+  sheet.lines.forEach((l:any,i:number)=>{const approved=sheet.approvedLines[i];line(`${l.description}${l.extra?' (Extra labor)':''}`,10,true);line(`${sheet.source==='manual'?'No sales-order baseline':'Contract: '+l.contract} | Requested: ${l.actual} | Approved: ${approved.actual} x $${l.rate.toFixed(2)} = $${(approved.actual*l.rate).toFixed(2)}`);if(l.reason)line('Reason: '+l.reason);});
   line(`Requested: $${sheet.requestedTotal.toFixed(2)} | Chargeback: $${sheet.chargeback.toFixed(2)} | Authorized this visit: $${sheet.approvedTotal.toFixed(2)}`,12,true);
   if(sheet.chargebackReason)line('Chargeback reason: '+sheet.chargebackReason);if(sheet.reviewNote)line('Review notes: '+sheet.reviewNote);
   const previous=(job.operations?.laborSheets||[]).filter((s:any)=>s.status==='Approved'&&s.id!==sheet.id&&s.approvedAt<=sheet.approvedAt).reduce((n:number,s:any)=>n+s.approvedTotal,0);line(`Previously authorized labor: $${previous.toFixed(2)}. This document authorizes this visit only.`);

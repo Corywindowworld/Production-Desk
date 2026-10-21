@@ -348,7 +348,7 @@ export default function LiveOperations() {
         action === "schedule" ||
         (["create", "edit"].includes(action) && values.scheduleWork)
       )
-        setSavedNotice("✓ Job saved to the schedule.");
+        setSavedNotice("");
       else if (action === "deleteSurvey")
         setSavedNotice("✓ Survey deleted. Quality scores recalculated.");
       else if (action === "editSurvey")

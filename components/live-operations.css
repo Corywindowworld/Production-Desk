@@ -131,7 +131,7 @@ html[data-theme="dark"] .live-operations .op-panel h2 {
 .live-completion {
   margin: 20px 0;
   padding: 22px;
-  border: 2px solid var(--op-active);
+  border: 1px solid var(--border);
   border-radius: 15px;
   background: #fff;
 }

@@ -10,6 +10,7 @@ export async function importGuild(m:Member,input:unknown){
  const nameKey=(value:string)=>value.toLowerCase().replace(/&/g,' and ').replace(/\b(?:incorporated|inc|llc|company|corp|corporation|construction|windows?|doors?|solutions?|services?)\b/g,' ').replace(/[^a-z0-9]+/g,' ').trim();
  const decodedRatings=(value:any)=>{try{const decoded=typeof value==='string'?JSON.parse(value):value;return Array.isArray(decoded)?decoded:null}catch{return null}};
  await database().transaction(async tx=>{
+  await tx.prepare('SELECT pg_advisory_xact_lock(820261021)').run();
   await tx.prepare('LOCK TABLE members IN SHARE ROW EXCLUSIVE MODE').run();
   const members=(await tx.prepare("SELECT m.id,m.email,m.name,m.role,m.installer_code,m.active,CASE WHEN c.member_id IS NULL THEN 0 ELSE 1 END AS login_ready FROM members m LEFT JOIN credentials c ON c.member_id=m.id").all()).results;const mapped=new Map<string,string>();
   for(const r of rows){
@@ -33,6 +34,8 @@ export async function importGuild(m:Member,input:unknown){
    const key=`gq:${r.code}:${r.customerId}:${r.completedOn}`,ratings=r.ratings.map(n=>n+1),id=mapped.get(r.code)!;
    const old=await tx.prepare('SELECT installer_id,customer_id,ratings FROM production.operations_surveys WHERE external_id=?').bind(key).first();
    if(old){if(JSON.stringify(decodedRatings(old.ratings))!==JSON.stringify(ratings))throw new ApiError(409,`Conflicting survey ${key}. Review the existing record before importing.`);if(old.installer_id!==id||old.customer_id!==r.customerId){await tx.prepare('UPDATE production.operations_surveys SET installer_id=?,customer_id=? WHERE external_id=?').bind(id,r.customerId,key).run();if(old.installer_id!==id)result.reassigned++;else result.skipped++;}else result.skipped++;continue}
+   const customerSurvey=await tx.prepare('SELECT ratings FROM production.operations_surveys WHERE TRIM(customer_id)=? ORDER BY completed_on DESC,created DESC,id DESC LIMIT 1').bind(r.customerId.trim()).first();
+   if(customerSurvey){if(JSON.stringify(decodedRatings(customerSurvey.ratings))!==JSON.stringify(ratings))throw new ApiError(409,`Customer ${r.customerId} already has a different quality score. Edit the existing survey before importing a resurvey.`);result.skipped++;continue;}
    await tx.prepare('INSERT INTO production.operations_surveys(id,external_id,customer_id,installer_id,completed_on,ratings,entered_by,created) VALUES(?,?,?,?,?,?,?,?)').bind(crypto.randomUUID(),key,r.customerId,id,r.completedOn,JSON.stringify(ratings),m.id,at).run();result.inserted++;
   }
  });return result;

@@ -8,7 +8,8 @@ export function decodeWarehouseFrame(
  if(!width||!height)return null;
  const scale=Math.min(1,maxDimension/Math.max(width,height));
  const w=Math.max(1,Math.round(width*scale)),h=Math.max(1,Math.round(height*scale));
- for(const angle of [0,90,180,270]){
+ // ZXing scans each row in both directions; two perpendicular passes cover all four rotations.
+ for(const angle of [0,90]){
   canvas.width=angle%180?h:w;canvas.height=angle%180?w:h;
   const context=canvas.getContext('2d',{willReadFrequently:true});
   if(!context)throw Error('Camera image could not be read.');

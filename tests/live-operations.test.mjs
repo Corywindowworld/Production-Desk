@@ -4035,3 +4035,20 @@ test('Admin can clear RCVD date and return to ORD without removing materials or 
  await assert.rejects(()=>act(admin,'clearReceived',{}),/Only an RCVD/);
  await act(admin,'receive',{received:today,materials:[{materialType:'Window',brand:'CWS',bay:'A1'}]});assert.equal(j.stage,'Received');assert.equal(j.received,today);
 });
+
+
+test('GQ rejects a second reference for the same customer and presents one current score',async()=>{
+ const cid='98261021',value={externalId:'DEDUP-FIRST',customerId:cid,installerId:installer.id,completedOn:today,ratings:[5,4,5,4]};
+ await operation(fs,{action:'survey',data:value});
+ await assert.rejects(()=>operation(fs,{action:'survey',data:{...value,externalId:'DEDUP-SECOND'}}),/already been recorded/);
+ const id=crypto.randomUUID();
+ await pg.query('INSERT INTO production.operations_surveys(id,external_id,customer_id,installer_id,completed_on,ratings,entered_by,created) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',[id,'LEGACY-DUP',cid,installer.id,today,JSON.stringify([4,4,4,4]),admin.id,'2099-01-01T00:00:00Z']);
+ for(const actor of [admin,fs,installer]){const rows=(await operationsData(actor)).surveys.filter(s=>s.customer_id===cid);assert.equal(rows.length,1);assert.equal(rows[0].id,id);}
+});
+
+test('GQ report import skips a customer already entered manually with another reference',async()=>{
+ const {importGuild}=await vite.ssrLoadModule('/lib/report-import-store.ts');
+ const row={code:'C999',name:'Imported Crew',supervisor:fs.name,customerId:'98261021',completedOn:today,ratings:[3,3,3,3]};
+ const result=await importGuild(admin,{rows:[row]});assert.equal(result.inserted,0);assert.equal(result.skipped,1);
+ await assert.rejects(()=>importGuild(admin,{rows:[{...row,ratings:[0,0,0,0]}]}),/already has a different quality score/);
+});

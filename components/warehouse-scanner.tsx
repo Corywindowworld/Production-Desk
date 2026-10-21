@@ -16,11 +16,12 @@ export function WarehouseScanner({onScan}:{onScan:(value:string)=>void}){
    stream.current=camera;const element=video.current;if(!element){stop();return;}element.srcObject=camera;await element.play();
    if(n!==generation.current)return;
    const reader=new BrowserMultiFormatReader(),canvas=document.createElement('canvas');
+   let frame=0;
    const scan=()=>{
     if(n!==generation.current)return;
-    try{if(element.readyState>=2){const value=decodeWarehouseFrame(reader,element,element.videoWidth,element.videoHeight,canvas);if(value){stop();onScan(value);return;}}}
+    try{if(element.readyState>=2){const value=decodeWarehouseFrame(reader,element,element.videoWidth,element.videoHeight,canvas,++frame%4===0?1800:1000);if(value){stop();onScan(value);return;}}}
     catch{stop();setError('Camera image could not be read. Try a barcode photo.');return;}
-    timer.current=setTimeout(scan,250);
+    timer.current=setTimeout(scan,100);
    };
    scan();
   }catch{if(n===generation.current){stop();setError('Camera unavailable. Use a barcode photo or type the barcode.')}}

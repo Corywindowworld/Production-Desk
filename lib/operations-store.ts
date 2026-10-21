@@ -1,3 +1,4 @@
+import {currentSurveysSQL} from './survey-records';
 import {resetJobSchedule} from "./schedule-reset";
 import {salesResultEmail} from "./sales-result-email";
 import { allowedCityChoice, cityDropdownChoices } from "./dropdown-cleanup";
@@ -242,7 +243,7 @@ export async function operationsData(
       ? (
           await db
             .prepare(
-              "SELECT * FROM production.operations_surveys WHERE installer_id=? ORDER BY completed_on DESC",
+              `SELECT * FROM (${currentSurveysSQL}) current_surveys WHERE installer_id=? ORDER BY completed_on DESC`,
             )
             .bind(m.id)
             .all()
@@ -250,7 +251,7 @@ export async function operationsData(
       : (
           await db
             .prepare(
-              "SELECT * FROM production.operations_surveys ORDER BY completed_on DESC",
+              `SELECT * FROM (${currentSurveysSQL}) current_surveys ORDER BY completed_on DESC`,
             )
             .all()
         ).results;
@@ -713,14 +714,18 @@ export async function operation(m: Member, input: any) {
       "Select an installer.",
       400,
     );
-    const r = await db
+    await db.transaction(async tx => {
+    await tx.prepare('SELECT pg_advisory_xact_lock(820261021)').run();
+    const existing = await tx.prepare('SELECT id FROM production.operations_surveys WHERE TRIM(customer_id)=? LIMIT 1').bind(s.customerId.trim()).first();
+    assert(!existing,'A quality survey has already been recorded for this customer. An administrator can edit the existing score for a resurvey.',409);
+    const r = await tx
       .prepare(
         "INSERT INTO production.operations_surveys (id,external_id,customer_id,installer_id,completed_on,ratings,entered_by,created) VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(external_id) DO NOTHING",
       )
       .bind(
         crypto.randomUUID(),
         s.externalId,
-        s.customerId,
+        s.customerId.trim(),
         s.installerId,
         s.completedOn,
         JSON.stringify(s.ratings),
@@ -733,6 +738,7 @@ export async function operation(m: Member, input: any) {
       "That survey reference has already been recorded.",
       409,
     );
+    });
     return;
   }
   if (action === "crewColors") {
@@ -1179,6 +1185,7 @@ export async function operation(m: Member, input: any) {
       j.scheduleInstructions = s.additionalInstructions || "";
       if (s.instructions !== undefined) j.instructions = s.instructions;
       o.pendingSchedule = null;
+      if(m.id!==i?.id) await alert(m.id, `✓ ${j.customer} (#${j.number}) saved to the schedule for ${s.date}.`);
       if (i && (s.endDate || s.date) >= today)
         await alert(
           i.id,
@@ -2404,7 +2411,7 @@ export async function saveMonthEndBonusSnapshot(now = new Date()) {
       withCustomerRecord(storedObject(r.payload), r.record),
     );
     const surveys = (
-      await tx.prepare("SELECT * FROM production.operations_surveys").all()
+      await tx.prepare(currentSurveysSQL).all()
     ).results.map(normalizedSurvey);
     const raw = (
       await tx

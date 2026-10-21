@@ -15,3 +15,11 @@ for(const angle of [0,90,180,270])test(`live-frame decoding reads Code 39 at ${a
 });
 test('blank and not-yet-ready camera frames do not produce a scan',()=>{const blank=createCanvas(640,360);blank.getContext('2d').fillStyle='white';blank.getContext('2d').fillRect(0,0,640,360);assert.equal(decodeWarehouseFrame(reader,blank,640,360,createCanvas(1,1)),null);assert.equal(decodeWarehouseFrame(reader,blank,0,0,createCanvas(1,1)),null)});
 test.after(()=>vite.close());
+for(const angle of [-12,12,24])test(`enhanced decoding handles a label tilted ${angle} degrees`,()=>{
+ const frame=createCanvas(900,500),ctx=frame.getContext('2d');ctx.fillStyle='white';ctx.fillRect(0,0,900,500);ctx.translate(450,250);ctx.rotate(angle*Math.PI/180);ctx.drawImage(image,-image.width/2,-image.height/2);
+ assert.equal(decodeWarehouseFrame(reader,frame,900,500,createCanvas(1,1),1800,true),'WAREHOUSE123');
+});
+test('enhanced scanning recovers an intact band around a simulated crease',()=>{
+ const frame=createCanvas(image.width,image.height),ctx=frame.getContext('2d');ctx.drawImage(image,0,0);ctx.fillStyle='white';ctx.fillRect(0,image.height*.35,image.width,image.height*.3);
+ assert.equal(decodeWarehouseFrame(reader,frame,frame.width,frame.height,createCanvas(1,1),1800,true),'WAREHOUSE123');
+});

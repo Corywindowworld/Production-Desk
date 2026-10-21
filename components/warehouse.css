@@ -8,3 +8,4 @@
 .wh-page .wh-primary{background:var(--primary);color:var(--primary-foreground);border-color:var(--primary)}
 .wh-panel,.wh-stats button,.wh-page input,.wh-page select,.wh-page textarea,.wh-page button{background:var(--card);color:var(--foreground);border-color:var(--border)}
 .wh-selected{border-color:var(--primary)}
+.wh-account-results{max-height:360px;overflow:auto;margin:12px 0;border:1px solid var(--border);border-radius:12px}.wh-account-results button{display:flex;flex-direction:column;gap:5px;width:100%;text-align:left;border:0;border-bottom:1px solid var(--border);border-radius:0;padding:16px}.wh-account-results button[aria-pressed=true]{background:var(--accent)}.wh-ready-card{margin-top:18px;padding:18px;border:1px solid var(--border);border-radius:14px}.wh-ready-card header{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}.wh-ready-card h3{margin:0}.wh-page button:disabled{opacity:.55;cursor:not-allowed}

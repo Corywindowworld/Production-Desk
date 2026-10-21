@@ -12,7 +12,7 @@ export async function warehouseData(m:Member){
  const items=(await db.prepare('SELECT * FROM production.warehouse_items ORDER BY updated DESC,id').all()).results.filter(i=>m.role!=='installer'||accessible.some(j=>j.id===i.job_id));
  const ids=new Set(items.map(i=>i.id));
  const events=(await db.prepare('SELECT * FROM production.warehouse_events ORDER BY created DESC,id').all()).results.filter(e=>ids.has(e.item_id));
- return {me:{id:m.id,name:m.name,email:m.email,role:m.role},items,events,shipments:m.role==='installer'?[]:(await db.prepare('SELECT id,reference,name,store,created FROM production.warehouse_shipments ORDER BY created DESC').all()).results,jobs:(m.role==='warehouse'?jobs:accessible).map(j=>({id:j.id,number:j.number,customer:j.customer,stage:j.stage})),canManage:warehouseManagers.includes(m.role)};
+ return {me:{id:m.id,name:m.name,email:m.email,role:m.role},items,events,shipments:m.role==='installer'?[]:(await db.prepare('SELECT id,reference,name,store,created FROM production.warehouse_shipments ORDER BY created DESC').all()).results,jobs:(m.role==='warehouse'?jobs:accessible).map(j=>({id:j.id,number:j.number,customer:j.customer,stage:j.stage,address:j.address||'',city:j.city||'',product:j.product,brand:j.brand||''})),canManage:warehouseManagers.includes(m.role)};
 }
 export async function warehouseOperation(m:Member,input:any){
  allowed(warehouseViewers.includes(m.role));const manage=warehouseManagers.includes(m.role),at=new Date().toISOString(),db=database();

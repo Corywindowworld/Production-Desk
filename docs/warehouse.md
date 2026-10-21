@@ -15,3 +15,12 @@ Installer returns remain **Return Pending** until Warehouse confirms receipt and
 Loading scans and equipment checkout are deferred. Picking-ticket parsing is not part of this release; manual entries support exceptions. Camera/photo scanning and saves require a connected browser; installer location requirements continue to apply.
 
 Validation: warehouse and live-operations tests; TypeScript; production build. The supplied six-page PDF was checked with the same PDF.js extraction used by the app: 218 items / 23 POs. Its sample label was decoded using ZXing and matched to the first manifest item.
+
+## Receiving flow and uneven labels (October 21)
+Scan controls are near the top of the workspace. A matched item selects its linked ORD account. Saving the last usable expected item opens the receiving card; its bay is prefilled only when the items share one bay. Receipt still requires a human confirmation covering all required shipments. No status changes occur from scanning alone.
+
+The ORD dropdown is replaced with search by Customer ID, PO, name, address, city, manufacturer order and AQ. Results show usable/expected counts and blockers; at most 20 are shown until the search is narrowed. Exact CID matches sort first. No giant default list. Warehouse job responses expose only identifying address/product details, not payments or full job history.
+
+Camera decoding retains fast perpendicular passes, with an occasional enhanced attempt distributed across tilted angles. Enhanced photo decoding uses overlapping scan bands and local contrast stretching to find an intact area around a crease. Continuous focus and a light toggle are enabled only when supported by the camera. Folds obscuring bars, glare and severely warped printing may still require repositioning or an exact CID/AQ lookup; no barcode values are guessed.
+
+Validation includes Code 39 at all four orientations, -12/+12/+24-degree tilt, a simulated partially obscured scan band, receiving search, blockers and server RCVD safeguards. These tests do not establish real-device success for every damaged label.

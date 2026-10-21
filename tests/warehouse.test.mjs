@@ -63,3 +63,13 @@ test('older unlisted returns need assignment and owned evidence; never change th
  const j=JSON.parse((await pg.query('SELECT payload FROM production.jobs WHERE id=$1',[jobId])).rows[0].payload);assert.equal(j.stage,'Ordered');
 });
 test.after(async()=>{await vite.close();await pg.close();delete globalThis.__warehouseDb});
+
+test('receiving search finds the customer directly by CID, PO, AQ, order or address and reports blockers',async()=>{
+ const {searchWarehouseJobs,warehouseJobProgress}=await vite.ssrLoadModule('/lib/warehouse-receiving.ts');
+ const jobs=[{id:'a',number:'686442',customer:'Tomassini, Arvi',stage:'Ordered',address:'12 Example Road',city:'Seminole'},{id:'b',number:'111',customer:'Closed account',stage:'Closed'}];
+ const items=[{job_id:'a',po:'073-686442',aq:'9663995-2-1',manufacturer_order:'45687662',status:'Received',bay:'A1'},{job_id:'a',status:'Damaged',bay:'A1'}];
+ for(const key of ['686442','073-686442','Tomassini','9663995','45687662','Example Road'])assert.equal(searchWarehouseJobs(jobs,items,key)[0].id,'a');
+ assert.deepEqual(searchWarehouseJobs(jobs,items,''),[]);assert.deepEqual(searchWarehouseJobs(jobs,items,'Closed'),[]);
+ let p=warehouseJobProgress(items,'a');assert.equal(p.ready,false);assert.equal(p.received,1);assert.ok(p.blockers.includes('1 damaged'));
+ items[1].status='Received';p=warehouseJobProgress(items,'a');assert.equal(p.ready,true);assert.deepEqual(p.bays,['A1']);items[1].bay='';assert.equal(warehouseJobProgress(items,'a').ready,false);assert.equal(warehouseJobProgress([],'a').ready,false);
+});

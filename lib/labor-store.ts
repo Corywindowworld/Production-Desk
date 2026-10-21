@@ -13,7 +13,7 @@ const office=(m:Member)=>['admin','supervisor','office','production_assistant'].
 const fail=(ok:any,message:string,status=400)=>{if(!ok)throw new ApiError(status,message)};
 const object=(v:any)=>typeof v==='string'?JSON.parse(v):v;
 export async function laborAction(m:Member,input:any){
- const base=z.object({jobId:z.string().uuid(),version:z.number().int(),action:z.enum(['start','import','draft','submit','review']),sheetId:z.string().uuid().optional()}).parse(input);
+ const base=z.object({jobId:z.string().uuid(),version:z.number().int(),action:z.enum(['start','import','draft','submit','review','edit']),sheetId:z.string().uuid().optional()}).parse(input);
  return database().transaction(async tx=>{
   const row=await tx.prepare('SELECT payload,version FROM jobs WHERE id=? FOR UPDATE').bind(base.jobId).first();fail(row,'Job not found.',404);
   const j=object(row.payload);fail(canSeeJob(m,j),'Job access required.',403);fail(row.version===base.version,'This job changed. Refresh before saving.',409);
@@ -40,7 +40,19 @@ export async function laborAction(m:Member,input:any){
 
   }else{
    const sheet=sheets.find((s:any)=>s.id===base.sheetId);fail(sheet,'Labor sheet not found.',404);if(['draft','submit'].includes(base.action)&&input.template===true&&sheet.source==='manual'&&(!sheet.lines.length||sheet.lines.every((l:any)=>!l.description&&!l.actual&&l.rate==null))){sheet.templateVersion='LS-2500';sheet.lines=blankLaborTemplate();}
-   if(base.action==='draft'){
+   if(base.action==='edit'){
+    fail(['admin','supervisor'].includes(m.role),'FS/Admin edit access required.',403);
+    fail(sheet.status!=='Replaced','This sheet has been replaced.',409);
+    const lines=z.array(z.object({description:z.string().trim().min(1).max(250),contract:z.number().int().min(0).max(10000),rate:z.number().finite().min(0).max(100000).nullable(),actual:z.number().int().min(0).max(10000).nullable(),reason:z.string().max(1500).default(''),extra:z.boolean().default(false)})).min(1).max(100).parse(input.lines);
+    const snapshot=structuredClone(sheet);delete snapshot.revisions;
+    sheet.revisions=[...(sheet.revisions||[]),{at,by:m.name,sheet:snapshot}];
+    const needsReview=['Submitted','Approved'].includes(sheet.status);
+    if(needsReview)fail(lines.every(l=>l.actual!==null&&l.rate!==null),'Enter actual units and pay for every submitted labor line.');
+    sheet.lines=lines;sheet.originalLines=structuredClone(lines);delete sheet.templateVersion;
+    if(input.formFields!==undefined)saveFormFields(m,sheet,input.formFields);
+    if(needsReview){sheet.status='Submitted';sheet.requestedTotal=laborTotal(lines);for(const key of ['approvedLines','approvedTotal','approvedAt','approvedBy','reportKey','packetJob','reviewerSignature','approvalSummary'])delete sheet[key];}
+    message='Labor sheet edited by FS/Admin'+(needsReview?' — pending management review':'');
+   }else if(base.action==='draft'){
     fail(office(m)||m.role==='installer'&&canSeeJob(m,j),'Assigned installer or office access required.',403);
     fail(['Draft','Returned'].includes(sheet.status),'Only an open labor draft can be edited.',409);
     const line=z.object({description:z.string().max(250),contract:z.number().finite().int('Enter whole numbers for labor units.').min(0).max(10000),rate:z.number().finite().min(0).max(100000).nullable(),actual:z.number().finite().int('Enter whole numbers for labor units.').min(0).max(10000).nullable(),reason:z.string().max(1500),extra:z.boolean()});

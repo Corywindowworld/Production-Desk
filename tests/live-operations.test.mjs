@@ -4120,3 +4120,21 @@ test('assigned installers create blank service labor, save partial drafts and su
 });
 
 test('uploaded labor originals appear in documents once per file key',async()=>{const {uploadedDocumentsForJob}=await vite.ssrLoadModule('/lib/digital-documents.ts');const j={attachments:[{key:'old',name:'Original.pdf'}],operations:{laborSheets:[{sourceKey:'old'},{sourceKey:'legacy'}]}};assert.deepEqual(uploadedDocumentsForJob(j).map(a=>a.key),['old','legacy']);});
+
+test('LS-2500 reproduces the supplied 27 labor rows and rates without copying sample quantities',async()=>{
+ const {blankLaborTemplate,templateDetailsValid}=await vite.ssrLoadModule('/lib/labor-template.ts');
+ const rows=blankLaborTemplate();assert.equal(rows.length,27);assert.deepEqual(rows.map(l=>l.rate),[20,20,40,86,25,15,5,27,150,5,3,35,25,115,400,150,50,15,25,20,285,485,75,8,180,null,20]);assert.ok(rows.every(l=>l.contract===0&&l.actual===null));
+ const counts={0:4,1:16,2:4,3:17,4:17,6:9,12:16,19:17,26:1};assert.equal(rows.reduce((sum,l,i)=>sum+(counts[i]||0)*(l.rate||0),0),3252);assert.equal(templateDetailsValid(rows),true);rows[3].rate=1;assert.equal(templateDetailsValid(rows),false);
+});
+test('printed labor template drafts preserve fields, protect rates and submit exact totals',async()=>{
+ const {laborAction}=await vite.ssrLoadModule('/lib/labor-store.ts');const id=crypto.randomUUID(),at=new Date().toISOString(),job={id,number:'123450',customer:'Template Test',installerId:installer.id,amount:0,operations:{},history:[]};await pg.query('INSERT INTO production.jobs(id,payload,version,updated) VALUES($1,$2,1,$3)',[id,JSON.stringify(job),at]);
+ const opened=await laborAction(installer,{action:'start',jobId:id,version:1,visitType:'Installation',template:true});
+ const current=async()=>{const r=(await pg.query('SELECT payload,version FROM production.jobs WHERE id=$1',[id])).rows[0];return {...JSON.parse(r.payload),version:r.version}};
+ let saved=await current(),sheet=saved.operations.laborSheets[0];assert.equal(sheet.templateVersion,'LS-2500');assert.equal(sheet.lines.length,27);
+ const changed=structuredClone(sheet.lines);changed[0].rate=1;await assert.rejects(()=>laborAction(installer,{action:'draft',jobId:id,version:saved.version,sheetId:opened.sheetId,lines:changed}),/printed labor/);
+ const fields={stop:'2',stopOf:'3',differences:'No contract baseline',miscLabor:'Extra trim',truck:['Vacuum','Drop Cloth'],answer0:'Yes',answer1:'No',answer2:'Yes',checklistExplanation:'Accounting to collect'};
+ await laborAction(installer,{action:'draft',jobId:id,version:saved.version,sheetId:opened.sheetId,lines:sheet.lines,formFields:fields});saved=await current();assert.deepEqual(saved.operations.laborSheets[0].formFields,fields);
+ const lines=sheet.lines.map((l,i)=>({...l,actual:i===3?2:0,rate:l.rate??0}));await laborAction(installer,{action:'submit',jobId:id,version:saved.version,sheetId:opened.sheetId,lines,formFields:fields,signature,confirmed:true});saved=await current();assert.equal(saved.operations.laborSheets[0].requestedTotal,172);assert.equal(saved.operations.laborSheets[0].formFields.stop,'2');
+});
+
+test('LS-2500 print stays on letter paper and preserves long notes in an appendix',async()=>{const {laborFormPdf}=await vite.ssrLoadModule('/lib/labor-form-pdf.ts'),{blankLaborTemplate}=await vite.ssrLoadModule('/lib/labor-template.ts'),{PDFDocument}=await import('pdf-lib');const lines=blankLaborTemplate().map(l=>({...l,actual:0,rate:l.rate??0})),job={number:'684452',customer:'Test customer'},sheet={lines,approvedLines:lines,approvedTotal:0,requestedTotal:0,formFields:{}};const normal=await PDFDocument.load(await laborFormPdf(job,sheet));assert.equal(normal.getPageCount(),1);assert.deepEqual(normal.getPage(0).getSize(),{width:612,height:792});const long=await PDFDocument.load(await laborFormPdf(job,{...sheet,formFields:{miscLabor:'Detailed work note '.repeat(300)}}));assert.ok(long.getPageCount()>1);});

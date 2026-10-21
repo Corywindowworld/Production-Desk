@@ -3,6 +3,8 @@ import {ApiError,canSeeJob,type Member} from './access';
 import {drawnSignature,readProfileDetails} from './account-profile';
 import {laborLines,laborTotal,reportKey,laborVisitType,laborCustomerId} from './labor';
 import {z} from 'zod';
+import {blankLaborTemplate,templateDetailsValid} from './labor-template';
+const formFields=z.object({stop:z.string().max(20).optional(),stopOf:z.string().max(20).optional(),differences:z.string().max(1500).optional(),miscLabor:z.string().max(1500).optional(),receivedBy:z.string().max(150).optional(),checklistExplanation:z.string().max(1500).optional(),answer0:z.enum(['Yes','No']).optional(),answer1:z.enum(['Yes','No']).optional(),answer2:z.enum(['Yes','No']).optional(),truck:z.array(z.enum(['Yard Signs','Drop Cloth','Trim & Caulk','Parts','Vacuum','Spray Foam'])).max(6).optional()});
 const office=(m:Member)=>['admin','supervisor','office','production_assistant'].includes(m.role);
 const fail=(ok:any,message:string,status=400)=>{if(!ok)throw new ApiError(status,message)};
 const object=(v:any)=>typeof v==='string'?JSON.parse(v):v;
@@ -15,8 +17,8 @@ export async function laborAction(m:Member,input:any){
   if(base.action==='start'){
    fail(office(m)||m.role==='installer'&&canSeeJob(m,j),'Assigned installer or office access required.',403);
    fail(!sheets.some((s:any)=>['Draft','Submitted','Returned'].includes(s.status)),'A labor sheet is already open for this job. Continue that sheet.',409);
-   const kind=z.enum(['Installation','Completion','Service']).parse(input.visitType);
-   sheets.push({id:crypto.randomUUID(),status:'Draft',source:'manual',visitType:kind,lines:[],originalLines:[],createdAt:at,createdBy:m.name});message=`Blank ${kind.toLowerCase()} labor sheet opened`;
+   const kind=z.enum(['Installation','Completion','Service']).parse(input.visitType),template=z.boolean().optional().parse(input.template)===true;
+   sheets.push({id:crypto.randomUUID(),status:'Draft',source:'manual',visitType:kind,lines:template?blankLaborTemplate():[],originalLines:[],...(template?{templateVersion:'LS-2500'}:{}),createdAt:at,createdBy:m.name});message=`Blank ${kind.toLowerCase()} labor sheet opened`;
   }else if(base.action==='import'){
    fail(office(m),'Office access required.',403);
    const v=z.object({lines:laborLines,sourceKey:z.string().min(1).max(250),customerId:z.string(),confirmed:z.literal(true),replace:z.boolean().default(false)}).parse(input);
@@ -26,26 +28,26 @@ export async function laborAction(m:Member,input:any){
    if(draft){fail(draft.status!=='Submitted','Return the submitted sheet for correction before replacing it.',409);draft.status='Replaced';}
    sheets.push({id:crypto.randomUUID(),status:'Draft',source:'upload',visitType:laborVisitType(j),lines:v.lines.map(l=>({...l,actual:sheets.some((s:any)=>s.status==='Approved')?null:l.contract,extra:false,reason:''})),sourceKey:v.sourceKey,createdAt:at,createdBy:m.name});message='Sales-order labor sheet imported and verified';
   }else{
-   const sheet=sheets.find((s:any)=>s.id===base.sheetId);fail(sheet,'Labor sheet not found.',404);
+   const sheet=sheets.find((s:any)=>s.id===base.sheetId);fail(sheet,'Labor sheet not found.',404);if(['draft','submit'].includes(base.action)&&input.template===true&&sheet.source==='manual'&&(!sheet.lines.length||sheet.lines.every((l:any)=>!l.description&&!l.actual&&l.rate==null))){sheet.templateVersion='LS-2500';sheet.lines=blankLaborTemplate();}
    if(base.action==='draft'){
     fail(office(m)||m.role==='installer'&&canSeeJob(m,j),'Assigned installer or office access required.',403);
     fail(['Draft','Returned'].includes(sheet.status),'Only an open labor draft can be edited.',409);
     const line=z.object({description:z.string().max(250),contract:z.number().finite().min(0).max(10000),rate:z.number().finite().min(0).max(100000).nullable(),actual:z.number().finite().min(0).max(10000).nullable(),reason:z.string().max(1500),extra:z.boolean()});
     const v=z.object({lines:z.array(line).min(1).max(100)}).parse(input),original=sheet.originalLines||sheet.lines;
     if(sheet.source!=='manual'){fail(v.lines.length>=original.length,'Keep every sales-order labor item.');original.forEach((l:any,i:number)=>fail(v.lines[i].description===l.description&&v.lines[i].contract===l.contract&&v.lines[i].rate===l.rate,'Sales-order labor details cannot be changed.'));sheet.originalLines=original;}
-    sheet.lines=v.lines;message='Labor draft saved';
+    if(sheet.templateVersion)fail(templateDetailsValid(v.lines),'Keep the printed labor descriptions and pay rates.');sheet.lines=v.lines;if(input.formFields!==undefined)sheet.formFields=formFields.parse(input.formFields);message='Labor draft saved';
    }else if(base.action==='submit'){
     fail(office(m)||m.role==='installer'&&canSeeJob(m,j),'Assigned installer or office access required.',403);
     fail(['Draft','Returned'].includes(sheet.status),'This sheet has already been submitted.',409);
     const v=z.object({lines:laborLines,signature:drawnSignature,confirmed:z.literal(true)}).parse(input);
-    const original=sheet.originalLines||sheet.lines;fail(v.lines.length>=original.length,'Keep every sales-order labor item.');
+    const original=sheet.originalLines||sheet.lines;fail(v.lines.length>=original.length,'Keep every sales-order labor item.');if(sheet.templateVersion)fail(templateDetailsValid(v.lines),'Keep the printed labor descriptions and pay rates.');if(input.formFields!==undefined)sheet.formFields=formFields.parse(input.formFields);
     v.lines.forEach((l,i)=>{fail(l.actual!==null,'Enter actual units for every line, including zero.');if(sheet.source==='manual'){l.contract=0;l.extra=false;}else if(i<original.length){const old=original[i];fail(l.description===old.description&&l.contract===old.contract&&l.rate===old.rate,'Contract descriptions, quantities and rates cannot be changed by the installer.');if(l.actual!==l.contract)fail(l.reason,'Explain each quantity change.');}else{fail(l.reason,'Explain extra labor.');l.extra=true;}});
     const crew=await tx.prepare('SELECT name,installer_code,profile_details FROM members WHERE id=?').bind(m.role==='installer'?m.id:j.installerId).first();
     const crewProfile=readProfileDetails(crew?.profile_details);
     Object.assign(sheet,{installerName:crew?.name||j.crew||m.name,contractorId:crewProfile.contractorNumber||crew?.installer_code||'',originalLines:original,lines:v.lines,status:'Submitted',submittedAt:at,submittedBy:m.name,installerSignature:v.signature,requestedTotal:laborTotal(v.lines)});message='Installer labor submitted for FS/Admin review';
    }else{
     fail(['admin','supervisor'].includes(m.role),'FS/Admin approval required.',403);fail(sheet.status==='Submitted','No labor submission is pending.',409);
-    const v=z.object({approve:z.boolean(),note:z.string().trim().max(2000),approvedUnits:z.array(z.number().finite().min(0).max(10000)).max(100).optional(),chargeback:z.number().finite().min(0).max(100000).default(0),chargebackReason:z.string().trim().max(2000).default('')}).parse(input);
+    const v=z.object({approve:z.boolean(),note:z.string().trim().max(2000),approvedUnits:z.array(z.number().finite().min(0).max(10000)).max(100).optional(),chargeback:z.number().finite().min(0).max(100000).default(0),chargebackReason:z.string().trim().max(2000).default(''),chargebackTo:z.array(z.enum(['Sales Rep','Contractor','Factory','Warranty'])).max(4).default([]),authorization:z.enum(['complete','other']).optional()}).parse(input);
     if(!v.approve){fail(v.note,'Explain the correction needed.');Object.assign(sheet,{status:'Returned',reviewNote:v.note});message='Labor returned for correction';}
     else{
      fail(j.operations.report?.approved&&reportKey(j.operations.report),'Approve the completion, incompletion or service certificate first.');
@@ -59,7 +61,7 @@ export async function laborAction(m:Member,input:any){
      const gross=laborTotal(lines);fail(v.chargeback<=gross,'Chargeback cannot exceed this visit’s labor.');
      const profile=readProfileDetails((await tx.prepare('SELECT profile_details FROM members WHERE id=?').bind(m.id).first())?.profile_details);
      fail(profile.savedDrawnSignature,'Save your drawn signature in My Profile before approving labor.');
-     Object.assign(sheet,{status:'Approved',approvedLines:lines,approvedTotal:Math.round((gross-v.chargeback)*100)/100,chargeback:v.chargeback,chargebackReason:v.chargebackReason,reviewNote:v.note,approvedAt:at,approvedBy:m.name,reviewerSignature:profile.savedDrawnSignature,reportKey:reportKey(j.operations.report),packetJob:{id:j.id,number:j.number,customer:j.customer,address:j.address,city:j.city,state:j.state,zip:j.zip,leadRenovationJob:!!j.leadRenovationJob,operations:{report:structuredClone(j.operations.report),leadRenovation:structuredClone(j.operations.leadRenovation||null),laborSheets:sheets.filter((s:any)=>s.status==='Approved').map((s:any)=>({id:s.id,status:s.status,approvedTotal:s.approvedTotal,approvedAt:s.approvedAt}))}}});message='Labor approved: $'+sheet.approvedTotal.toFixed(2);
+     Object.assign(sheet,{status:'Approved',approvedLines:lines,approvedTotal:Math.round((gross-v.chargeback)*100)/100,chargeback:v.chargeback,chargebackReason:v.chargebackReason,chargebackTo:v.chargebackTo,authorization:v.authorization,reviewNote:v.note,approvedAt:at,approvedBy:m.name,reviewerSignature:profile.savedDrawnSignature,reportKey:reportKey(j.operations.report),packetJob:{id:j.id,number:j.number,customer:j.customer,address:j.address,city:j.city,state:j.state,zip:j.zip,phone:j.phone,phone2:j.phone2,phone3:j.phone3,crew:j.crew,salesRep:j.salesRep,region:j.region,instructions:j.instructions,scheduleInstructions:j.scheduleInstructions,amount:j.amount,leadRenovationJob:!!j.leadRenovationJob,operations:{report:structuredClone(j.operations.report),leadRenovation:structuredClone(j.operations.leadRenovation||null),laborSheets:sheets.filter((s:any)=>s.status==='Approved').map((s:any)=>({id:s.id,status:s.status,approvedTotal:s.approvedTotal,approvedAt:s.approvedAt}))}}});message='Labor approved: $'+sheet.approvedTotal.toFixed(2);
     }
    }
   }

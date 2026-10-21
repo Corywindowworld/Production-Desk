@@ -1,6 +1,7 @@
 import {z} from 'zod';
 export const drawnSignature=z.string().max(200000).regex(/^data:image\/png;base64,[A-Za-z0-9+/]+={0,2}$/, 'Draw your signature before saving.');
 export const profileDetails=z.object({
+ employeeNumber:z.string().trim().max(30).optional(),
  savedDrawnSignature:z.union([drawnSignature,z.literal('')]).optional(),
  epaCertification:z.string().trim().max(100).optional(),savedSignature:z.string().trim().max(150).optional(),
  contractorNumber:z.string().trim().toUpperCase().regex(/^(C[0-9]+)?$/).max(30).optional(),

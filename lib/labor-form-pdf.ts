@@ -1,8 +1,10 @@
+import {laborPaymentSummary,staffInitials} from './labor-approval';
 import {PDFDocument,StandardFonts,rgb} from 'pdf-lib';
 import {laborAgreement,laborQuestions,laborTruckItems} from './labor-template';
 import {displayDate} from './display-date';
 const clean=(v:any)=>String(v??'').replace(/[^\x20-\x7e\n]/g,' ');
 export async function laborFormPdf(job:any,sheet:any){
+ const approval=sheet.approvalSummary||laborPaymentSummary(job),initials=sheet.approverInitials||staffInitials(sheet.approvedBy||''),employee=sheet.approverEmployeeNumber||'Not recorded';
  const pdf=await PDFDocument.create(),font=await pdf.embedFont(StandardFonts.Helvetica),bold=await pdf.embedFont(StandardFonts.HelveticaBold),serif=await pdf.embedFont(StandardFonts.TimesRomanBold),p=pdf.addPage([612,792]),f=sheet.formFields||{},extra:string[]=[];
  const text=(v:any,x:number,y:number,size=8,strong=false)=>p.drawText(clean(v),{x,y,size,font:strong?bold:font,color:rgb(0,0,0)});
  const box=(x:number,y:number,w:number,h:number)=>p.drawRectangle({x,y,width:w,height:h,borderWidth:.5,borderColor:rgb(0,0,0)});
@@ -27,9 +29,9 @@ export async function laborFormPdf(job:any,sheet:any){
  const section=(title:string,value:any,height:number)=>{for(let i=0;i<Math.floor((height-24)/13);i++)p.drawLine({start:{x:right+7,y:ry-22-i*13},end:{x:right+rw-7,y:ry-22-i*13},thickness:.25,color:rgb(.65,.65,.65)});text(title,right+7,ry,8,true);wrap(value,right+7,ry-17,rw-14,8,Math.max(1,Math.floor((height-25)/10)));ry-=height;};
  section('Instructions to Installer',`Amt to Collect: $${money(job.amount)}\n${job.scheduleInstructions||job.instructions||''}`,86);
  section('Explain Differences From Contract',f.differences||'',95);section('Authorized Misc Labor (Describe Fully)',f.miscLabor||'',95);wrap('Auth. By: '+(sheet.approvedBy||''),right+7,ry+4,rw-14,7,1);
- ry-=14;text('Truck Inspection',right+45,ry,8,true);laborTruckItems.forEach((v,i)=>check(v,!!f.truck?.includes(v),right+7+(i%2)*80,ry-18-Math.floor(i/2)*18));ry-=76;wrap('Rec\'d By: '+(f.receivedBy||''),right+7,ry,rw-14,7,1);ry-=20;wrap('FS Init: '+(sheet.approvedBy||'________')+'  Emp #: _____',right+7,ry,rw-14,7,2);ry-=24;
- text('Reasons payment has been authorized',right+5,ry,7.8,true);ry-=12;text('(Field Supervisor Use Only)',right+20,ry,7);ry-=18;check('Job completed and fully paid',sheet.authorization==='complete',right+7,ry);ry-=18;check('Other (explain in detail below)',sheet.authorization==='other',right+7,ry);wrap(sheet.reviewNote||'',right+7,ry-16,rw-14,7,6);ry-=85;check('Lead Renovation form',!!job.leadRenovationJob,right+7,ry);ry-=18;text('Amount to Pay: $'+money(sheet.approvedTotal),right+7,ry,10,true);
- if(sheet.reviewerSignature){const img=await pdf.embedPng(sheet.reviewerSignature),s=Math.min(100/img.width,22/img.height);p.drawImage(img,{x:right+7,y:47,width:img.width*s,height:img.height*s});}
+ ry-=14;text('Truck Inspection',right+45,ry,8,true);laborTruckItems.forEach((v,i)=>check(v,!!f.truck?.includes(v),right+7+(i%2)*80,ry-18-Math.floor(i/2)*18));ry-=76;wrap('Rec\'d By: '+(f.receivedBy||''),right+7,ry,rw-14,7,1);ry-=20;wrap('FS/Admin Init: '+(initials||'_____')+'  Emp #: '+employee,right+7,ry,rw-14,7,2);ry-=24;
+ text('Reasons payment has been authorized',right+5,ry,7.8,true);ry-=12;text('(Field Supervisor Use Only)',right+20,ry,7);ry-=18;check('Job completed and fully paid',sheet.authorization==='complete',right+7,ry);ry-=18;check('Other (explain in detail below)',sheet.authorization==='other',right+7,ry);wrap(sheet.reviewNote||'',right+7,ry-16,rw-14,7,3);ry-=82;wrap(approval.label,right+7,ry+34,rw-14,9,2);text('Payment amount: '+(approval.paymentAmount==null?'Not recorded':'$'+money(approval.paymentAmount)),right+7,ry+12,8);check('Lead Renovation form',!!job.leadRenovationJob,right+7,ry);ry-=18;text('Labor to Pay: $'+money(sheet.approvedTotal),right+7,ry,10,true);wrap('FS/Admin Init: '+initials+'  Emp #: '+employee,right+7,ry-15,rw-14,7,2);
+ if(sheet.reviewerSignature){const img=await pdf.embedPng(sheet.reviewerSignature),s=Math.min(100/img.width,16/img.height);p.drawImage(img,{x:right+7,y:43,width:img.width*s,height:img.height*s});}
  text('Form # LS-2500',36,26,6);text('Revised 1-20-2022',503,26,6);
  if(extra.length){let page=pdf.addPage([612,792]),ay=746;page.drawText(`Labor Sheet - ${clean(job.number)} - Additional Details`,{x:36,y:ay,size:14,font:bold});ay-=28;for(const note of extra){let row='';for(const word of note.split(/\s+/)){if(font.widthOfTextAtSize(row+' '+word,10)>530){if(ay<44){page=pdf.addPage([612,792]);ay=746;}page.drawText(row,{x:36,y:ay,size:10,font});ay-=14;row='';}row+=(row?' ':'')+word;}if(row){page.drawText(row,{x:36,y:ay,size:10,font});ay-=26;}}}
  return pdf.save();

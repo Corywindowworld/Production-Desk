@@ -5,7 +5,7 @@ import {matchingLaborJobs,laborImportDisposition} from './labor-import';
 import {database} from '@/db/raw';
 import {ApiError,canSeeJob,type Member} from './access';
 import {drawnSignature,readProfileDetails} from './account-profile';
-import {laborLines,laborTotal,reportKey,laborVisitType,laborCustomerId} from './labor';
+import {laborLines,laborTotal,laborCertificateReady,reportKey,laborVisitType,laborCustomerId} from './labor';
 import {z} from 'zod';
 import {blankLaborTemplate,templateDetailsValid} from './labor-template';
 const formFields=z.object({stop:z.string().max(20).optional(),stopOf:z.string().max(20).optional(),differences:z.string().max(1500).optional(),miscLabor:z.string().max(1500).optional(),receivedBy:z.string().max(150).optional(),checklistExplanation:z.string().max(1500).optional(),answer0:z.enum(['Yes','No']).optional(),answer1:z.enum(['Yes','No']).optional(),answer2:z.enum(['Yes','No']).optional(),truck:z.array(z.enum(['Yard Signs','Drop Cloth','Trim & Caulk','Parts','Vacuum','Spray Foam'])).max(6).optional()});
@@ -74,7 +74,7 @@ export async function laborAction(m:Member,input:any){
     const v=z.object({approve:z.boolean(),note:z.string().trim().max(2000),approvedUnits:z.array(z.number().finite().int('Enter whole numbers for labor units.').min(0).max(10000)).max(100).optional(),chargeback:z.number().finite().min(0).max(100000).default(0),chargebackReason:z.string().trim().max(2000).default(''),chargebackTo:z.array(z.enum(['Sales Rep','Contractor','Factory','Warranty'])).max(4).default([]),authorization:z.enum(['complete','other']).optional(),truck:z.array(z.enum(['Yard Signs','Drop Cloth','Trim & Caulk','Parts','Vacuum','Spray Foam'])).max(6).optional(),receivedBy:z.string().trim().max(150).optional()}).parse(input);
     if(!v.approve){fail(v.note,'Explain the correction needed.');Object.assign(sheet,{status:'Returned',reviewNote:v.note});message='Labor returned for correction';}
     else{
-     fail(j.operations.report?.approved&&reportKey(j.operations.report),'Approve the completion, incompletion or service certificate first.');
+     fail(laborCertificateReady(j),'Approve the completion, incompletion or service certificate first.');
      fail(!sheets.some((s:any)=>s.status==='Approved'&&s.reportKey===reportKey(j.operations.report)),'Labor is already approved for this certificate. Use a new visit certificate for additional labor.',409);
      fail(v.approvedUnits?.length===sheet.lines.length,'Review every requested labor line.');
      const lines=sheet.lines.map((l:any,i:number)=>({...l,actual:v.approvedUnits![i]}));

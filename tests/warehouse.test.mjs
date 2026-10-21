@@ -103,3 +103,5 @@ test('scan group distinguishes later-delivery items from missing windows',async(
  assert.doesNotThrow(()=>checkReceiveJob(rows,v));assert.throws(()=>checkReceiveJob(rows,{...v,pendingIds:[crypto.randomUUID()]}),/selected job/);
  assert.doesNotThrow(()=>checkReceiveJob(rows,{...v,bay:'',receivedIds:[],missingIds:rows.map(i=>i.id),pendingIds:[],reason:'Entire delivery absent'}));
 });
+
+test('manifest imports with no route reference use a generated reference and deduplicate retries',async()=>{const reference=manualWarehouseReference('', '2026-10-21','blankref1234');const input=warehouseImportSchema.parse({...shipment,reference,items:[{...item,externalId:'%BLANKREF'}]});const first=await op(warehouse,{action:'import',...input});assert.equal(first.added,1);const retry=await op(warehouse,{action:'import',...input});assert.equal(retry.added,0);assert.equal(retry.skipped,1);});

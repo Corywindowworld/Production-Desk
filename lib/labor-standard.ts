@@ -12,7 +12,7 @@ export function completeLaborRows(input:any[],scan=false){
    const base=rows[match.i];rows[match.i]={...base,...line,description:base.description,...(scan&&base.rate!==null?{rate:base.rate}:{}),scanMissing:false};used.add(match.i);
   }else extras.push({...line,extra:true});
  }
- return [...rows.map((r,i)=>used.has(i)?r:{...r,scanMissing:true}),...extras];
+ return [...rows.map((r,i)=>used.has(i)?r:{...r,scanMissing:true}),...extras].map(l=>({...l,actual:l.actual??0}));
 }
 export function standardLaborSheet(sheet:any){
  if(!['Draft','Returned','Imported','Submitted'].includes(sheet.status)||(sheet.standardLayout&&!(sheet.lines||[]).some((l:any)=>pocketAliases.has(rawKey(l.description||''))))||sheet.templateVersion)return sheet;

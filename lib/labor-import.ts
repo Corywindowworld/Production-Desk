@@ -5,6 +5,6 @@ export function laborImportDisposition(draft:any){
  if(draft.status!=='Draft')return 'Imported';
  const fields=draft.formFields||{};
  if(Object.values(fields).some(v=>Array.isArray(v)?v.length:!!v)||draft.installerSignature)return 'Imported';
- const untouched=(draft.lines||[]).every((l:any)=>!l.reason&&!l.extra&&(l.actual==null||draft.source==='upload'&&l.actual===l.contract));
+ const untouched=(draft.lines||[]).every((l:any)=>!l.reason&&!l.extra&&(l.actual==null||l.actual===0&&l.contract===0||draft.source==='upload'&&l.actual===l.contract));
  return untouched?'Draft':'Imported';
 }

@@ -2881,6 +2881,7 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
                   : ""),
             },
             { id: "history", label: "Payments and History" },
+            { id: "labor", label: "Complete Labor Sheet ↗" },
           ].map((t) => (
             <button
               type="button"
@@ -2889,7 +2890,7 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
               id={"job-tab-" + j.id + "-" + t.id}
               aria-selected={workspaceTab === t.id}
               aria-controls={"job-panel-" + j.id + "-" + t.id}
-              onClick={() => setWorkspaceTab(t.id)}
+              onClick={() => t.id === "labor" ? window.open("/labor/"+j.id,"_blank","noopener,noreferrer") : setWorkspaceTab(t.id)}
               onKeyDown={(e) => {
                 if (
                   ["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)

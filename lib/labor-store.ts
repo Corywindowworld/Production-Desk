@@ -1,7 +1,7 @@
 import {database} from '@/db/raw';
 import {ApiError,canSeeJob,type Member} from './access';
 import {drawnSignature,readProfileDetails} from './account-profile';
-import {laborLines,laborTotal,reportKey,laborVisitType} from './labor';
+import {laborLines,laborTotal,reportKey,laborVisitType,laborCustomerId} from './labor';
 import {z} from 'zod';
 const office=(m:Member)=>['admin','supervisor','office','production_assistant'].includes(m.role);
 const fail=(ok:any,message:string,status=400)=>{if(!ok)throw new ApiError(status,message)};
@@ -20,7 +20,7 @@ export async function laborAction(m:Member,input:any){
   }else if(base.action==='import'){
    fail(office(m),'Office access required.',403);
    const v=z.object({lines:laborLines,sourceKey:z.string().min(1).max(250),customerId:z.string(),confirmed:z.literal(true),replace:z.boolean().default(false)}).parse(input);
-   fail(v.customerId.trim()===String(j.number).trim(),'Customer ID must match this job.');
+   fail(v.customerId.trim()===String(j.number).trim()||(!!laborCustomerId(v.customerId)&&laborCustomerId(v.customerId)===laborCustomerId(j.number)),'Customer ID must match this job.');
    const source=await tx.prepare("SELECT key FROM attachment_uploads WHERE key=? AND job_id=? AND member_id=? AND kind='labor' AND status='ready'").bind(v.sourceKey,j.id,m.id).first();fail(source,'Upload the original labor PDF to this job first.');
    const draft=sheets.find((s:any)=>['Draft','Submitted','Returned'].includes(s.status));fail(!draft||v.replace,'A labor sheet already exists. Select Replace after reviewing the existing sheet.',409);
    if(draft){fail(draft.status!=='Submitted','Return the submitted sheet for correction before replacing it.',409);draft.status='Replaced';}
@@ -69,6 +69,6 @@ export async function laborAction(m:Member,input:any){
    const recipients=(await tx.prepare("SELECT id FROM members WHERE active=1 AND role IN ('admin','supervisor')").all()).results;
    for(const r of recipients)await tx.prepare('INSERT INTO notifications(id,recipient_id,job_id,message,created) VALUES(?,?,?,?,?)').bind(crypto.randomUUID(),r.id,j.id,`${j.customer} (#${j.number}): installer labor ready for review.`,at).run();
   }
-  return {ok:true};
+  return {ok:true,version:row.version+1,sheetId:sheets.find((s:any)=>['Draft','Submitted','Returned'].includes(s.status))?.id};
  });
 }

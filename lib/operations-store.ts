@@ -186,6 +186,7 @@ export function publicJob(m: Member, j: any) {
     reorder: j.reorder || "",
     attachments: (j.attachments || []).filter((a: any) => a.kind !== "visit"),
     operations: {
+      laborSheets: j.operations?.laborSheets || [],
       leadRenovation: j.operations?.leadRenovation,
       reorders: j.operations?.reorders || [],
       salesKeys: j.operations?.salesKeys,

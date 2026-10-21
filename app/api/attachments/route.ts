@@ -55,7 +55,7 @@ export async function POST(request:Request){try{
 }catch(e){return apiError(e)}}
 export async function GET(request:Request){try{
  const member=await actor(request),key=new URL(request.url).searchParams.get('key')||'';
- if(!/^jobs\/[0-9a-f-]+\/(completion|incomplete|reorder|photos|front|rear|left|right|issue|visit|warehouse)\/[0-9a-f-]+$/.test(key))throw new ApiError(404,'File not found.');
+ if(!/^jobs\/[0-9a-f-]+\/(labor|completion|incomplete|reorder|photos|front|rear|left|right|issue|visit|warehouse)\/[0-9a-f-]+$/.test(key))throw new ApiError(404,'File not found.');
  if(key.split('/')[2]==='warehouse')await uploadAccess(member,key.split('/')[1],'warehouse');else if(key.split('/')[2]==='visit')await visitJobFor(member,key.split('/')[1]);else await jobFor(member,key.split('/')[1]);
  if(!await bucket.head(key))throw new ApiError(404,'File not found.');
  const {data,error}=await storage().createSignedUrl(key,60);if(error||!data)throw new ApiError(404,'File not found.');

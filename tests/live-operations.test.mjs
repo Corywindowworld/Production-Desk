@@ -4088,10 +4088,10 @@ test('labor requests protect contract rates, require FS approval and freeze one 
 });
 
 test('labor PDF text extraction finds customer and contracted quantities without treating rates as units',async()=>{
- const {parseLaborText,laborTotal,laborVisitType}=await vite.ssrLoadModule('/lib/labor.ts');
+ const {parseLaborText,laborTotal,laborVisitType,laborCustomerId}=await vite.ssrLoadModule('/lib/labor.ts');
  assert.equal(laborVisitType({stage:'Closed',operations:{report:{certificate:{type:'Service'}}}}),'Service');assert.equal(laborVisitType({stage:'Closed',incompleteSince:today}),'Completion');
  const p=parseLaborText('Customer: Test ID#: 684452 Crew: C824\nInstallation - Standard 17 x 86 1462\nInstall Custom Int/Ext Trim x 15\nTrip Charge 1 x 20 20');
- assert.equal(p.customerId,'684452');assert.equal(p.lines[0].contract,17);assert.equal(p.lines[0].rate,86);assert.equal(p.lines[1].contract,0);assert.equal(laborTotal(p.lines.map(l=>({...l,actual:l.contract}))),1482);
+ assert.equal(laborCustomerId('073-684452'),'684452');assert.equal(laborCustomerId('684452'),'684452');assert.equal(laborCustomerId('bad684452'),'');assert.equal(parseLaborText('CID#: 684452').customerId,'684452');assert.equal(parseLaborText('Customer ID: 073-684452').customerId,'073-684452');assert.equal(p.customerId,'684452');assert.equal(p.lines[0].contract,17);assert.equal(p.lines[0].rate,86);assert.equal(p.lines[1].contract,0);assert.equal(laborTotal(p.lines.map(l=>({...l,actual:l.contract}))),1482);
 });
 
 test('assigned installers create blank service labor, save partial drafts and submit for FS approval',async()=>{
@@ -4101,7 +4101,8 @@ test('assigned installers create blank service labor, save partial drafts and su
  await pg.query('INSERT INTO production.jobs(id,payload,version,updated) VALUES($1,$2,1,$3)',[id,JSON.stringify(job),at]);
  const current=async()=>{const r=(await pg.query('SELECT payload,version FROM production.jobs WHERE id=$1',[id])).rows[0];return {...JSON.parse(r.payload),version:r.version};};
  await assert.rejects(()=>laborAction({...installer,id:crypto.randomUUID()},{action:'start',jobId:id,version:1,visitType:'Service'}),/Job access/);
- await laborAction(installer,{action:'start',jobId:id,version:1,visitType:'Service'});
+ const opened=await laborAction(installer,{action:'start',jobId:id,version:1,visitType:'Service'});assert.equal(opened.version,2);assert.ok(opened.sheetId);
+ const installerView=(await operationsData(installer)).jobs.find(j=>j.id===id);assert.equal(installerView.operations.laborSheets[0].id,opened.sheetId);
  let saved=await current(),sheet=saved.operations.laborSheets[0];assert.equal(sheet.source,'manual');assert.equal(sheet.visitType,'Service');assert.deepEqual(sheet.lines,[]);
  await assert.rejects(()=>laborAction(installer,{action:'start',jobId:id,version:saved.version,visitType:'Service'}),/already open/);
  const line={description:'Replace lock',contract:0,actual:null,rate:null,reason:'',extra:false};
@@ -4117,3 +4118,5 @@ test('assigned installers create blank service labor, save partial drafts and su
  const packets=await batchData(pa);const entry=packets.jobs.find(r=>r.laborId===sheet.id);assert.equal(entry.status,'Service');assert.deepEqual(entry.missing,[]);
  const batch=await batchAction(pa,{items:[{jobId:id,laborId:sheet.id}]});assert.ok((await batchData(pa,batch.id)).pdf_base64.startsWith('JVBER'));
 });
+
+test('uploaded labor originals appear in documents once per file key',async()=>{const {uploadedDocumentsForJob}=await vite.ssrLoadModule('/lib/digital-documents.ts');const j={attachments:[{key:'old',name:'Original.pdf'}],operations:{laborSheets:[{sourceKey:'old'},{sourceKey:'legacy'}]}};assert.deepEqual(uploadedDocumentsForJob(j).map(a=>a.key),['old','legacy']);});

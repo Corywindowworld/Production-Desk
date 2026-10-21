@@ -23,7 +23,7 @@ export function certificatesForJob(j: any) {
     });
 }
 export function uploadedDocumentsForJob(j: any) {
-  return (j?.attachments || []).filter((a: any) =>
-    /\.(pdf|docx?|xlsx?)$/i.test(String(a?.name || "")),
-  );
+  const sources=(j?.operations?.laborSheets||[]).filter((s:any)=>s.sourceKey).map((s:any)=>({key:s.sourceKey,name:'Sales-order labor sheet.pdf',kind:'labor'}));
+  const seen=new Set<string>();
+  return [...(j?.attachments||[]),...sources].filter((a:any)=>{if(!/\.(pdf|docx?|xlsx?)$/i.test(String(a?.name||''))||seen.has(a.key))return false;seen.add(a.key);return true;});
 }

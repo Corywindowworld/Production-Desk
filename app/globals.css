@@ -345,32 +345,6 @@ button.tracking-outline{border:2px solid #2462a2!important;border-radius:14px!im
 button.tracking-outline:focus-visible{outline:3px solid #df8a27;outline-offset:3px}
 button.tracking-outline:disabled{opacity:.55;cursor:wait}
 
-/* Every action has a visible control boundary, including document links and disclosures. */
-@media screen {
-  :where(button, input[type=button], input[type=submit], [role=button], summary, a[href]) {
-    border: 1.5px solid color-mix(in srgb, currentColor 55%, transparent);
-    border-radius: 8px;
-    padding: 8px 12px;
-    min-height: 40px;
-    font-weight: 600;
-    text-decoration: none;
-    cursor: pointer;
-    box-sizing: border-box;
-  }
-  :where(a[href]) { display: inline-flex; align-items: center; gap: 6px; }
-  :is(button, input[type=button], input[type=submit], [role=button], summary, a[href]):not(.crew-colored-job) {
-    border-style: solid !important;
-    border-width: 1.5px !important;
-    border-color: color-mix(in srgb, currentColor 55%, transparent) !important;
-  }
-  :is(button, input[type=button], input[type=submit], [role=button], summary, a[href]):focus-visible {
-    outline: 3px solid var(--ring, #0055ed) !important;
-    outline-offset: 3px;
-  }
-  :is(button, summary, a[href]):hover { box-shadow: 0 0 0 1px currentColor; }
-  :is(button, input[type=button], input[type=submit]):disabled { cursor: not-allowed; opacity: .55; }
-}
-
 /* Crew identity takes precedence over generic control and theme borders. */
 @media screen {
   .op-calendar-day > button.crew-colored-job {

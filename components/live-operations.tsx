@@ -1,4 +1,5 @@
 "use client";
+import './operations-palette.css';
 import {LaborImport,LaborSheet} from './labor-paperwork';
 import {CompletionBatches} from './completion-batches';
 import Warehouse from './warehouse';

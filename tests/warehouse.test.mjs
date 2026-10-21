@@ -73,3 +73,33 @@ test('receiving search finds the customer directly by CID, PO, AQ, order or addr
  let p=warehouseJobProgress(items,'a');assert.equal(p.ready,false);assert.equal(p.received,1);assert.ok(p.blockers.includes('1 damaged'));
  items[1].status='Received';p=warehouseJobProgress(items,'a');assert.equal(p.ready,true);assert.deepEqual(p.bays,['A1']);items[1].bay='';assert.equal(warehouseJobProgress(items,'a').ready,false);assert.equal(warehouseJobProgress([],'a').ready,false);
 });
+
+test('job scan group receives atomically, requires a missing reason and alerts FS Admin PA without marking RCVD',async()=>{
+ const fs={id:crypto.randomUUID(),role:'supervisor',name:'FS'};await pg.query('INSERT INTO production.members(id,email,name,role) VALUES($1,$2,$3,$4)',[fs.id,fs.id+'@example.com',fs.name,fs.role]);
+ const id=crypto.randomUUID(),at=new Date().toISOString();await pg.query('INSERT INTO production.jobs(id,payload,updated) VALUES($1,$2,$3)',[id,JSON.stringify({id,number:'987654',customer:'Group receiving',stage:'Ordered',product:'Windows',history:[]}),at]);
+ const parts=Array.from({length:3},(_,n)=>({externalId:'%GROUP'+n,po:'073-987654',order:'GROUP-ORDER',aq:'GROUP-'+n,description:'Window'}));
+ await op(warehouse,{action:'import',reference:'GROUP-TEST',name:'Group test',store:'073',items:parts});
+ const rows=(await warehouseData(warehouse)).items.filter(i=>i.job_id===id),versions=rows.map(i=>({id:i.id,version:i.version}));
+ const body={action:'receiveJob',jobId:id,bay:'G1',confirmed:true,versions,receivedIds:[rows[0].id,rows[1].id],missingIds:[rows[2].id],pendingIds:[],reason:''};
+ await assert.rejects(()=>op(warehouse,body),/reason for the missing/);
+ assert.ok((await warehouseData(warehouse)).items.filter(i=>i.job_id===id).every(i=>i.status==='Expected'));
+ await assert.rejects(()=>op(installer,{...body,reason:'Not on truck'}),/permission/);
+ await assert.rejects(()=>op(warehouse,{...body,missingIds:[],reason:''}),/Review every unscanned/);
+ await assert.rejects(()=>op(warehouse,{...body,receivedIds:[rows[0].id,rows[0].id],reason:'Not on truck'}),/only one receiving decision/);
+ await op(warehouse,{...body,reason:'Listed on manifest but not on truck'});
+ const after=(await warehouseData(warehouse)).items.filter(i=>i.job_id===id);assert.equal(after.filter(i=>i.status==='Received').length,2);assert.equal(after.filter(i=>i.status==='Missing').length,1);
+ const job=JSON.parse((await pg.query('SELECT payload FROM production.jobs WHERE id=$1',[id])).rows[0].payload);assert.equal(job.stage,'Ordered');assert.match(job.history[0].text,/not on truck/);
+ const alerts=(await pg.query("SELECT recipient_id,message FROM production.notifications WHERE job_id=$1 AND message LIKE 'MISSING WINDOWS%'",[id])).rows;
+ for(const member of [admin,pa,fs])assert.ok(alerts.some(a=>a.recipient_id===member.id&&a.message.includes('not on truck')));
+ await assert.rejects(()=>op(warehouse,{...body,reason:'Repeat'}),/Inventory changed/);
+ assert.equal((await pg.query("SELECT count(*)::int AS count FROM production.notifications WHERE job_id=$1 AND message LIKE 'MISSING WINDOWS%'",[id])).rows[0].count,alerts.length);
+ const missing=after.find(i=>i.status==='Missing');await op(warehouse,{...body,versions:after.map(i=>({id:i.id,version:i.version})),receivedIds:[missing.id],missingIds:[],reason:''});
+ assert.ok((await warehouseData(warehouse)).items.filter(i=>i.job_id===id).every(i=>i.status==='Received'));
+});
+
+test('scan group distinguishes later-delivery items from missing windows',async()=>{
+ const {checkReceiveJob}=await vite.ssrLoadModule('/lib/warehouse-scan-session.ts');
+ const rows=[{id:crypto.randomUUID(),version:1,status:'Expected'},{id:crypto.randomUUID(),version:1,status:'Expected'}],v={jobId:crypto.randomUUID(),bay:'A',confirmed:true,versions:rows.map(i=>({id:i.id,version:1})),receivedIds:[rows[0].id],missingIds:[],pendingIds:[rows[1].id],reason:''};
+ assert.doesNotThrow(()=>checkReceiveJob(rows,v));assert.throws(()=>checkReceiveJob(rows,{...v,pendingIds:[crypto.randomUUID()]}),/selected job/);
+ assert.doesNotThrow(()=>checkReceiveJob(rows,{...v,bay:'',receivedIds:[],missingIds:rows.map(i=>i.id),pendingIds:[],reason:'Entire delivery absent'}));
+});

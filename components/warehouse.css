@@ -9,3 +9,14 @@
 .wh-panel,.wh-stats button,.wh-page input,.wh-page select,.wh-page textarea,.wh-page button{background:var(--card);color:var(--foreground);border-color:var(--border)}
 .wh-selected{border-color:var(--primary)}
 .wh-account-results{max-height:360px;overflow:auto;margin:12px 0;border:1px solid var(--border);border-radius:12px}.wh-account-results button{display:flex;flex-direction:column;gap:5px;width:100%;text-align:left;border:0;border-bottom:1px solid var(--border);border-radius:0;padding:16px}.wh-account-results button[aria-pressed=true]{background:var(--accent)}.wh-ready-card{margin-top:18px;padding:18px;border:1px solid var(--border);border-radius:14px}.wh-ready-card header{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}.wh-ready-card h3{margin:0}.wh-page button:disabled{opacity:.55;cursor:not-allowed}
+
+/* Same palette as the dashboard: themed header, contrasting action color and readable white work cards. */
+.wh-page{background:var(--op-page);color:#142b42}
+.wh-header{background:var(--op-side);color:var(--op-side-text);border-bottom:4px solid var(--op-active)}
+.wh-header a{color:inherit}
+.wh-page .wh-panel,.wh-page .wh-stats button,.wh-page input,.wh-page select,.wh-page textarea,.wh-page button,.wh-page .wh-file-button{background:#fff;color:#142b42;border-color:#cad6e3}
+.wh-page .wh-primary{background:var(--op-active);border-color:var(--op-active);color:#fff}
+.wh-header button{background:transparent;color:var(--op-side-text);border-color:currentColor}
+.wh-page .wh-stats button[aria-pressed=true],.wh-selected{outline-color:var(--op-active);border-color:var(--op-active)}
+.wh-scan-summary{display:flex;gap:10px;flex-wrap:wrap;align-items:center;padding:14px;background:#edf3f8;border-radius:10px;margin:14px 0}
+.wh-scan-summary strong{flex-basis:100%}.wh-scan-list{max-height:280px;overflow:auto;margin:12px 0;border:1px solid #cad6e3;border-radius:10px}.wh-scan-row{display:grid;gap:8px;padding:14px;border-bottom:1px solid #cad6e3}.wh-scan-row small{overflow-wrap:anywhere}.wh-confirm-bar{position:sticky;bottom:10px;background:#fff;padding:12px;border:1px solid #cad6e3;border-radius:12px;box-shadow:0 3px 15px #142b4220;z-index:2}.wh-confirm-bar .wh-check{margin:0 0 12px}

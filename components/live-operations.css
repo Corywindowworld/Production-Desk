@@ -516,19 +516,8 @@ html[data-theme="dark"]
   margin-bottom: 20px;
 }
 
-html[data-theme="lightning"] {
-  --background: #f1f5fa;
-  --primary: #134a91;
-  --primary-foreground: #fff;
-  --ring: #365d87;
-}
-html[data-theme="lightning"] .op {
-  --op-side: #00205b;
-  --op-side-text: #ffffff;
-  --op-active: #134a91;
-  --op-accent: #365d87;
-  background: #f1f5fa;
-}
+
+html[data-theme="lightning"] .op{background: #f1f5fa}
 html[data-theme="lightning"] :is(.gators-theme-banner, .desk-header) {
   background: #00205b;
   color: #ffffff;
@@ -550,19 +539,8 @@ html[data-theme="lightning"] .op-score {
   background: #365d87;
 }
 
-html[data-theme="buccaneers"] {
-  --background: #f6f3f1;
-  --primary: #b80929;
-  --primary-foreground: #fff;
-  --ring: #a71930;
-}
-html[data-theme="buccaneers"] .op {
-  --op-side: #34302b;
-  --op-side-text: #ffffff;
-  --op-active: #b80929;
-  --op-accent: #a71930;
-  background: #f6f3f1;
-}
+
+html[data-theme="buccaneers"] .op{background: #f6f3f1}
 html[data-theme="buccaneers"] :is(.gators-theme-banner, .desk-header) {
   background: #34302b;
   color: #ffffff;
@@ -584,19 +562,8 @@ html[data-theme="buccaneers"] .op-score {
   background: #a71930;
 }
 
-html[data-theme="creamsicle"] {
-  --background: #fff8ee;
-  --primary: #a92c16;
-  --primary-foreground: #fff;
-  --ring: #c55000;
-}
-html[data-theme="creamsicle"] .op {
-  --op-side: #fff2dc;
-  --op-side-text: #65301a;
-  --op-active: #a92c16;
-  --op-accent: #c55000;
-  background: #fff8ee;
-}
+
+html[data-theme="creamsicle"] .op{background: #fff8ee}
 html[data-theme="creamsicle"] :is(.gators-theme-banner, .desk-header) {
   background: #fff2dc;
   color: #65301a;

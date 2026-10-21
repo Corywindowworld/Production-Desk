@@ -1,4 +1,5 @@
 'use client';
+import '@/components/operations-palette.css';
 import {useEffect,useRef,useState} from 'react';
 import {ArrowUpRight,CalendarDays,CheckCircle2,Clock3,ClipboardCheck,LayoutDashboard,MapPin,ShieldCheck,Star,TriangleAlert,X,BriefcaseBusiness,MapPinned,Plug,Bell,Settings} from 'lucide-react';
 import {aging,days,quality,qualityTier,requiresScheduleApproval,seed,tier,today,type Job} from './model';

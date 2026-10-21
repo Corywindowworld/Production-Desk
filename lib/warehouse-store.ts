@@ -1,3 +1,4 @@
+import {receiveJobSchema,checkReceiveJob} from './warehouse-scan-session';
 import {database} from '@/db/raw';
 import {ApiError,Member,canSeeJob} from './access';
 import {storedObject} from './stored-data';
@@ -53,6 +54,28 @@ export async function warehouseOperation(m:Member,input:any){
    const recipients=(await tx.prepare("SELECT id FROM members WHERE active=1 AND role IN ('admin','office','production_assistant','warehouse')").all()).results;for(const r of recipients)await tx.prepare('INSERT INTO notifications(id,recipient_id,job_id,message,created) VALUES(?,?,?,?,?)').bind(crypto.randomUUID(),r.id,job.id,message,at).run();return {ok:true};
   });
  }
+ if(action==='receiveJob'){
+  allowed(manage);const v=receiveJobSchema.parse(input);
+  return db.transaction(async tx=>{
+   await tx.prepare('SELECT pg_advisory_xact_lock(820261020)').first();
+   const row=await tx.prepare('SELECT payload FROM jobs WHERE id=? FOR UPDATE').bind(v.jobId).first();allowed(!!row,'Job not found.',404);const job=storedObject(row.payload);
+   const items=(await tx.prepare('SELECT * FROM production.warehouse_items WHERE job_id=? ORDER BY id FOR UPDATE').bind(v.jobId).all()).results;
+   try{checkReceiveJob(items,v)}catch(e){throw new ApiError(409,(e as Error).message)}
+   for(const id of [...v.receivedIds,...v.missingIds]){
+    const received=v.receivedIds.includes(id),item=items.find(i=>i.id===id)!;
+    await tx.prepare('UPDATE production.warehouse_items SET status=?,bay=?,version=version+1,updated=? WHERE id=?').bind(received?'Received':'Missing',received?v.bay:item.bay,at,id).run();
+    await tx.prepare('INSERT INTO production.warehouse_events(id,item_id,actor_id,actor_name,action,reason,created) VALUES(?,?,?,?,?,?,?)').bind(crypto.randomUUID(),id,m.id,m.name,received?'receive':'missing',received?'Job scan group confirmed · Bay '+v.bay:v.reason,at).run();
+   }
+   const missingLabels=items.filter(i=>v.missingIds.includes(i.id)).map(i=>`${i.external_id} (AQ ${i.aq})`).join(', ');
+   const message=`Warehouse receiving: ${v.receivedIds.length} windows received${v.receivedIds.length?' in bay '+v.bay:''}; ${v.missingIds.length} missing; ${v.pendingIds.length} left expected for later delivery.${missingLabels?' Missing: '+missingLabels+'. Reason: '+v.reason:''}`;
+   job.history=[{at,by:m.name,text:message},...(job.history||[])];await tx.prepare('UPDATE jobs SET payload=?,version=version+1,updated=? WHERE id=?').bind(JSON.stringify(job),at,job.id).run();
+   if(v.missingIds.length){
+    const recipients=(await tx.prepare("SELECT id FROM members WHERE active=1 AND role IN ('admin','supervisor','office','production_assistant')").all()).results;
+    for(const recipient of recipients)await tx.prepare('INSERT INTO notifications(id,recipient_id,job_id,message,created) VALUES(?,?,?,?,?)').bind(crypto.randomUUID(),recipient.id,job.id,`MISSING WINDOWS · ${job.customer} (#${job.number}): ${missingLabels}. Reason: ${v.reason}`,at).run();
+   }
+   return {ok:true,received:v.receivedIds.length,missing:v.missingIds.length};
+  });
+ }
  if(action==='ready'){
   allowed(manage);const v=z.object({jobId:z.string().uuid(),confirmed:z.literal(true),version:z.number().int().optional(),...receiveItemsSchema.shape}).parse(input);
   return db.transaction(async tx=>{
@@ -92,7 +115,7 @@ export async function warehouseOperation(m:Member,input:any){
   await tx.prepare('UPDATE production.warehouse_items SET status=?,bay=?,barcode=?,job_id=?,version=version+1,updated=? WHERE id=?').bind(status,bay,barcode,jobId,at,v.id).run();
   await tx.prepare('INSERT INTO production.warehouse_events(id,item_id,actor_id,actor_name,action,reason,photo_key,created) VALUES(?,?,?,?,?,?,?,?)').bind(crypto.randomUUID(),v.id,m.id,m.name,action,v.reason+(v.bay?' · Bay '+v.bay:''),v.photoKey||null,at).run();
   if(job){const message=`Warehouse ${action}: ${item.external_id} · ${status}${v.reason?' · '+v.reason:''}${bay?' · Bay '+bay:''}`;job.history=[{at,by:m.name,text:message},...(job.history||[])];await tx.prepare('UPDATE jobs SET payload=?,version=version+1,updated=? WHERE id=?').bind(JSON.stringify(job),at,job.id).run();
-   if(['damage','missing','return'].includes(action)){const recipients=(await tx.prepare("SELECT id FROM members WHERE active=1 AND role IN ('admin','office','production_assistant','warehouse')").all()).results;const ids=new Set(recipients.map(r=>r.id));if(job.supervisorId)ids.add(job.supervisorId);for(const id of ids)await tx.prepare('INSERT INTO notifications(id,recipient_id,job_id,message,created) VALUES(?,?,?,?,?)').bind(crypto.randomUUID(),id,job.id,message,at).run();}
+   if(['damage','missing','return'].includes(action)){const recipients=(await tx.prepare("SELECT id FROM members WHERE active=1 AND role IN ('admin','supervisor','office','production_assistant','warehouse')").all()).results;const ids=new Set(recipients.map(r=>r.id));if(job.supervisorId)ids.add(job.supervisorId);for(const id of ids)await tx.prepare('INSERT INTO notifications(id,recipient_id,job_id,message,created) VALUES(?,?,?,?,?)').bind(crypto.randomUUID(),id,job.id,message,at).run();}
   }return {ok:true};
  });
 }

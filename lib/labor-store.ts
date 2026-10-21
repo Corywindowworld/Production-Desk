@@ -1,3 +1,5 @@
+import {createHash} from 'node:crypto';
+import {matchingLaborJobs,laborImportDisposition} from './labor-import';
 import {database} from '@/db/raw';
 import {ApiError,canSeeJob,type Member} from './access';
 import {drawnSignature,readProfileDetails} from './account-profile';
@@ -21,12 +23,19 @@ export async function laborAction(m:Member,input:any){
    sheets.push({id:crypto.randomUUID(),status:'Draft',source:'manual',visitType:kind,lines:template?blankLaborTemplate():[],originalLines:[],...(template?{templateVersion:'LS-2500'}:{}),createdAt:at,createdBy:m.name});message=`Blank ${kind.toLowerCase()} labor sheet opened`;
   }else if(base.action==='import'){
    fail(office(m),'Office access required.',403);
-   const v=z.object({lines:laborLines,sourceKey:z.string().min(1).max(250),customerId:z.string(),confirmed:z.literal(true),replace:z.boolean().default(false)}).parse(input);
+   const v=z.object({lines:laborLines,sourceKey:z.string().min(1).max(250),customerId:z.string(),confirmed:z.literal(true).optional(),automatic:z.boolean().default(false),replace:z.boolean().default(false)}).parse(input);
    fail(v.customerId.trim()===String(j.number).trim()||(!!laborCustomerId(v.customerId)&&laborCustomerId(v.customerId)===laborCustomerId(j.number)),'Customer ID must match this job.');
+   if(v.automatic){const all=(await tx.prepare('SELECT payload FROM jobs').all()).results.map((r:any)=>object(r.payload));const matches=matchingLaborJobs(all,v.customerId);fail(matches.length===1&&matches[0].id===j.id,'Customer ID matches more than one account. Resolve the duplicate CID before importing.');}
    const source=await tx.prepare("SELECT key FROM attachment_uploads WHERE key=? AND job_id=? AND member_id=? AND kind='labor' AND status='ready'").bind(v.sourceKey,j.id,m.id).first();fail(source,'Upload the original labor PDF to this job first.');
-   const draft=sheets.find((s:any)=>['Draft','Submitted','Returned'].includes(s.status));fail(!draft||v.replace,'A labor sheet already exists. Select Replace after reviewing the existing sheet.',409);
-   if(draft){fail(draft.status!=='Submitted','Return the submitted sheet for correction before replacing it.',409);draft.status='Replaced';}
-   sheets.push({id:crypto.randomUUID(),status:'Draft',source:'upload',visitType:laborVisitType(j),lines:v.lines.map(l=>({...l,actual:sheets.some((s:any)=>s.status==='Approved')?null:l.contract,extra:false,reason:''})),sourceKey:v.sourceKey,createdAt:at,createdBy:m.name});message='Sales-order labor sheet imported and verified';
+   const importKey=createHash('sha256').update(JSON.stringify({cid:String(j.number).trim(),lines:v.lines.map(l=>[l.description,l.contract,l.rate])})).digest('hex');
+   const duplicate=sheets.find((s:any)=>s.source==='upload'&&(s.importKey===importKey||JSON.stringify((s.originalLines||s.lines).map((l:any)=>[l.description,l.contract,l.rate]))===JSON.stringify(v.lines.map(l=>[l.description,l.contract,l.rate]))));
+   if(duplicate)return {ok:true,duplicate:true,version:row.version,sheetId:duplicate.id,importStatus:duplicate.status};
+   const draft=sheets.find((s:any)=>['Draft','Submitted','Returned'].includes(s.status));
+   let status='Draft';
+   if(v.automatic){status=laborImportDisposition(draft);if(draft&&status==='Draft')draft.status='Replaced';}
+   else{fail(!draft||v.replace,'A labor sheet already exists. Select Replace after reviewing the existing sheet.',409);if(draft){fail(draft.status!=='Submitted','Return the submitted sheet for correction before replacing it.',409);draft.status='Replaced';}}
+   sheets.push({id:crypto.randomUUID(),status,source:'upload',importKey,visitType:laborVisitType(j),lines:v.lines.map(l=>({...l,actual:sheets.some((s:any)=>s.status==='Approved')?null:l.contract,extra:false,reason:''})),sourceKey:v.sourceKey,createdAt:at,createdBy:m.name});message=status==='Imported'?'Labor PDF and contract values attached; current installer work preserved':'Sales-order labor PDF and contract values attached by Customer ID';
+
   }else{
    const sheet=sheets.find((s:any)=>s.id===base.sheetId);fail(sheet,'Labor sheet not found.',404);if(['draft','submit'].includes(base.action)&&input.template===true&&sheet.source==='manual'&&(!sheet.lines.length||sheet.lines.every((l:any)=>!l.description&&!l.actual&&l.rate==null))){sheet.templateVersion='LS-2500';sheet.lines=blankLaborTemplate();}
    if(base.action==='draft'){
@@ -71,6 +80,6 @@ export async function laborAction(m:Member,input:any){
    const recipients=(await tx.prepare("SELECT id FROM members WHERE active=1 AND role IN ('admin','supervisor')").all()).results;
    for(const r of recipients)await tx.prepare('INSERT INTO notifications(id,recipient_id,job_id,message,created) VALUES(?,?,?,?,?)').bind(crypto.randomUUID(),r.id,j.id,`${j.customer} (#${j.number}): installer labor ready for review.`,at).run();
   }
-  return {ok:true,version:row.version+1,sheetId:sheets.find((s:any)=>['Draft','Submitted','Returned'].includes(s.status))?.id};
+  return {ok:true,version:row.version+1,sheetId:sheets.find((s:any)=>['Draft','Submitted','Returned'].includes(s.status))?.id,importStatus:base.action==='import'?sheets[sheets.length-1]?.status:undefined};
  });
 }

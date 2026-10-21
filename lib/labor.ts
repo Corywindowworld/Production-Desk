@@ -4,7 +4,8 @@ export const laborLines=z.array(laborLine).min(1).max(100);
 export const laborTotal=(lines:any[])=>Math.round(lines.reduce((total,l)=>total+Math.round((l.actual??0)*l.rate*100),0))/100;
 export const laborCustomerId=(value:unknown)=>{const s=String(value??'').trim();return s.match(/^(?:\d{3}[-–]\s*)?(\d+)$/)?.[1]||'';};
 export function parseLaborText(text:string){
- const customerId=text.match(/(?:CID|Customer\s*ID|Cust\s*ID)\s*#?\s*:?\s*((?:\d{3}-)?\d+)/i)?.[1]||text.match(/ID\s*#\s*:?\s*(\d+)/i)?.[1]||text.match(/ID\s*#\s*:[^\n]*\n\s*(\d+)\s+C\d+/i)?.[1]||'';
+ text=text.replace(/\u00a0/g,' ');
+ const customerId=text.match(/(?:CID|Customer\s*ID|Cust\s*ID)\s*#?\s*:?\s*((?:\d{3}-)?\d+)/i)?.[1]||text.match(/ID\s*#\s*:?\s*(\d+)/i)?.[1]||text.match(/ID\s*#\s*:[^\n]*\n\s*(\d+)\s+C\d+/i)?.[1]||text.match(/(?:Customer\s*ID|Cust\s*ID|CID|ID\s*#)\s*:?[^\n\d]*\n(?:[^\n\d]*\n)?\s*((?:\d{3}-)?\d{6,8})(?![\d-])/i)?.[1]||'';
  const lines:any[]=[];
  for(const line of text.split('\n')){
   const m=line.match(/^\s*(.*?)\s+(?:(\d+(?:\.\d+)?)\s+)?[x×]\s*\$?([\d,]+(?:\.\d+)?)(?:\s|$)/i);

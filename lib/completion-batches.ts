@@ -1,3 +1,4 @@
+import {completionBatchFilename} from './completion-batch-name';
 import {database} from '@/db/raw';
 import {ApiError,type Member} from './access';
 import {laborReady} from './labor';
@@ -13,9 +14,9 @@ export async function batchSetup(db=database()){
  ALTER TABLE production.completion_batch_items ENABLE ROW LEVEL SECURITY;
  REVOKE ALL ON production.completion_batches,production.completion_batch_items FROM PUBLIC,anon,authenticated;`.split(';').filter(s=>s.trim()))await tx.prepare(sql).run();});
 }
-export async function batchData(m:Member,id?:string){
+export async function batchData(m:Member,id?:string,currentLayout=false){
  if(!office(m))throw new ApiError(403,'Office access required.');const db=database();await batchSetup(db);
- if(id){const r=await db.prepare('SELECT pdf_base64 FROM production.completion_batches WHERE id=?').bind(id).first();if(!r)throw new ApiError(404,'Batch not found.');return r;}
+ if(id){const r=await db.prepare('SELECT pdf_base64,created FROM production.completion_batches WHERE id=?').bind(id).first();if(!r)throw new ApiError(404,'Batch not found.');if(currentLayout){const selections=(await db.prepare('SELECT job_id,labor_id FROM production.completion_batch_items WHERE batch_id=?').bind(id).all()).results;const items=[];for(const selection of selections){const row=await db.prepare('SELECT payload FROM jobs WHERE id=?').bind(selection.job_id).first();const live=row?obj(row.payload):null,labor=live?.operations?.laborSheets?.find((s:any)=>s.id===selection.labor_id&&s.status==='Approved');if(!labor)throw new ApiError(409,'This batch has archived paperwork that cannot be rebuilt. Download the original PDF.');items.push({job:labor.packetJob||live,labor});}if(items.length)r.pdf_base64=Buffer.from(await completionBatchPdf(id,items)).toString('base64');}return {...r,filename:completionBatchFilename(r.created)};}
  const rows=(await db.prepare('SELECT payload FROM jobs').all()).results,used=new Set((await db.prepare('SELECT labor_id FROM production.completion_batch_items').all()).results.map((r:any)=>r.labor_id));
  return {jobs:rows.map((r:any)=>obj(r.payload)).flatMap((j:any)=>{
  const sheets=j.operations?.laborSheets||[],approved=sheets.filter((s:any)=>s.status==='Approved');
@@ -40,6 +41,6 @@ export async function batchAction(m:Member,input:any){
   const id=crypto.randomUUID(),pdf=await completionBatchPdf(id,items),at=new Date().toISOString();
   await tx.prepare('INSERT INTO production.completion_batches(id,created,created_by,pdf_base64) VALUES(?,?,?,?)').bind(id,at,m.name,Buffer.from(pdf).toString('base64')).run();
   for(const {job,labor} of items)await tx.prepare('INSERT INTO production.completion_batch_items(batch_id,job_id,labor_id) VALUES(?,?,?)').bind(id,job.id,labor.id).run();
-  return {id};
+  return {id,filename:completionBatchFilename(at)};
  });
 }

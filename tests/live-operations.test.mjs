@@ -4080,7 +4080,7 @@ test('labor requests protect contract rates, require FS approval and freeze one 
  await assert.rejects(()=>batchAction(installer,{items:[{jobId:id,laborId:sheet.id}]}),/Office access/);
  saved=await current();saved.operations.report={approved:false,status:'Incomplete',certificate:{id:'new-visit'}};await pg.query('UPDATE production.jobs SET payload=$1 WHERE id=$2',[JSON.stringify(saved),id]);
  const listed=await batchData(pa);assert.ok(listed.jobs.some(row=>row.laborId===sheet.id&&!row.batched));
- const b=await batchAction(pa,{items:[{jobId:id,laborId:sheet.id}]});const download=await batchData(pa,b.id);assert.ok(download.pdf_base64.startsWith('JVBER'));
+ const b=await batchAction(pa,{items:[{jobId:id,laborId:sheet.id}]});const download=await batchData(pa,b.id);assert.ok(download.pdf_base64.startsWith('JVBER'));assert.match(download.filename,/^Completion-Desk-Batch-\d{2}-\d{2}-\d{4}-\d{4}\.pdf$/);assert.ok((await batchData(pa,b.id,true)).pdf_base64.startsWith('JVBER'));assert.equal((await batchData(pa,b.id)).pdf_base64,download.pdf_base64);
  await assert.rejects(()=>batchAction(pa,{items:[{jobId:id,laborId:sheet.id}]}),/already in a batch/);
  await batchAction(pa,{action:'sent',id:b.id});await assert.rejects(()=>batchAction(pa,{action:'sent',id:b.id}),/already marked sent/);
  const after=await batchData(pa,b.id);assert.equal(after.pdf_base64,download.pdf_base64);
@@ -4168,3 +4168,6 @@ test('labor approval restricts truck inspection and freezes status payment initi
  }finally{await pg.query('UPDATE production.members SET profile_details=$1 WHERE id=$2',[typeof original==='string'?original:JSON.stringify(original),fs.id]);}
 });
 test('employee profiles accept a saved drawn signature and employee number',async()=>{const {profileDetails}=await vite.ssrLoadModule('/lib/account-profile.ts');const details=profileDetails.parse({savedDrawnSignature:signature,employeeNumber:'1728'});assert.equal(details.savedDrawnSignature,signature);assert.equal(details.employeeNumber,'1728');});
+
+test('lead batch PDF retains form tables sections and signature in one letter page',async()=>{const {leadRenovationPdf}=await vite.ssrLoadModule('/lib/lead-renovation-pdf.ts'),{PDFDocument}=await import('pdf-lib');const record={customerId:'684452',customerName:'Pickens, Matt & Garcia, Kristin',address:'11124 Corlett Road',city:'Riverview',state:'FL',zip:'33578',renovatorName:'Test Installer',renovatorId:'C824',epaCertification:'EPA-12345',answers:Array(13).fill(true),signatureDataUrl:signature,signedAt:'2026-10-21T16:00:00.000Z'};const pdf=await PDFDocument.load(await leadRenovationPdf(record));assert.equal(pdf.getPageCount(),1);assert.deepEqual(pdf.getPage(0).getSize(),{width:612,height:792});});
+test('completion batch filenames use the saved New York date instead of a UUID',async()=>{const {completionBatchFilename}=await vite.ssrLoadModule('/lib/completion-batch-name.ts');assert.equal(completionBatchFilename('2026-10-21T16:18:44Z'),'Completion-Desk-Batch-10-21-2026-1218.pdf');assert.equal(completionBatchFilename('2026-10-21T02:05:00Z'),'Completion-Desk-Batch-10-20-2026-2205.pdf');});

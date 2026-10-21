@@ -1,22 +1,23 @@
 'use client';
 import {useEffect,useRef,useState} from 'react';
+import {cameraHasLight,setCameraLight} from '@/lib/camera-light';
 import {decodeWarehouseFrame} from '@/lib/warehouse-barcode';
 export function WarehouseScanner({onScan,continuous=false,disabled=false}:{onScan:(value:string)=>void;continuous?:boolean;disabled?:boolean}){
  const callback=useRef(onScan),lastScan=useRef({value:'',at:0});callback.current=onScan;
  const video=useRef<HTMLVideoElement>(null),stream=useRef<MediaStream|null>(null),timer=useRef<ReturnType<typeof setTimeout>|null>(null),generation=useRef(0);
- const [active,setActive]=useState(false),[error,setError]=useState(''),[torch,setTorch]=useState(false),[torchAvailable,setTorchAvailable]=useState(false);
- async function light(){const track=stream.current?.getVideoTracks()[0];if(!track)return;try{await track.applyConstraints({advanced:[{torch:!torch} as any]});setTorch(!torch);}catch{setError('This camera cannot change its light. Tilt the label away from reflections.')}}
+ const [active,setActive]=useState(false),[error,setError]=useState(''),[torch,setTorch]=useState(false),[torchAvailable,setTorchAvailable]=useState<boolean|null>(null),[lightBusy,setLightBusy]=useState(false);
+ async function light(){const track=stream.current?.getVideoTracks()[0];if(!track)return;const n=generation.current;setLightBusy(true);setError('');try{const on=await setCameraLight(track,!torch);if(n===generation.current)setTorch(on);}catch(e){if(n===generation.current)setError((e as Error).message);}finally{if(n===generation.current)setLightBusy(false);}}
  function release(){if(timer.current)clearTimeout(timer.current);timer.current=null;stream.current?.getTracks().forEach(track=>track.stop());stream.current=null;if(video.current)video.current.srcObject=null;}
- function stop(){generation.current++;release();setActive(false)}
+ function stop(){generation.current++;release();setActive(false);setTorch(false);setTorchAvailable(null);setLightBusy(false)}
  useEffect(()=>()=>{generation.current++;release()},[]);
  useEffect(()=>{if(disabled)stop()},[disabled]);
- async function start(){
-  stop();setError('');setTorch(false);setTorchAvailable(false);setActive(true);const n=generation.current;
+ async function start(withLight=false){
+  stop();setError('');setTorch(false);setTorchAvailable(null);setActive(true);const n=generation.current;
   try{
    const {BrowserMultiFormatReader}=await import('@zxing/browser');if(n!==generation.current)return;
    const camera=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080}},audio:false});
    if(n!==generation.current){camera.getTracks().forEach(track=>track.stop());return;}
-   stream.current=camera;const track=camera.getVideoTracks()[0],capabilities=track.getCapabilities?.() as any;setTorchAvailable(!!capabilities?.torch);if(capabilities?.focusMode?.includes('continuous'))try{await track.applyConstraints({advanced:[{focusMode:'continuous'} as any]})}catch{}const element=video.current;if(!element){stop();return;}element.srcObject=camera;await element.play();
+   stream.current=camera;const track=camera.getVideoTracks()[0],capabilities=track.getCapabilities?.() as any;setTorchAvailable(cameraHasLight(track));if(capabilities?.focusMode?.includes('continuous'))try{await track.applyConstraints({advanced:[{focusMode:'continuous'} as any]})}catch{}const element=video.current;if(!element){stop();return;}element.srcObject=camera;await element.play();if(withLight&&n===generation.current){try{await setCameraLight(track,true);if(n===generation.current)setTorch(true);}catch(e){if(n===generation.current)setError((e as Error).message);}}
    if(n!==generation.current)return;
    const {DecodeHintType}=await import('@zxing/library');const hints=new Map();hints.set(DecodeHintType.TRY_HARDER,true);const reader=new BrowserMultiFormatReader(),hardReader=new BrowserMultiFormatReader(hints),canvas=document.createElement('canvas');
    let frame=0;
@@ -37,5 +38,5 @@ export function WarehouseScanner({onScan,continuous=false,disabled=false}:{onSca
   }catch{if(n===generation.current)setError('Barcode could not be read. Try a close, clear photo or enter the number beneath the barcode.')}
   finally{URL.revokeObjectURL(url)}
  }
- return <div className="wh-scanner"><div className="wh-actions"><button type="button" disabled={disabled} onClick={active?stop:start}>{active?'Stop camera':'Scan barcode'}</button><label className="wh-file-button">Read barcode photo<input type="file" accept="image/*" disabled={disabled} onChange={e=>{photo(e.target.files?.[0]);e.target.value=''}}/></label></div>{active&&<><p>Keep the entire barcode in view. Tilt slightly to avoid plastic glare; enhanced scanning checks tilted and partially creased labels. If bars are hidden by a fold, use the printed Customer ID and AQ/order search instead.</p>{torchAvailable&&<button type="button" onClick={light}>{torch?'Turn light off':'Turn light on'}</button>}</>}<video ref={video} muted playsInline style={{display:active?'block':'none',width:'100%',maxHeight:280}}/>{error&&<p role="alert">{error}</p>}</div>
+ return <div className="wh-scanner"><div className="wh-actions"><button type="button" disabled={disabled} onClick={()=>active?stop():void start()}>{active?'Stop camera':'Scan barcode'}</button><button type="button" aria-pressed={torch} disabled={disabled||lightBusy||(active&&torchAvailable!==true)} onClick={()=>active?void light():void start(true)} style={{border:'2px solid #8a6200',background:torch?'#fff0ad':'#fff',color:'#513900',fontWeight:700}}>{lightBusy?'Switching light…':torch?'Turn off light':'Turn on light'}</button><label className="wh-file-button">Read barcode photo<input type="file" accept="image/*" disabled={disabled} onChange={e=>{photo(e.target.files?.[0]);e.target.value=''}}/></label></div>{active&&<><p>Keep the entire barcode in view. Tilt slightly to avoid plastic glare; enhanced scanning checks tilted and partially creased labels. If bars are hidden by a fold, use the printed Customer ID and AQ/order search instead.</p>{torchAvailable===false&&<p>Camera light is not supported on this device or browser. Use brighter lighting or a barcode photo.</p>}{torch&&<p role="status">Camera light is on.</p>}</>}<video ref={video} muted playsInline style={{display:active?'block':'none',width:'100%',maxHeight:280}}/>{error&&<p role="alert">{error}</p>}</div>
 }

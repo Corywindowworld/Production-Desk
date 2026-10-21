@@ -344,3 +344,29 @@ html[data-theme=dark] .customer-panel{background:white;color:#142033;border-colo
 button.tracking-outline{border:2px solid #2462a2!important;border-radius:14px!important;background:#fff!important;color:#174571!important;padding:11px 17px!important;font-weight:600;cursor:pointer;margin:5px 0}
 button.tracking-outline:focus-visible{outline:3px solid #df8a27;outline-offset:3px}
 button.tracking-outline:disabled{opacity:.55;cursor:wait}
+
+/* Every action has a visible control boundary, including document links and disclosures. */
+@media screen {
+  :where(button, input[type=button], input[type=submit], [role=button], summary, a[href]) {
+    border: 1.5px solid color-mix(in srgb, currentColor 55%, transparent);
+    border-radius: 8px;
+    padding: 8px 12px;
+    min-height: 40px;
+    font-weight: 600;
+    text-decoration: none;
+    cursor: pointer;
+    box-sizing: border-box;
+  }
+  :where(a[href]) { display: inline-flex; align-items: center; gap: 6px; }
+  :is(button, input[type=button], input[type=submit], [role=button], summary, a[href]) {
+    border-style: solid !important;
+    border-width: 1.5px !important;
+    border-color: color-mix(in srgb, currentColor 55%, transparent) !important;
+  }
+  :is(button, input[type=button], input[type=submit], [role=button], summary, a[href]):focus-visible {
+    outline: 3px solid var(--ring, #0055ed) !important;
+    outline-offset: 3px;
+  }
+  :is(button, summary, a[href]):hover { box-shadow: 0 0 0 1px currentColor; }
+  :is(button, input[type=button], input[type=submit]):disabled { cursor: not-allowed; opacity: .55; }
+}

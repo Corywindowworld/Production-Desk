@@ -4171,3 +4171,13 @@ test('employee profiles accept a saved drawn signature and employee number',asyn
 
 test('lead batch PDF retains form tables sections and signature in one letter page',async()=>{const {leadRenovationPdf}=await vite.ssrLoadModule('/lib/lead-renovation-pdf.ts'),{PDFDocument}=await import('pdf-lib');const record={customerId:'684452',customerName:'Pickens, Matt & Garcia, Kristin',address:'11124 Corlett Road',city:'Riverview',state:'FL',zip:'33578',renovatorName:'Test Installer',renovatorId:'C824',epaCertification:'EPA-12345',answers:Array(13).fill(true),signatureDataUrl:signature,signedAt:'2026-10-21T16:00:00.000Z'};const pdf=await PDFDocument.load(await leadRenovationPdf(record));assert.equal(pdf.getPageCount(),1);assert.deepEqual(pdf.getPage(0).getSize(),{width:612,height:792});});
 test('completion batch filenames use the saved New York date instead of a UUID',async()=>{const {completionBatchFilename}=await vite.ssrLoadModule('/lib/completion-batch-name.ts');assert.equal(completionBatchFilename('2026-10-21T16:18:44Z'),'Completion-Desk-Batch-10-21-2026-1218.pdf');assert.equal(completionBatchFilename('2026-10-21T02:05:00Z'),'Completion-Desk-Batch-10-20-2026-2205.pdf');});
+
+test('combined labor PDFs isolate each customer page and its values before attachment',async()=>{
+ const {splitLaborPdf}=await vite.ssrLoadModule('/lib/labor-pdf-pages.ts'),{parseLaborText}=await vite.ssrLoadModule('/lib/labor.ts'),{PDFDocument}=await import('pdf-lib'),pdfjs=await import('pdfjs-dist/legacy/build/pdf.mjs');
+ const source=await PDFDocument.create();
+ for(const [cid,qty] of [['684452',2],['785431',7],['',1]]){const p=source.addPage([612,792]);p.drawText(cid?'Customer ID: '+cid:'Customer ID unavailable',{x:260,y:730,size:10});p.drawText('Installation '+qty+' x 86',{x:30,y:600,size:10});}
+ const pages=await splitLaborPdf(await source.save());assert.equal(pages.length,3);
+ const parsed=[];
+ for(const bytes of pages){assert.equal((await PDFDocument.load(bytes)).getPageCount(),1);const doc=await pdfjs.getDocument({data:new Uint8Array(bytes),isEvalSupported:false}).promise;try{const content=await (await doc.getPage(1)).getTextContent();parsed.push(parseLaborText(content.items.filter(i=>'str' in i).map(i=>i.str).join('\n')));}finally{await doc.destroy();}}
+ assert.deepEqual(parsed.map(p=>p.customerId),['684452','785431','']);assert.deepEqual(parsed.map(p=>p.lines[0].contract),[2,7,1]);assert.ok(parsed.every(p=>p.lines.length===1));
+});

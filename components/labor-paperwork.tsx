@@ -1,5 +1,6 @@
 'use client';
 import {useState} from 'react';
+import {splitLaborPdf} from '@/lib/labor-pdf-pages';
 import {matchingLaborJobs} from '@/lib/labor-import';
 import {blankLaborTemplate,laborAgreement} from '@/lib/labor-template';
 import {LaborSheetForm} from './labor-sheet-form';
@@ -11,9 +12,10 @@ const money=(n:number)=>n.toLocaleString('en-US',{style:'currency',currency:'USD
 async function post(body:any){const r=await fetch('/api/labor',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}),d=await r.json();if(!r.ok)throw Error(d.error);return d;}
 export function LaborImport({jobs,reload}:{jobs:any[];reload:()=>Promise<any>}){
  const [results,setResults]=useState<any[]>([]),[progress,setProgress]=useState(''),[busy,setBusy]=useState(false);
- async function attach(file:File,cidOverride?:string){
-  let text=await readReport(file,setProgress,{laborLayout:true}),parsed=parseLaborText(text);if((!cidOverride&&!parsed.customerId)||parsed.lines.length<10){setProgress('Reading customer ID and labor table from the PDF image…');const scanned=parseLaborText(await readReport(file,setProgress,{forceOcr:true,laborLayout:true}));if(scanned.lines.length>parsed.lines.length)parsed={...scanned,customerId:scanned.customerId||parsed.customerId};else if(!parsed.customerId&&scanned.customerId)parsed={...parsed,customerId:scanned.customerId};}const customerId=(cidOverride||parsed.customerId).trim();
-  if(!customerId)throw Error('Customer ID could not be read. Open this PDF using the button below, find its Customer ID (CID), enter that number, and choose Retry this file.');
+ async function attach(file:File,cidOverride?:string,label=file.name){
+  const reportProgress=(message:string)=>setProgress(`${label} — ${message}`);
+  let text=await readReport(file,reportProgress,{laborLayout:true}),parsed=parseLaborText(text);if((!cidOverride&&!parsed.customerId)||parsed.lines.length<10){setProgress('Reading customer ID and labor table from the PDF image…');const scanned=parseLaborText(await readReport(file,reportProgress,{forceOcr:true,laborLayout:true}));if(scanned.lines.length>parsed.lines.length)parsed={...scanned,customerId:scanned.customerId||parsed.customerId};else if(!parsed.customerId&&scanned.customerId)parsed={...parsed,customerId:scanned.customerId};}const customerId=(cidOverride||parsed.customerId).trim();
+  if(!customerId)throw Error('Customer ID could not be read. Open this page using the button below, find its Customer ID (CID), enter that number, and choose Retry this page.');
   const matches=matchingLaborJobs(jobs,customerId);
   if(!matches.length)throw Error(`No account found for CID #${customerId}. Create the account or correct the CID below.`);
   if(matches.length>1)throw Error(`More than one account has CID #${customerId}. Resolve the duplicate CID before attaching this file.`);
@@ -22,9 +24,24 @@ export function LaborImport({jobs,reload}:{jobs:any[];reload:()=>Promise<any>}){
   const source=await uploadAttachment(job.id,'labor',file),saved=await post({action:'import',automatic:true,jobId:job.id,version:current.job.version,customerId,lines:parsed.lines,sourceKey:source.key});
   return {file,customerId,jobId:job.id,customer:job.customer,lines:parsed.lines,status:saved.duplicate?'Already attached':saved.importStatus==='Imported'?'Attached — current installer entries kept':'Attached and prefilled',error:''};
  }
- async function files(list:FileList|null){const selected=Array.from(list||[]);if(!selected.length)return;setBusy(true);try{for(let i=0;i<selected.length;i++){const file=selected[i];setProgress(`Attaching ${i+1} of ${selected.length}: ${file.name}`);let result;try{result=await attach(file);}catch(e){result={file,error:(e as Error).message,customerId:'',status:'Needs attention'};}setResults(a=>[...a,{...result,id:crypto.randomUUID()}]);}await reload();}finally{setBusy(false);setProgress('');}}
- async function retry(item:any){setBusy(true);try{const result=await attach(item.file,item.customerId);setResults(a=>a.map(r=>r.id===item.id?{...result,id:item.id}:r));await reload();}catch(e){setResults(a=>a.map(r=>r.id===item.id?{...r,error:(e as Error).message}:r));}finally{setBusy(false);setProgress('');}}
- return <details className="op-disclosure"><summary>Upload labor sheets — match by CID</summary><p>Select the prefilled labor PDFs. Each sheet and its quantities and pay rates attach automatically to the customer account with the matching CID. Existing installer submissions and approvals are kept.</p><input aria-label="Labor PDFs" type="file" accept="application/pdf" multiple disabled={busy} onChange={e=>{void files(e.target.files);e.target.value='';}}/>{busy&&<p role="status">{progress||'Saving labor sheets…'}</p>}<div aria-live="polite">{results.map(r=><section key={r.id} style={{border:'1px solid #ccd6df',borderRadius:8,padding:12,marginTop:10}}><strong>{r.file.name}</strong><div><button type="button" className="live-button" onClick={()=>{const url=URL.createObjectURL(r.file);window.open(url,'_blank','noopener,noreferrer');setTimeout(()=>URL.revokeObjectURL(url),60000);}}>Open this PDF — {r.file.name}</button></div><p style={{color:r.error?'#a12b18':'#17663e'}}>{r.status}{r.customer?' · '+r.customer+' · CID #'+r.customerId:''}</p>{r.error?<><p role="alert">{r.error}</p><label>Customer ID<input aria-label={'Customer ID for '+r.file.name} value={r.customerId} disabled={busy} onChange={e=>setResults(a=>a.map(v=>v.id===r.id?{...v,customerId:e.target.value}:v))}/></label><button type="button" disabled={busy} onClick={()=>void retry(r)}>Retry this file</button></>:<><a target="_blank" rel="noopener noreferrer" href={'/labor/'+r.jobId}>Open customer labor sheet</a><details><summary>View attached values · Contract total {money(r.lines.reduce((n:number,l:any)=>n+l.contract*l.rate,0))}</summary>{r.lines.map((l:any,i:number)=><p key={i}>{l.description}: {l.contract} × {money(l.rate)}</p>)}</details></>}</section>)}</div></details>;
+ async function files(list:FileList|null){
+  const selected=Array.from(list||[]);if(!selected.length)return;setBusy(true);
+  try{for(const original of selected){
+   setProgress(`Preparing pages: ${original.name}`);
+   let pages:Uint8Array[];
+   try{pages=await splitLaborPdf(await original.arrayBuffer());}
+   catch(e){setResults(a=>[...a,{id:crypto.randomUUID(),file:original,label:original.name,error:'Could not open this PDF: '+(e as Error).message,customerId:'',status:'Needs attention',unsplit:true}]);continue;}
+   for(let index=0;index<pages.length;index++){
+    const file=new File([new Uint8Array(pages[index])],original.name.replace(/\.pdf$/i,'')+`-page-${index+1}.pdf`,{type:'application/pdf'});
+    const label=`${original.name} · Page ${index+1} of ${pages.length}`;
+    setProgress(`Reading ${label}`);
+    let result;try{result=await attach(file,undefined,label);}catch(e){result={file,error:(e as Error).message,customerId:'',status:'Needs attention'};}
+    setResults(a=>[...a,{...result,label,id:crypto.randomUUID()}]);
+   }
+  }await reload();}finally{setBusy(false);setProgress('');}
+ }
+ async function retry(item:any){setBusy(true);try{const result=await attach(item.file,item.customerId,item.label);setResults(a=>a.map(r=>r.id===item.id?{...result,label:item.label,id:item.id}:r));await reload();}catch(e){setResults(a=>a.map(r=>r.id===item.id?{...r,error:(e as Error).message}:r));}finally{setBusy(false);setProgress('');}}
+ return <details className="op-disclosure"><summary>Upload labor sheets — match by CID</summary><p>Select one or more PDFs, including PDFs containing multiple jobs. Each page is read separately and only that customer’s page is attached. Each sheet and its quantities and pay rates attach automatically to the customer account with the matching CID. Existing installer submissions and approvals are kept.</p><input aria-label="Labor PDFs" type="file" accept="application/pdf" multiple disabled={busy} onChange={e=>{void files(e.target.files);e.target.value='';}}/>{busy&&<p role="status">{progress||'Saving labor sheets…'}</p>}<div aria-live="polite">{results.map(r=><section key={r.id} style={{border:'1px solid #ccd6df',borderRadius:8,padding:12,marginTop:10}}><strong>{r.label||r.file.name}</strong><div><button type="button" className="live-button" onClick={()=>{const url=URL.createObjectURL(r.file);window.open(url,'_blank','noopener,noreferrer');setTimeout(()=>URL.revokeObjectURL(url),60000);}}>Open {r.unsplit?'PDF':'this page'} — {r.label||r.file.name}</button></div><p style={{color:r.error?'#a12b18':'#17663e'}}>{r.status}{r.customer?' · '+r.customer+' · CID #'+r.customerId:''}</p>{r.error?<><p role="alert">{r.error}</p>{!r.unsplit&&<><label>Customer ID<input aria-label={'Customer ID for '+(r.label||r.file.name)} value={r.customerId} disabled={busy} onChange={e=>setResults(a=>a.map(v=>v.id===r.id?{...v,customerId:e.target.value}:v))}/></label><button type="button" disabled={busy} onClick={()=>void retry(r)}>Retry this page</button></>}</>:<><a target="_blank" rel="noopener noreferrer" href={'/labor/'+r.jobId}>Open customer labor sheet</a><details><summary>View attached values · Contract total {money(r.lines.reduce((n:number,l:any)=>n+l.contract*l.rate,0))}</summary>{r.lines.map((l:any,i:number)=><p key={i}>{l.description}: {l.contract} × {money(l.rate)}</p>)}</details></>}</section>)}</div></details>;
 }
 export function LaborSheet({j,me,profile,reload,standalone=false}:{j:any;me:any;profile:any;reload:()=>Promise<any>;standalone?:boolean}){
  const [visitType,setVisitType]=useState<string>(laborVisitType(j));

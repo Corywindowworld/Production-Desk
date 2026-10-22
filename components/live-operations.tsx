@@ -17,7 +17,7 @@ import {CustomerContact} from "./customer-contact";
 import {CertificateInvite} from "./certificate-invite";
 import { DigitalDocuments } from "./digital-documents";
 import { ReorderRequests } from "@/components/reorder-requests";
-import { canAddJobPhotos, jobPhotoKinds } from "@/lib/job-photo-access";
+import { jobPhotoKinds } from "@/lib/job-photo-access";
 import { linkedAccountValues } from "@/lib/linked-account";
 import { MapDashboard } from "./location/map-dashboard";
 import { TripShare } from "./location/trip-share";
@@ -493,7 +493,6 @@ export default function LiveOperations() {
           </span>
         </header>
         <main className="op-content">
-          {review && ["Overview", "Schedule", "Jobs"].includes(tab) && <div style={{marginBottom:16}}><ScheduledVisits /></div>}
           {savedNotice && (
             <p className="op-callout" role="status">
               {savedNotice}{" "}
@@ -2469,7 +2468,6 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
   if (isInstaller) j.certificateProfile = data.leadProfile;
   return (
     <>
-      {review && <div style={{marginBottom:16}}><ScheduledVisits job={j} onSaved={()=>setVisitRevision(v=>v+1)} /></div>}
       {(isInstaller || review) && <TripShare jobId={j.id} />}
       <Dialog open={laborOpen} onOpenChange={setLaborOpen}>
         <DialogContent style={{width:'96vw',maxWidth:1150,maxHeight:'92dvh',overflowY:'auto'}}>
@@ -2869,7 +2867,7 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
           }}
         >
           {[
-            { id: "completion", label: "Completion & Photos" },
+            { id: "completion", label: "Job Visit & Completion" },
             {
               id: "reorders",
               label:
@@ -2959,6 +2957,14 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
           hidden={workspaceTab !== "completion"}
           style={{ display: workspaceTab === "completion" ? "block" : "none" }}
         >
+          <section className="op-disclosure" aria-label="Job visits">
+            <h3>Job Visits</h3>
+            {review && <ScheduledVisits job={j} onSaved={()=>setVisitRevision(v=>v+1)} />}
+            <details style={{marginTop:12}}>
+              <summary>Previous Job Visits</summary>
+              <JobVisits key={visitRevision} jobId={j.id} onBusy={noOp} onEditing={noOp} />
+            </details>
+          </section>
           <ApprovedLaborSheets j={j}/>
           <LaborSheet j={j} me={me} profile={data.leadProfile} reload={reload}/>
           {j.leadRenovationJob && (
@@ -3034,18 +3040,7 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
           )}
           {me.role === "admin" && <AdminResultForm j={j} save={save} />}
           <details className="op-disclosure">
-            <summary>Installation Photos</summary>
-            <Gallery
-              attachments={(j.attachments || []).filter(
-                (a: any) => a.kind !== "visit" && !o.salesKeys?.includes(a.key),
-              )}
-            />
-            {!isInstaller && canAddJobPhotos(me, j, today) && (
-              <details className="op-disclosure">
-                <summary>Add Installation Photos</summary>
-                <JobPhotoUpload j={j} save={save} />
-              </details>
-            )}
+            <summary>Submitted Job Result</summary>
             {o.report && (
               <>
                 <p>
@@ -3209,10 +3204,6 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
           style={{ display: workspaceTab === "notes" ? "block" : "none" }}
         >
           {workspaceTab === "notes" && <JobNotesHistory key={visitRevision} j={j} save={save} />}
-          <details className="op-disclosure">
-            <summary>Job visits</summary>
-            <JobVisits key={visitRevision} jobId={j.id} onBusy={noOp} onEditing={noOp} />
-          </details>
           {!isInstaller && <details className="op-disclosure">
             <summary>Customer record and contact notes</summary>
             <ProjectRecord j={j} />

@@ -943,7 +943,9 @@ function Drawer({ title, onClose, children }: any) {
     const before = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     const key = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      // Portaled forms handle Escape themselves; leave their parent job open.
+      if (e.key === "Escape" && !e.defaultPrevented &&
+          !document.querySelector('[data-slot="dialog-content"][data-state="open"]')) onClose();
     };
     document.addEventListener("keydown", key);
     return () => {

@@ -218,7 +218,8 @@ export async function jobCertificatePdf(c: any) {
     field("Remaining Balance:", money(c.remainingBalance));
     field("Type of payment:", c.paymentMethod || "None recorded");
     if (c.paymentReference) field(c.paymentMethod === "Check" ? "Check number:" : "Payment / reference:", c.paymentReference);
-    if (c.cardLastFour) field("Credit card ending:", c.cardLastFour);
+    if (c.cardOnFile) field("Credit card:", "On File");
+    else if (c.cardLastFour) field("Credit card ending:", c.cardLastFour);
     if (c.paymentDifferenceReason)
       field(
         "If amount paid differs from current balance due please state why:",

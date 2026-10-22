@@ -132,6 +132,16 @@ const certificate = (type) => ({
   installerSignatureDataUrl: signature,
   confirmed: true,
 });
+test("credit card On File is accepted without last four and retained in certificate outputs", async () => {
+  const {certificateInputSchema,certificateEmailHtml}=await vite.ssrLoadModule('/lib/job-certificate.ts');
+  const value={...certificate('Complete'),paymentMethod:'Credit Card',cardOnFile:true,cardLastFour:''};
+  const parsed=certificateInputSchema.parse(value);
+  assert.equal(parsed.cardOnFile,true);
+  assert.equal(certificateInputSchema.safeParse({...value,cardOnFile:false}).success,false);
+  assert.equal(certificateInputSchema.safeParse({...value,paymentMethod:'Check'}).success,false);
+  assert.equal(certificateInputSchema.safeParse({...value,type:'Service',answers:Array(4).fill(true)}).success,false);
+  assert.match(certificateEmailHtml({...parsed,signedAt:new Date().toISOString()}),/Credit card: On File/);
+});
 test("live approvals, persistence, scopes and money", async () => {
   await act(pa, "create", {
     number: "LEGACY-1",
@@ -4199,7 +4209,7 @@ test('printed labor template drafts preserve fields, protect rates and submit ex
  const lines=sheet.lines.map((l,i)=>({...l,actual:i===3?2:0,rate:l.rate??0}));await laborAction(installer,{action:'submit',jobId:id,version:saved.version,sheetId:opened.sheetId,lines,formFields:fields,signature,confirmed:true});saved=await current();assert.equal(saved.operations.laborSheets[0].requestedTotal,172);assert.equal(saved.operations.laborSheets[0].formFields.stop,'2');
 });
 
-test('LS-2500 print stays on letter paper and preserves long notes in an appendix',async()=>{const {laborFormPdf}=await vite.ssrLoadModule('/lib/labor-form-pdf.ts'),{blankLaborTemplate}=await vite.ssrLoadModule('/lib/labor-template.ts'),{PDFDocument}=await import('pdf-lib');const lines=blankLaborTemplate().map(l=>({...l,actual:0,rate:l.rate??0})),job={number:'684452',customer:'Test customer'},sheet={lines,approvedLines:lines,approvedTotal:0,requestedTotal:0,formFields:{}};const normal=await PDFDocument.load(await laborFormPdf(job,sheet));assert.equal(normal.getPageCount(),1);assert.deepEqual(normal.getPage(0).getSize(),{width:612,height:792});const long=await PDFDocument.load(await laborFormPdf(job,{...sheet,formFields:{miscLabor:'Detailed work note '.repeat(300)}}));assert.ok(long.getPageCount()>1);});
+test('LS-2500 print stays on one letter page even with long notes',async()=>{const {laborFormPdf}=await vite.ssrLoadModule('/lib/labor-form-pdf.ts'),{blankLaborTemplate}=await vite.ssrLoadModule('/lib/labor-template.ts'),{PDFDocument}=await import('pdf-lib');const lines=blankLaborTemplate().map(l=>({...l,actual:0,rate:l.rate??0})),job={number:'684452',customer:'Test customer'},sheet={lines,approvedLines:lines,approvedTotal:0,requestedTotal:0,formFields:{}};const normal=await PDFDocument.load(await laborFormPdf(job,sheet));assert.equal(normal.getPageCount(),1);assert.deepEqual(normal.getPage(0).getSize(),{width:612,height:792});const long=await PDFDocument.load(await laborFormPdf(job,{...sheet,formFields:{miscLabor:'Detailed work note '.repeat(300)}}));assert.equal(long.getPageCount(),1);});
 
 test('automatic labor uploads match CID, prefill blank drafts, deduplicate and preserve installer work',async()=>{
  const {laborAction}=await vite.ssrLoadModule('/lib/labor-store.ts'),{blankLaborTemplate}=await vite.ssrLoadModule('/lib/labor-template.ts');

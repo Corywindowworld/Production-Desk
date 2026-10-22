@@ -1,5 +1,6 @@
 "use client";
 import './operations-palette.css';
+import {Dialog, DialogContent, DialogHeader, DialogTitle} from './ui/dialog';
 import {LaborImport,LaborSheet} from './labor-paperwork';
 import {CompletionBatches} from './completion-batches';
 import Warehouse from './warehouse';
@@ -2443,6 +2444,7 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
     [uploadError, setUploadError] = useState(""),
     [uploading, setUploading] = useState(false),
     [reorderPrompt, setReorderPrompt] = useState(0),
+    [laborOpen, setLaborOpen] = useState(false),
     [workspaceTab, setWorkspaceTab] = useState("completion");
   const noOp = useCallback(() => {}, []);
   const act = (a: string, v: any = {}) => clickAction(a, v, j);
@@ -2461,6 +2463,12 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
   return (
     <>
       {(isInstaller || review) && <TripShare jobId={j.id} />}
+      <Dialog open={laborOpen} onOpenChange={setLaborOpen}>
+        <DialogContent style={{width:'96vw',maxWidth:1150,maxHeight:'92dvh',overflowY:'auto'}}>
+          <DialogHeader><DialogTitle>Complete Labor Sheet · {j.customer} · #{j.number}</DialogTitle></DialogHeader>
+          <LaborSheet standalone j={j} me={me} profile={data.leadProfile} reload={reload}/>
+        </DialogContent>
+      </Dialog>
       {j.deliveryOnly && (
         <div className="live-delivery-banner" role="note">
           DELIVERY ONLY — Product delivery only
@@ -2883,7 +2891,7 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
                   : ""),
             },
             { id: "history", label: "Payments and History" },
-            { id: "labor", label: "Complete Labor Sheet ↗" },
+            { id: "labor", label: "Complete Labor Sheet" },
           ].map((t) => (
             <button
               type="button"
@@ -2892,7 +2900,7 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
               id={"job-tab-" + j.id + "-" + t.id}
               aria-selected={workspaceTab === t.id}
               aria-controls={"job-panel-" + j.id + "-" + t.id}
-              onClick={() => t.id === "labor" ? window.open("/labor/"+j.id,"_blank","noopener,noreferrer") : setWorkspaceTab(t.id)}
+              onClick={() => t.id === "labor" ? setLaborOpen(true) : setWorkspaceTab(t.id)}
               onKeyDown={(e) => {
                 if (
                   ["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)

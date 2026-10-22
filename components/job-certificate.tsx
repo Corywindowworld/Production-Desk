@@ -91,6 +91,7 @@ export function SignedJobCertificate({ record, defaultOpen = false }: any) {
           · {record.paymentMethod || "None recorded"} · Remaining balance{" "}
           {money(record.remainingBalance)}
           {record.paymentMethod === "Check" && record.paymentReference && <span> · Check number: {record.paymentReference}</span>}
+          {record.paymentMethod === "Credit Card" && <span> · {record.cardOnFile ? "On File" : record.cardLastFour ? "Card ending: " + record.cardLastFour : ""}</span>}
         </p>
       )}
       <div className="certificate-signature-preview">
@@ -149,6 +150,7 @@ export function JobCertificateForm({ j, type, profile, initialValue, onChange, o
     [referencePermission, setReferencePermission] = useState(!!initial?.referencePermission),
     [paymentReference, setPaymentReference] = useState(initial?.paymentReference || ""),
     [cardLastFour, setCardLastFour] = useState(initial?.cardLastFour || ""),
+    [cardOnFile, setCardOnFile] = useState(!!initial?.cardOnFile),
     [paymentDifferenceReason, setPaymentDifferenceReason] = useState(initial?.paymentDifferenceReason || "");
   const paymentAmount = Number(paymentInput) || 0;
   const remaining =
@@ -166,7 +168,8 @@ export function JobCertificateForm({ j, type, profile, initialValue, onChange, o
     paymentAmount: service ? 0 : paymentAmount,
     paymentMethod: service ? "" : paymentMethod,
     paymentReference: !service && paymentMethod === "Check" ? paymentReference.trim() : "",
-    cardLastFour: service ? "" : cardLastFour.trim(),
+    cardLastFour: service || cardOnFile || paymentMethod !== "Credit Card" ? "" : cardLastFour.trim(),
+    cardOnFile: !service && paymentMethod === "Credit Card" && cardOnFile,
     paymentDifferenceReason: service ? "" : paymentDifferenceReason.trim(),
     customerSignatureDataUrl: customerSignature,
     installerSignatureDataUrl: installerSignature,
@@ -186,6 +189,7 @@ export function JobCertificateForm({ j, type, profile, initialValue, onChange, o
     setReferencePermission(!!saved?.referencePermission);
     setPaymentReference(saved?.paymentReference || "");
     setCardLastFour(saved?.cardLastFour || "");
+    setCardOnFile(!!saved?.cardOnFile);
     setPaymentDifferenceReason(saved?.paymentDifferenceReason || "");
     setConfirmed(!!saved?.confirmed);
     setComplete(false);
@@ -207,11 +211,13 @@ export function JobCertificateForm({ j, type, profile, initialValue, onChange, o
     referencePermission,
     paymentReference,
     cardLastFour,
+    cardOnFile,
     paymentDifferenceReason,
     confirmed,
   ]);
   const choosePayment = (value: string) => {
     setPaymentMethod(value);
+    if(value !== "Credit Card")setCardOnFile(false);
     if(value !== "Check")setPaymentReference("");
     if (value === "Paid In Full") setPaymentAmount(String(balance ?? 0));
   };
@@ -231,7 +237,7 @@ export function JobCertificateForm({ j, type, profile, initialValue, onChange, o
       return setError("Please explain each No answer.");
     if (paymentAmount > 0 && !paymentMethod)
       return setError("Choose a payment method.");
-    if (paymentMethod === "Credit Card" && !/^\d{4}$/.test(cardLastFour))
+    if (paymentMethod === "Credit Card" && !cardOnFile && !/^\d{4}$/.test(cardLastFour))
       return setError("Enter only the last four digits of the card.");
     if (!customerSignature)
       return setError("The customer must draw their signature.");
@@ -509,6 +515,9 @@ export function JobCertificateForm({ j, type, profile, initialValue, onChange, o
                   </div>
                   {paymentMethod === "Check" && <label>Check number<input value={paymentReference} maxLength={150} onChange={e=>setPaymentReference(e.target.value)} /></label>}
                   {paymentMethod === "Credit Card" && (
+                    <div>
+                    <label className="certificate-check"><input type="checkbox" checked={cardOnFile} onChange={e=>{setCardOnFile(e.target.checked);setConfirmed(false);if(e.target.checked)setCardLastFour("");}}/> On File</label>
+                    {!cardOnFile &&
                     <label>
                       Card last four digits only
                       <input
@@ -522,6 +531,8 @@ export function JobCertificateForm({ j, type, profile, initialValue, onChange, o
                         placeholder="1234"
                       />
                     </label>
+                    }
+                    </div>
                   )}
                   <label>
                     Reason payment differs from current balance

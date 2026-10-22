@@ -1,3 +1,4 @@
+import {serviceLaborOmitted} from './labor';
 import {completeLaborRows,standardLaborSheet} from './labor-standard';
 import {laborPaymentSummary,staffInitials} from './labor-approval';
 import {createHash} from 'node:crypto';
@@ -18,6 +19,7 @@ export async function laborAction(m:Member,input:any){
  return database().transaction(async tx=>{
   const row=await tx.prepare('SELECT payload,version FROM jobs WHERE id=? FOR UPDATE').bind(base.jobId).first();fail(row,'Job not found.',404);
   const j=object(row.payload);fail(canSeeJob(m,j),'Job access required.',403);fail(row.version===base.version,'This job changed. Refresh before saving.',409);
+  fail(!['start','draft','submit'].includes(base.action)||!serviceLaborOmitted(j),'No labor payment was requested for this service visit. Uncheck that option in Job Completion before entering labor.',409);
   j.operations||={};const sheets=(j.operations.laborSheets||[]).map((s:any)=>input.standardLayout===true?standardLaborSheet(s):s);j.operations.laborSheets=sheets;const at=new Date().toISOString();let message='';
   if(base.action==='start'){
    fail(office(m)||m.role==='installer'&&canSeeJob(m,j),'Assigned installer or office access required.',403);

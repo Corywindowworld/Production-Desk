@@ -1623,6 +1623,45 @@ test("completion reports work in every assigned status and after a previous appr
     assert.equal(j.stage, status === "Complete" ? "Closed" : "Incomplete");
   }
 });
+test('service corrections can omit labor only after certificate review and retain their batch packet',async()=>{
+  await pg.exec("DO $$ BEGIN IF NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname='anon') THEN CREATE ROLE anon; END IF; IF NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname='authenticated') THEN CREATE ROLE authenticated; END IF; END $$;");
+  const {batchData,batchAction}=await vite.ssrLoadModule('/lib/completion-batches.ts');
+  const {laborAction}=await vite.ssrLoadModule('/lib/labor-store.ts');
+  const {laborReady,serviceLaborOmitted}=await vite.ssrLoadModule('/lib/labor.ts');
+  const {certificateEmailHtml}=await vite.ssrLoadModule('/lib/job-certificate.ts');
+  const {PDFDocument}=await import('pdf-lib');
+  await act(pa,'create',{number:'SERVICE-NO-LABOR',customer:'Service correction',address:'1 Test Way',amount:0,assignedInstallerId:installer.id});
+  const data={status:'Complete',reason:'',notes:'Correcting prior work',installed:today,attachments:[],certificate:certificate('Service'),omitLabor:true};
+  await assert.rejects(()=>saveReportDraft(installer,{jobId:j.id,data}),/only.*service/);
+  await pg.query("UPDATE production.jobs SET payload=(payload::jsonb||'{\"stage\":\"SVC\"}'::jsonb)::text WHERE id=$1",[j.id]);
+  await reload();
+  await saveReportDraft(installer,{jobId:j.id,data});await reload();
+  assert.equal(j.operations.reportDraft.omitLabor,true);
+  await assert.rejects(()=>laborAction(installer,{action:'start',jobId:j.id,version:j.version,visitType:'Service'}),/No labor payment/);
+  await assert.rejects(()=>act(installer,'report',{...data,id:crypto.randomUUID()}),/front of house/i);
+  for(const kind of ['front','rear','left','right']){
+    const a={kind,name:kind+'.jpg',key:`jobs/${j.id}/${kind}/${crypto.randomUUID()}`};
+    await pg.query("INSERT INTO production.attachment_uploads(key,staging_key,job_id,kind,member_id,name,expires,status,sha256) VALUES($1,$1,$2,$3,$4,$5,0,'ready',$1)",[a.key,j.id,kind,installer.id,a.name]);data.attachments.push(a);
+  }
+  await act(installer,'report',{...data,id:crypto.randomUUID()});
+  assert.equal(j.operations.report.certificate.currentBalance,0);
+  assert.equal(j.operations.report.certificate.remainingBalance,0);
+  assert.match(certificateEmailHtml(j.operations.report.certificate),/Paid In Full \(PIF\).*\$0.00/);
+  assert.ok(laborReady(j).missing.length);
+  assert.equal((await batchData(pa)).jobs.filter(x=>x.jobId===j.id).length,0);
+  await act(fs,'reviewReport',{approve:true});
+  assert.deepEqual(laborReady(j).missing,[]);
+  assert.equal(serviceLaborOmitted(j),true);
+  const entry=(await batchData(pa)).jobs.find(x=>x.jobId===j.id);
+  assert.ok(entry.laborId);assert.deepEqual(entry.missing,[]);
+  const batch=await batchAction(pa,{items:[{jobId:j.id,laborId:entry.laborId}]});
+  const file=await batchData(pa,batch.id);
+  assert.equal((await PDFDocument.load(Buffer.from(file.pdf_base64,'base64'))).getPageCount(),2,'cover and service certificate only');
+  await assert.rejects(()=>batchAction(pa,{items:[{jobId:j.id,laborId:entry.laborId}]}),/already in a batch/);
+  await pg.query("UPDATE production.jobs SET payload=jsonb_set(jsonb_set(payload::jsonb,'{stage}','\"SVC\"'),'{operations,report}','null')::text WHERE id=$1",[j.id]);await reload();
+  assert.equal(serviceLaborOmitted(j),false);
+  assert.equal((await PDFDocument.load(Buffer.from((await batchData(pa,batch.id,true)).pdf_base64,'base64'))).getPageCount(),2);
+});
 test("signed certificates and partial photos persist as a resumable completion draft", async () => {
   await act(pa, "create", {
     number: "REPORT-DRAFT",

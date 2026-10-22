@@ -479,6 +479,8 @@ export async function saveReportDraft(m: Member, input: any) {
     );
     assert(!o.report?.pending, "A completed report is already awaiting review.", 409);
     const expectedType = j.stage === "SVC" ? "Service" : draft.status;
+    assert(!draft.omitLabor || j.stage === "SVC", "Labor can only be omitted for service work.", 400);
+    assert(!draft.omitLabor || !(o.laborSheets || []).some((s:any) => s.status === "Submitted"), "Return the submitted labor sheet before omitting labor.", 409);
     if (draft.certificate)
       assert(
         draft.certificate.type === expectedType,
@@ -1948,6 +1950,8 @@ export async function operation(m: Member, input: any) {
       );
       const r = parse(reportSchema, { ...input.data, jobId: j.id, version });
       const expectedCertificateType = j.stage === "SVC" ? "Service" : r.status;
+      assert(!r.omitLabor || j.stage === "SVC", "Labor can only be omitted for service work.", 400);
+      assert(!r.omitLabor || !(o.laborSheets || []).some((s:any) => s.status === "Submitted"), "Return the submitted labor sheet before omitting labor.", 409);
       assert(
         r.certificate.type === expectedCertificateType,
         `Complete the digital ${expectedCertificateType.toLowerCase()} certificate.`,
@@ -2115,6 +2119,17 @@ export async function operation(m: Member, input: any) {
           j.scheduleCompletedOn = o.report.installed || today;
         if (j.stage === "Incomplete") j.incompleteSince = j.reorderDate || at;
         history = `Installer report approved; job moved to ${j.stage === "Closed" ? "COMP" : "INC"}`;
+        if (o.report.omitLabor && o.report.certificate?.type === "Service") {
+          // Preserve this visit independently of future service reports.
+          const packetJob = structuredClone({...j, operations: {...o, laborSheets: [], serviceNoLaborPackets: []}});
+          o.serviceNoLaborPackets = [...(o.serviceNoLaborPackets || []), {
+            id: o.report.id, approvedAt: at, approvedBy: m.name, packetJob,
+          }];
+          for (const sheet of o.laborSheets || []) {
+            if (["Draft", "Returned"].includes(sheet.status)) sheet.status = "Replaced";
+          }
+          history += "; service correction — no labor payment requested";
+        }
       } else history = "Installer report returned for correction";
       await alert(
         j.installerId,

@@ -1574,6 +1574,7 @@ function Approvals({ jobs, me, review, saving, change, onOpen }: any) {
               </h4>
               <p>{j.operations.report.notes}</p>
               <p>{j.operations.report.reason}</p>
+              {j.operations.report.omitLabor && <p className="op-callout">Service correction: no labor payment requested. Approving this result will omit the labor sheet from the Completion Desk batch.</p>}
               <SignedJobCertificate
                 record={j.operations.report.certificate}
                 defaultOpen
@@ -2972,6 +2973,7 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
                     ✓ {o.report.status} result sent — your report was submitted
                     and is waiting for Field Supervisor approval.
                   </p>
+                  {o.report.omitLabor && <p>No labor payment requested for this service correction.</p>}
                   {isInstaller &&
                     o.report.status === "Incomplete" &&
                     !(o.reorders || []).some(
@@ -3907,15 +3909,16 @@ function InstallerReport({ j, save, reload }: any) {
     [installed, setInstalled] = useState(usableDraft?.installed || localDay()),
     [reason, setReason] = useState(usableDraft?.reason || ""),
     [notes, setNotes] = useState(usableDraft?.notes || ""),
+    [omitLabor, setOmitLabor] = useState(usableDraft?.omitLabor || false),
     [uploadCount, setUploadCount] = useState(0),
     [draftSaving, setDraftSaving] = useState(false),
     [draftMessage, setDraftMessage] = useState(usableDraft ? "Draft restored." : ""),
     [error, setError] = useState("");
-  const stateRef = useRef({status,attachments,certificate,installed,reason,notes}),
+  const stateRef = useRef({status,attachments,certificate,installed,reason,notes,omitLabor}),
     draftQueue = useRef<Promise<any>>(Promise.resolve()),
     draftSaveCount = useRef(0),
     acceptedCertificate = useRef(usableDraft?.certificate || null);
-  stateRef.current = {status,attachments,certificate,installed,reason,notes};
+  stateRef.current = {status,attachments,certificate,installed,reason,notes,omitLabor};
   const busy = uploadCount > 0;
   const requirements = requiredReportKinds(status);
   const persistDraft = async (changes: Record<string, any> = {}, refresh = true) => {
@@ -3989,6 +3992,7 @@ function InstallerReport({ j, save, reload }: any) {
             );
           await save("report", {
             id: crypto.randomUUID(),
+            omitLabor,
             status,
             reason,
             notes,
@@ -4051,6 +4055,11 @@ function InstallerReport({ j, save, reload }: any) {
             )}
           </>
         )}
+        {j.stage === "SVC" && <label style={{display:"flex",alignItems:"center",gap:12}}>
+          <input type="checkbox" style={{width:24,height:24}} checked={omitLabor} disabled={draftSaving}
+            onChange={e=>{const checked=e.target.checked;setOmitLabor(checked);void persistDraft({omitLabor:checked}).catch(e=>setError((e as Error).message));}} />
+          No labor payment requested — correcting prior work. Omit the labor sheet for this service visit.
+        </label>}
         <label>Installer notes<textarea name="notes" value={notes} onChange={e=>{setNotes(e.target.value);stateRef.current.notes=e.target.value}} /></label>
 
         {requirements.map((kind) => (

@@ -18,9 +18,14 @@ export function laborReady(j:any){
  const o=j.operations||{},r=o.report,l=(o.laborSheets||[]).find((s:any)=>s.status==='Approved'&&s.reportKey===reportKey(r));
  const missing=[];
  if(!r?.approved||!r?.certificate)missing.push('Approved completion / incompletion / service certificate');
- if(!l)missing.push('Approved labor');
+ if(!l && !(r?.omitLabor && r?.certificate?.type==='Service'))missing.push('Approved labor');
  if(j.leadRenovationJob&&!o.leadRenovation?.signatureDataUrl)missing.push('Signed Lead Renovation sheet');
  return {labor:l,missing};
+}
+export function serviceLaborOmitted(j:any){
+ const o=j.operations||{};
+ if(o.reportDraft)return j.stage==='SVC'&&o.reportDraft.omitLabor===true;
+ return !!(o.report?.omitLabor&&o.report?.certificate?.type==='Service'&&(o.report.pending||j.stage!=='SVC'));
 }
 export function reportKey(r:any){return r?.certificate?.id||r?.certificate?.signedAt||r?.submittedAt||'';}
 

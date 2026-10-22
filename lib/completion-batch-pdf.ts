@@ -9,7 +9,8 @@ export async function completionBatchPdf(id:string,items:any[]){
  const coverPages=Math.ceil(items.length/20),covers=Array.from({length:coverPages},()=>pdf.addPage([612,792]));
  let pageNumber=coverPages+1;
  for(let i=0;i<items.length;i++){
-  const {job,labor}=items[i],sources=[await jobCertificatePdf(job.operations.report.certificate),await paperworkPdf(job,labor,'labor')];
+  const {job,labor}=items[i],sources=[await jobCertificatePdf(job.operations.report.certificate)];
+  if(!labor.omitLabor)sources.push(await paperworkPdf(job,labor,'labor'));
   if(job.leadRenovationJob)sources.push(await paperworkPdf(job,job.operations.leadRenovation,'lead'));
   const start=pageNumber;
   for(const source of sources){const part=await PDFDocument.load(source);for(const page of await pdf.copyPages(part,part.getPageIndices()))pdf.addPage(page);pageNumber+=part.getPageCount();}

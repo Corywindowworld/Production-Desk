@@ -85,6 +85,7 @@ export function SignedJobCertificate({ record, defaultOpen = false }: any) {
           {record.explanation}
         </p>
       )}
+      {service && <p><strong>Paid In Full (PIF)</strong> · Balance: $0.00</p>}
       {!service && (
         <p>
           <strong>Payment acknowledgment:</strong> {money(record.paymentAmount)}{" "}
@@ -441,6 +442,7 @@ export function JobCertificateForm({ j, type, profile, initialValue, onChange, o
                   </label>
                 )}
               </section>
+              {service && <p className="op-callout"><strong>Paid In Full (PIF)</strong> · Balance: $0.00</p>}
               {!service && (
                 <section className="certificate-customer-section">
                   <div className="certificate-section-heading">

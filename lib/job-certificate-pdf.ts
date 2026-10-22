@@ -203,7 +203,10 @@ export async function jobCertificatePdf(c: any) {
       { gap: 4 },
     );
   }
-  if (!service) {
+  if (service) {
+    field("Account status:", "Paid In Full (PIF)");
+    field("Balance:", "$0.00");
+  } else {
     text("A 3% processing fee applies to credit card payments.", 11, {bold:true,gap:4});
     rule();
     center(

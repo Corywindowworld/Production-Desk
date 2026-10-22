@@ -2,6 +2,7 @@
 import './operations-palette.css';
 import {Dialog, DialogContent, DialogHeader, DialogTitle} from './ui/dialog';
 import {LaborImport,LaborSheet} from './labor-paperwork';
+import {ApprovedLaborSheets} from './approved-labor-sheets';
 import {CompletionBatches} from './completion-batches';
 import Warehouse from './warehouse';
 import {isPipelineJob} from "@/lib/production-pipeline";
@@ -2951,6 +2952,7 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
           hidden={workspaceTab !== "completion"}
           style={{ display: workspaceTab === "completion" ? "block" : "none" }}
         >
+          <ApprovedLaborSheets j={j}/>
           <LaborSheet j={j} me={me} profile={data.leadProfile} reload={reload}/>
           {j.leadRenovationJob && (
             <LeadRenovation

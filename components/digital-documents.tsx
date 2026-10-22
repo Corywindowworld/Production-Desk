@@ -1,4 +1,5 @@
 "use client";
+import { ApprovedLaborSheets } from "./approved-labor-sheets";
 import { useState } from "react";
 import { SignedJobCertificate } from "./job-certificate";
 import {
@@ -64,7 +65,7 @@ export function DigitalDocuments({ j }: any) {
           ))}
         </div>
       )}
-      {labor.map((s:any)=><div className="digital-document-row" key={s.id}><strong>Approved labor · {s.approvedAt.slice(0,10)} · ${s.approvedTotal.toFixed(2)}</strong><a className="live-button" target="_blank" rel="noreferrer" href={"/api/labor?jobId="+j.id+"&sheetId="+s.id}>View / Print PDF</a></div>)}
+      <ApprovedLaborSheets j={j} />
       {lead && (
         <div className="digital-document-row">
           <div>

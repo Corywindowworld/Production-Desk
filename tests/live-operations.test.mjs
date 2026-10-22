@@ -133,7 +133,8 @@ const certificate = (type) => ({
   confirmed: true,
 });
 test("credit card On File is accepted without last four and retained in certificate outputs", async () => {
-  const {certificateInputSchema,certificateEmailHtml}=await vite.ssrLoadModule('/lib/job-certificate.ts');
+  const {certificateInputSchema,certificateEmailHtml,certificateSnapshot}=await vite.ssrLoadModule('/lib/job-certificate.ts');
+  const {jobCertificatePrintHtml}=await vite.ssrLoadModule('/lib/print-job-certificate.ts');
   const value={...certificate('Complete'),paymentMethod:'Credit Card',cardOnFile:true,cardLastFour:''};
   const parsed=certificateInputSchema.parse(value);
   assert.equal(parsed.cardOnFile,true);
@@ -141,6 +142,13 @@ test("credit card On File is accepted without last four and retained in certific
   assert.equal(certificateInputSchema.safeParse({...value,paymentMethod:'Check'}).success,false);
   assert.equal(certificateInputSchema.safeParse({...value,type:'Service',answers:Array(4).fill(true)}).success,false);
   assert.match(certificateEmailHtml({...parsed,signedAt:new Date().toISOString()}),/Credit card: On File/);
+  for(const type of ['Complete','Incomplete']){
+    const record=certificateSnapshot({number:'123456',customer:'On File Customer',amount:100},installer,{...certificate(type),paymentMethod:'Credit Card',cardOnFile:true,cardLastFour:''},{},new Date().toISOString());
+    const restored=JSON.parse(JSON.stringify(record));
+    assert.equal(restored.cardOnFile,true);
+    assert.match(jobCertificatePrintHtml(restored),/Credit card: On File/);
+    assert.match(certificateEmailHtml(restored),/Credit card: On File/);
+  }
 });
 test("live approvals, persistence, scopes and money", async () => {
   await act(pa, "create", {

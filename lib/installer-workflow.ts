@@ -40,6 +40,14 @@ export const reportSchema = z.object({
   attachments: z.array(reportAttachment).max(100),
   certificate: certificateInputSchema,
 });
+export const reportDraftSchema = z.object({
+  status: z.enum(["Complete", "Incomplete"]),
+  reason: z.string().trim().max(1000).default(""),
+  notes: z.string().max(4000).default(""),
+  installed: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  attachments: z.array(reportAttachment).max(100).default([]),
+  certificate: certificateInputSchema.nullable().default(null),
+});
 export function requiredReportKinds(status: string) {
   return [
     "front",

@@ -116,9 +116,10 @@ export function SignedJobCertificate({ record, defaultOpen = false }: any) {
   );
 }
 
-export function JobCertificateForm({ j, type, profile, onChange }: any) {
+export function JobCertificateForm({ j, type, profile, initialValue, onChange, onAccepted }: any) {
   const questions = certificateQuestionsForType(type),
     service = type === "Service",
+    initial = initialValue?.type === type ? initialValue : null,
     balance =
       typeof j.balanceDue === "number"
         ? j.balanceDue
@@ -127,25 +128,28 @@ export function JobCertificateForm({ j, type, profile, onChange }: any) {
           : null;
   const [open, setOpen] = useState(false),
     [complete, setComplete] = useState(false),
-    [confirmed, setConfirmed] = useState(false),
+    [confirmed, setConfirmed] = useState(!!initial?.confirmed),
+    [savingDraft, setSavingDraft] = useState(false),
     [error, setError] = useState("");
   const [answers, setAnswers] = useState<(boolean|null)[]>(
-    Array(questions.length).fill(null),
+    initial?.answers?.length === questions.length
+      ? initial.answers
+      : Array(questions.length).fill(null),
   );
-  const [customerSignature, setCustomerSignature] = useState(""),
+  const [customerSignature, setCustomerSignature] = useState(initial?.customerSignatureDataUrl || ""),
     [installerSignature, setInstallerSignature] = useState(
-      profile?.savedDrawnSignature || "",
+      initial?.installerSignatureDataUrl || profile?.savedDrawnSignature || "",
     );
-  const [paymentInput, setPaymentAmount] = useState(""),
-    [paymentMethod, setPaymentMethod] = useState(""),
-    [email, setEmail] = useState(j.customerEmail || ""),
-    [homeownerName, setHomeownerName] = useState(j.customer || "");
-  const [completedWindows, setCompletedWindows] = useState(""),
-    [explanation, setExplanation] = useState(""),
-    [referencePermission, setReferencePermission] = useState(false),
-    [paymentReference, setPaymentReference] = useState(""),
-    [cardLastFour, setCardLastFour] = useState(""),
-    [paymentDifferenceReason, setPaymentDifferenceReason] = useState("");
+  const [paymentInput, setPaymentAmount] = useState(initial?.paymentAmount ? String(initial.paymentAmount) : ""),
+    [paymentMethod, setPaymentMethod] = useState(initial?.paymentMethod || ""),
+    [email, setEmail] = useState(initial?.customerEmail || j.customerEmail || ""),
+    [homeownerName, setHomeownerName] = useState(initial?.homeownerName || j.customer || "");
+  const [completedWindows, setCompletedWindows] = useState(initial?.completedWindows || ""),
+    [explanation, setExplanation] = useState(initial?.explanation || ""),
+    [referencePermission, setReferencePermission] = useState(!!initial?.referencePermission),
+    [paymentReference, setPaymentReference] = useState(initial?.paymentReference || ""),
+    [cardLastFour, setCardLastFour] = useState(initial?.cardLastFour || ""),
+    [paymentDifferenceReason, setPaymentDifferenceReason] = useState(initial?.paymentDifferenceReason || "");
   const paymentAmount = Number(paymentInput) || 0;
   const remaining =
     balance === null
@@ -169,13 +173,21 @@ export function JobCertificateForm({ j, type, profile, onChange }: any) {
     confirmed: accepted,
   });
   useEffect(() => {
-    setAnswers(Array(questions.length).fill(null));
-    setPaymentAmount("");
-    setPaymentMethod("");
-    setCompletedWindows("");
-    setExplanation("");
-    setCustomerSignature("");
-    setConfirmed(false);
+    const saved = initialValue?.type === type ? initialValue : null;
+    setAnswers(saved?.answers?.length === questions.length ? saved.answers : Array(questions.length).fill(null));
+    setPaymentAmount(saved?.paymentAmount ? String(saved.paymentAmount) : "");
+    setPaymentMethod(saved?.paymentMethod || "");
+    setCompletedWindows(saved?.completedWindows || "");
+    setExplanation(saved?.explanation || "");
+    setCustomerSignature(saved?.customerSignatureDataUrl || "");
+    setInstallerSignature(saved?.installerSignatureDataUrl || profile?.savedDrawnSignature || "");
+    setEmail(saved?.customerEmail || j.customerEmail || "");
+    setHomeownerName(saved?.homeownerName || j.customer || "");
+    setReferencePermission(!!saved?.referencePermission);
+    setPaymentReference(saved?.paymentReference || "");
+    setCardLastFour(saved?.cardLastFour || "");
+    setPaymentDifferenceReason(saved?.paymentDifferenceReason || "");
+    setConfirmed(!!saved?.confirmed);
     setComplete(false);
     setOpen(false);
     onChange?.(null);
@@ -203,7 +215,7 @@ export function JobCertificateForm({ j, type, profile, onChange }: any) {
     if(value !== "Check")setPaymentReference("");
     if (value === "Paid In Full") setPaymentAmount(String(balance ?? 0));
   };
-  const accept = () => {
+  const accept = async () => {
     setError("");
     if (!email.trim() || !/^\S+@\S+\.\S+$/.test(email.trim()))
       return setError(
@@ -225,15 +237,24 @@ export function JobCertificateForm({ j, type, profile, onChange }: any) {
       return setError("The customer must draw their signature.");
     if (!installerSignature)
       return setError("The installer must draw their signature.");
-    setConfirmed(true);
-    onChange?.(snapshot(true));
-    setComplete(true);
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    const accepted = snapshot(true);
+    setSavingDraft(true);
+    try {
+      await onAccepted?.(accepted);
+      setConfirmed(true);
+      onChange?.(accepted);
+      setComplete(true);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    } catch (e) {
+      setError((e as Error).message || "The signed certificate could not be saved. Please try again.");
+    } finally {
+      setSavingDraft(false);
+    }
   };
   return (
     <details className="op-disclosure certificate-launcher">
       <summary>
-        Customer Certificate {confirmed ? "✓ Accepted" : "— Required"}
+        Customer Certificate {confirmed ? "✓ Signed draft saved" : "— Required"}
       </summary>
       <div className="certificate-launcher-body">
         <div>
@@ -556,8 +577,9 @@ export function JobCertificateForm({ j, type, profile, onChange }: any) {
                   type="button"
                   className="certificate-primary"
                   onClick={accept}
+                  disabled={savingDraft}
                 >
-                  Accept and complete sign-off
+                  {savingDraft ? "Saving signed certificate…" : "Accept and complete sign-off"}
                 </button>
               </section>
             </main>

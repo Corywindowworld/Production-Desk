@@ -20,7 +20,7 @@ import { linkedAccountValues } from "@/lib/linked-account";
 import { MapDashboard } from "./location/map-dashboard";
 import { TripShare } from "./location/trip-share";
 import { displayedJobStatus, isPurchaseOrder } from "@/lib/payment-status";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { printSchedule } from "@/lib/print-schedule";
 import { displayDate, displayBonusDate } from "@/lib/display-date";
 import {
@@ -3002,6 +3002,7 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
                     key={o.report?.id || "new"}
                     j={j}
                     save={save}
+                    reload={reload}
                   />
                 </>
               ) : (
@@ -3889,18 +3890,63 @@ function Gallery({ attachments }: any) {
     <p className="op-muted">No files yet.</p>
   );
 }
-function InstallerReport({ j, save }: any) {
-  const [status, setStatus] = useState("Complete"),
-    [attachments, setAttachments] = useState<any[]>([]),
-    [certificate, setCertificate] = useState<any>(null),
+function InstallerReport({ j, save, reload }: any) {
+  const storedDraft = j.operations?.reportDraft,
+    usableDraft = storedDraft && ["Complete", "Incomplete"].includes(storedDraft.status) ? storedDraft : null;
+  const [status, setStatus] = useState(usableDraft?.status || "Complete"),
+    [attachments, setAttachments] = useState<any[]>(usableDraft?.attachments || []),
+    [certificate, setCertificate] = useState<any>(usableDraft?.certificate || null),
+    [installed, setInstalled] = useState(usableDraft?.installed || localDay()),
+    [reason, setReason] = useState(usableDraft?.reason || ""),
+    [notes, setNotes] = useState(usableDraft?.notes || ""),
     [uploadCount, setUploadCount] = useState(0),
+    [draftSaving, setDraftSaving] = useState(false),
+    [draftMessage, setDraftMessage] = useState(usableDraft ? "Draft restored." : ""),
     [error, setError] = useState("");
+  const stateRef = useRef({status,attachments,certificate,installed,reason,notes}),
+    draftQueue = useRef<Promise<any>>(Promise.resolve()),
+    draftSaveCount = useRef(0),
+    acceptedCertificate = useRef(usableDraft?.certificate || null);
+  stateRef.current = {status,attachments,certificate,installed,reason,notes};
   const busy = uploadCount > 0;
   const requirements = requiredReportKinds(status);
+  const persistDraft = async (changes: Record<string, any> = {}, refresh = true) => {
+    Object.assign(stateRef.current, changes);
+    draftSaveCount.current += 1;
+    setDraftSaving(true);
+    setDraftMessage("");
+    const run = async () => {
+      const current = stateRef.current;
+      await liveApi("/api/installer/report-draft", {
+        jobId: j.id,
+        data: {
+          ...current,
+          // Only an accepted customer sign-off is durable. While the customer
+          // is editing, keep the last accepted copy instead of storing an
+          // incomplete certificate or losing the existing signature.
+          certificate: current.certificate?.confirmed
+            ? current.certificate
+            : acceptedCertificate.current,
+        },
+      });
+    };
+    const pending = draftQueue.current.then(run, run);
+    draftQueue.current = pending.catch(() => {});
+    try {
+      await pending;
+      if (refresh) await reload();
+      setDraftMessage("✓ Completion draft saved. You can leave this job and return later.");
+    } finally {
+      draftSaveCount.current -= 1;
+      if (!draftSaveCount.current) setDraftSaving(false);
+    }
+  };
   const upload = async (kind: string, files: File[]) => {
     if (!files.length) return;
     setUploadCount(n=>n+files.length);setError("");
-    await Promise.all(files.map(async file=>{try{const attachment=await uploadAttachment(j.id,kind,file);setAttachments(old=>[...( ["issue","photos"].includes(kind)?old:old.filter(v=>v.kind!==kind)),attachment]);}catch(e){setError(previous=>previous + (previous?"\n":"") + file.name + ": " + (e as Error).message);}finally{setUploadCount(n=>n-1);}}));
+    let savedAny = false;
+    await Promise.all(files.map(async file=>{try{const attachment=await uploadAttachment(j.id,kind,file);savedAny=true;setAttachments(old=>{const next=[...( ["issue","photos"].includes(kind)?old:old.filter(v=>v.kind!==kind)),attachment];stateRef.current.attachments=next;return next;});await persistDraft({},false);}catch(e){setError(previous=>previous + (previous?"\n":"") + file.name + ": " + (e as Error).message);}finally{setUploadCount(n=>n-1);}}));
+    if (savedAny) await reload();
   };
   return (
     <>
@@ -3913,9 +3959,11 @@ function InstallerReport({ j, save }: any) {
         <span>Right-side photo</span>
         {status === "Incomplete" && <span>One or more issue photos</span>}
       </div>
+      {usableDraft && <p className="op-callout">A saved completion draft was restored. The customer signature and previously uploaded photos are retained until this report is submitted.</p>}
+      {draftMessage && <p role="status">{draftMessage}</p>}
       <Form
         onSave={async (f) => {
-          if (busy) throw Error("Wait for the upload to finish.");
+          if (busy || draftSaving) throw Error("Wait for the draft and uploads to finish saving.");
           const missing = requirements.find(
             (kind) => !attachments.some((a) => a.kind === kind),
           );
@@ -3934,9 +3982,9 @@ function InstallerReport({ j, save }: any) {
           await save("report", {
             id: crypto.randomUUID(),
             status,
-            reason: field(f, "reason"),
-            notes: field(f, "notes"),
-            installed: field(f, "installed"),
+            reason,
+            notes,
+            installed,
             attachments,
             certificate,
           });
@@ -3948,9 +3996,14 @@ function InstallerReport({ j, save }: any) {
             value={status}
             disabled={busy}
             onChange={(e) => {
-              setStatus(e.target.value);
+              const nextStatus=e.target.value,
+                nextAttachments=attachments.filter((a) => nextStatus === "Incomplete" || a.kind !== "issue");
+              setStatus(nextStatus);
               setCertificate(null);
-              setAttachments((old) => old.filter((a) => a.kind !== "issue"));
+              acceptedCertificate.current=null;
+              setAttachments(nextAttachments);
+              stateRef.current={...stateRef.current,status:nextStatus,certificate:null,attachments:nextAttachments};
+              void persistDraft().catch(e=>setError((e as Error).message));
             }}
           >
             <option>Complete</option>
@@ -3961,19 +4014,27 @@ function InstallerReport({ j, save }: any) {
           j={j}
           type={j.stage === "SVC" ? "Service" : status}
           profile={j.certificateProfile}
+          initialValue={usableDraft?.certificate}
           onChange={setCertificate}
+          onAccepted={async (accepted:any) => {
+            setCertificate(accepted);
+            acceptedCertificate.current=accepted;
+            stateRef.current.certificate=accepted;
+            await persistDraft({certificate:accepted});
+          }}
         />
         <Input
           name="installed"
           label="Installation date"
           type="date"
-          value={localDay()}
+          value={installed}
+          onChange={(e:any)=>{setInstalled(e.target.value);stateRef.current.installed=e.target.value}}
           max={localDay()}
           required
         />
         {status === "Incomplete" && (
           <>
-            <Text label="Reason incomplete" name="reason" />
+            <label>Reason incomplete<textarea name="reason" required value={reason} onChange={e=>{setReason(e.target.value);stateRef.current.reason=e.target.value}} /></label>
             {!j.reorder && (
               <p className="op-callout">
                 After submitting this INC result, you’ll be prompted to complete
@@ -3982,7 +4043,7 @@ function InstallerReport({ j, save }: any) {
             )}
           </>
         )}
-        <Text label="Installer notes" name="notes" />
+        <label>Installer notes<textarea name="notes" value={notes} onChange={e=>{setNotes(e.target.value);stateRef.current.notes=e.target.value}} /></label>
 
         {requirements.map((kind) => (
           <label key={kind}>
@@ -4017,6 +4078,7 @@ function InstallerReport({ j, save }: any) {
           </small>
         </label>
         <PhotoUploadProgress jobId={j.id}/>{busy && <p role="status">{uploadCount} photo(s) uploading or queued. You can select more photos while these finish.</p>}
+        {draftSaving && <p role="status">Saving completion draft…</p>}
         {error && <p className="op-red">{error}</p>}
       </Form>
     </>

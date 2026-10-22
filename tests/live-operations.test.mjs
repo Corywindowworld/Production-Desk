@@ -57,7 +57,7 @@ const vite = await createServer({
 });
 const { createDatabase } = await vite.ssrLoadModule("/db/adapter.ts");
 globalThis.__liveDb = createDatabase(wrap(pg));
-const { operation, operationsData } = await vite.ssrLoadModule(
+const { operation, operationsData, saveReportDraft } = await vite.ssrLoadModule(
   "/lib/operations-store.ts",
 );
 const { localDay, addDays, aging, bonusPeriod, bonusMetrics } =
@@ -1612,6 +1612,68 @@ test("completion reports work in every assigned status and after a previous appr
     await act(fs, "reviewReport", { approve: true });
     assert.equal(j.stage, status === "Complete" ? "Closed" : "Incomplete");
   }
+});
+test("signed certificates and partial photos persist as a resumable completion draft", async () => {
+  await act(pa, "create", {
+    number: "REPORT-DRAFT",
+    customer: "Draft Customer",
+    address: "1 Draft Way",
+    amount: 0,
+    assignedInstallerId: installer.id,
+  });
+  const front = {
+    kind: "front",
+    name: "front.jpg",
+    key: `jobs/${j.id}/front/${crypto.randomUUID()}`,
+  };
+  await pg.query(
+    "INSERT INTO production.attachment_uploads(key,staging_key,job_id,kind,member_id,name,expires,status,sha256) VALUES($1,$1,$2,$3,$4,$5,0,'ready',$1)",
+    [front.key, j.id, front.kind, installer.id, front.name],
+  );
+  const signed = certificate("Complete");
+  await saveReportDraft(installer, {
+    jobId: j.id,
+    data: {
+      status: "Complete",
+      reason: "",
+      notes: "Returning for the remaining photos",
+      installed: today,
+      attachments: [front],
+      certificate: signed,
+    },
+  });
+  const restored = (await operationsData(installer)).jobs.find((x) => x.id === j.id)
+    .operations.reportDraft;
+  assert.equal(restored.certificate.customerSignatureDataUrl, signature);
+  assert.equal(restored.attachments[0].key, front.key);
+  assert.equal(restored.notes, "Returning for the remaining photos");
+  assert.ok(restored.savedAt);
+  await assert.rejects(
+    () => saveReportDraft(pa, { jobId: j.id, data: restored }),
+    /assigned installer|Administrator/,
+  );
+  await reload();
+  const otherKinds = ["rear", "left", "right"].map((kind) => ({
+    kind,
+    name: kind + ".jpg",
+    key: `jobs/${j.id}/${kind}/${crypto.randomUUID()}`,
+  }));
+  for (const a of otherKinds)
+    await pg.query(
+      "INSERT INTO production.attachment_uploads(key,staging_key,job_id,kind,member_id,name,expires,status,sha256) VALUES($1,$1,$2,$3,$4,$5,0,'ready',$1)",
+      [a.key, j.id, a.kind, installer.id, a.name],
+    );
+  await act(installer, "report", {
+    id: crypto.randomUUID(),
+    status: "Complete",
+    reason: "",
+    notes: restored.notes,
+    installed: today,
+    attachments: [front, ...otherKinds],
+    certificate: restored.certificate,
+  });
+  assert.equal(j.operations.report.pending, true);
+  assert.equal(j.operations.reportDraft, null);
 });
 test("assigned installers save standalone photos in production and follow-up statuses", async () => {
   const { canAddJobPhotos } = await vite.ssrLoadModule(

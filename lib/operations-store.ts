@@ -42,7 +42,7 @@ import {
   bonusPeriod,
 } from "./operations";
 import { env } from "./server-env";
-import { reportSchema, reportError, installerJob } from "./installer-workflow";
+import { reportSchema, reportDraftSchema, reportError, installerJob } from "./installer-workflow";
 import { deliverPush } from "./push";
 import { incompleteSince } from "./job-workflow";
 import { z } from "zod";
@@ -191,6 +191,7 @@ export function publicJob(m: Member, j: any) {
       reorders: j.operations?.reorders || [],
       salesKeys: j.operations?.salesKeys,
       report: j.operations?.report,
+      reportDraft: j.operations?.reportDraft,
       previousReports: j.operations?.previousReports || [],
       routing: j.operations?.routing || {},
       remoteCertificates: j.operations?.remoteCertificates || [],
@@ -454,6 +455,63 @@ export async function operationsData(
     canEdit: hasJobEditPermission(m),
     canReview: reviewer(m),
   };
+}
+
+// Drafts deliberately update the latest locked job instead of requiring the
+// page's version. A background save must not fail just because another photo
+// or the customer signature was saved a moment earlier.
+export async function saveReportDraft(m: Member, input: any) {
+  if (m.role === "warehouse") throw new ApiError(403, "Use the Warehouse workspace.");
+  const draft = parse(reportDraftSchema, input.data),
+    db = database(),
+    at = new Date().toISOString();
+  return db.transaction(async (tx) => {
+    const row = await tx
+      .prepare("SELECT payload,version FROM jobs WHERE id=? FOR UPDATE")
+      .bind(String(input.jobId || ""))
+      .first();
+    assert(row, "Job not found.", 404);
+    const j = storedObject(row.payload),
+      o = j.operations || {};
+    assert(
+      reviewer(m) || (m.role === "installer" && installerVisible(m, j)),
+      "Only the assigned installer, Field Supervisor or Administrator can save this completion draft.",
+    );
+    assert(!o.report?.pending, "A completed report is already awaiting review.", 409);
+    const expectedType = j.stage === "SVC" ? "Service" : draft.status;
+    if (draft.certificate)
+      assert(
+        draft.certificate.type === expectedType,
+        `Complete the digital ${expectedType.toLowerCase()} certificate.`,
+        400,
+      );
+    for (const a of draft.attachments || []) {
+      const file = await tx
+        .prepare("SELECT * FROM attachment_uploads WHERE key=? AND status='ready'")
+        .bind(a.key)
+        .first();
+      assert(
+        a.key.startsWith(`jobs/${j.id}/${a.kind}/`) &&
+          file?.job_id === j.id &&
+          file?.kind === a.kind &&
+          file?.member_id === m.id,
+        "An uploaded draft photo is missing.",
+        400,
+      );
+    }
+    o.reportDraft = {
+      ...draft,
+      savedAt: at,
+      savedBy: m.id,
+      savedByName: m.name,
+    };
+    j.operations = o;
+    await tx
+      .prepare("UPDATE jobs SET payload=?,version=version+1,updated=? WHERE id=?")
+      .bind(JSON.stringify(j), at, j.id)
+      .run();
+    return { draft: o.reportDraft, version: Number(row.version) + 1 };
+  });
 }
 // All job changes lock the row and compare versions inside one transaction. Side effects are queued with the change.
 export async function operation(m: Member, input: any) {
@@ -1992,6 +2050,7 @@ export async function operation(m: Member, input: any) {
         )
         .run();
       o.report = report;
+      o.reportDraft = null;
       j.attachments = [...(j.attachments || []), ...r.attachments];
       history = `Installer submitted ${r.status} with signed digital certificate; awaiting approval`;
       await tx

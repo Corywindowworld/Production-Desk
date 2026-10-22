@@ -452,11 +452,11 @@ export default function LiveOperations() {
             <button
               key={name}
               className={tab === name ? "active" : ""}
-              title={name}
+              title={name === "Approvals" && me.role === "production_assistant" ? "Completion Batch" : name}
               onClick={() => setTab(name)}
             >
               <Icon size={19} />
-              <span className="op-nav-label">{name}</span>
+              <span className="op-nav-label">{name === "Approvals" && me.role === "production_assistant" ? "Completion Batch" : name}</span>
             </button>
           ))}
         </nav>
@@ -478,7 +478,7 @@ export default function LiveOperations() {
       <div className="op-main">
         <header className="op-toolbar">
           <span>
-            Tampa Bay / <b>{tab}</b>
+            Tampa Bay / <b>{tab === "Approvals" && me.role === "production_assistant" ? "Completion Batch" : tab}</b>
           </span>
           <span>
             {me.name} ·{" "}
@@ -763,7 +763,7 @@ export default function LiveOperations() {
                   />
                 </section>
               ))}
-          {tab === "Approvals" && me.role!=="installer" && <><LaborImport jobs={jobs} reload={load}/><CompletionBatches onOpen={setSelected} key={jobs.map((j:any)=>j.version).join(",")}/>{jobs.filter((j:any)=>j.operations?.laborSheets?.some((s:any)=>s.status==="Submitted")).map((j:any)=><section className="op-panel" key={j.id}><h3>{j.customer} · #{j.number}</h3><LaborSheet j={j} me={me} profile={data.leadProfile} reload={load}/></section>)}</>}
+          {tab === "Approvals" && review && <>{jobs.filter((j:any)=>j.operations?.laborSheets?.some((s:any)=>s.status==="Submitted")).map((j:any)=><section className="op-panel" key={j.id}><h3>{j.customer} · #{j.number}</h3><LaborSheet j={j} me={me} profile={data.leadProfile} reload={load}/></section>)}</>}
           {tab === "Approvals" && (
             <Approvals
               jobs={approvals}
@@ -774,6 +774,8 @@ export default function LiveOperations() {
               onOpen={setSelected}
             />
           )}
+
+          {tab === "Approvals" && me.role !== "installer" && <><LaborImport jobs={jobs} reload={load}/><CompletionBatches onOpen={setSelected} key={jobs.map((j:any)=>j.version).join(",")}/></>}
 
           {tab === "Quality" && (
             <Quality

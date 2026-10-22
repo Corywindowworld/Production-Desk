@@ -276,6 +276,8 @@ function QualityValue({ score }: any) {
 }
 
 export default function LiveOperations() {
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshNotice, setRefreshNotice] = useState("");
   const [pipelineStatus, setPipelineStatus] = useState("ALL");
   const [settingsSection, setSettingsSection] = useState("Accounts"),
     [bonusOpen, setBonusOpen] = useState(false);
@@ -292,7 +294,7 @@ export default function LiveOperations() {
     [saving, setSaving] = useState(false);
   const { theme } = useSessionTheme(),
     mark = themeMarks[theme];
-  const load = useCallback(async () => {
+  const loadResult = useCallback(async () => {
     try {
       const [d, n] = await Promise.all([
         liveApi("/api/operations"),
@@ -309,10 +311,25 @@ export default function LiveOperations() {
       );
       setNotices(n.notifications);
       setError("");
+      return true;
     } catch (e) {
       setError((e as Error).message);
+      return false;
     }
   }, []);
+  const load = useCallback(async () => { await loadResult(); }, [loadResult]);
+  const refresh = async () => {
+    setRefreshing(true);
+    setRefreshNotice("");
+    try {
+      const refreshed = await loadResult();
+      setRefreshNotice(refreshed
+        ? `✓ Updated at ${new Date().toLocaleTimeString([], {hour:"numeric",minute:"2-digit",second:"2-digit"})}`
+        : "Refresh failed. Please try again.");
+    } finally {
+      setRefreshing(false);
+    }
+  };
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const requested = params.get("tab");
@@ -514,9 +531,12 @@ export default function LiveOperations() {
           )}
           <div className="op-heading">
             <h1>{tab === "Overview" ? "Field Operations" : tab}</h1>
-            <button className="live-button" onClick={load}>
-              Refresh
-            </button>
+            <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+              <span role="status" aria-live="polite">{refreshing ? "Refreshing your workspace…" : refreshNotice}</span>
+              <button className="live-button" onClick={refresh} disabled={refreshing} aria-busy={refreshing}>
+                {refreshing ? "Refreshing…" : "Refresh"}
+              </button>
+            </div>
           </div>
           {tab === "Overview" && (
             <>

@@ -1115,7 +1115,11 @@ export async function operation(m: Member, input: any) {
         )?.payload,
       );
       assert(
-        input.version === version,
+        // Reports append a new result to the locked, current job; they do not
+        // replace job information. Draft/photo/labor saves may advance its
+        // version while the installer is completing the form. The report
+        // branch below rechecks assignment, pending results and all inputs.
+        action === "report" || input.version === version,
         "This job changed. Refresh and try again.",
         409,
       );

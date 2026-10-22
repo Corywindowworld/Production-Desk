@@ -1703,6 +1703,7 @@ test("signed certificates and partial photos persist as a resumable completion d
     [front.key, j.id, front.kind, installer.id, front.name],
   );
   const signed = certificate("Complete");
+  const versionBeforeDraft = j.version;
   await saveReportDraft(installer, {
     jobId: j.id,
     data: {
@@ -1735,7 +1736,7 @@ test("signed certificates and partial photos persist as a resumable completion d
       "INSERT INTO production.attachment_uploads(key,staging_key,job_id,kind,member_id,name,expires,status,sha256) VALUES($1,$1,$2,$3,$4,$5,0,'ready',$1)",
       [a.key, j.id, a.kind, installer.id, a.name],
     );
-  await act(installer, "report", {
+  const submission = {
     id: crypto.randomUUID(),
     status: "Complete",
     reason: "",
@@ -1743,9 +1744,15 @@ test("signed certificates and partial photos persist as a resumable completion d
     installed: today,
     attachments: [front, ...otherKinds],
     certificate: restored.certificate,
-  });
+  };
+  await operation(installer, {action:"report",jobId:j.id,version:versionBeforeDraft,data:submission});
+  await reload();
   assert.equal(j.operations.report.pending, true);
   assert.equal(j.operations.reportDraft, null);
+  await assert.rejects(
+    () => operation(installer, {action:"report",jobId:j.id,version:versionBeforeDraft,data:{...submission,id:crypto.randomUUID()}}),
+    /already awaiting Field Supervisor approval/,
+  );
 });
 test("assigned installers save standalone photos in production and follow-up statuses", async () => {
   const { canAddJobPhotos } = await vite.ssrLoadModule(

@@ -58,6 +58,7 @@ import { useSessionTheme } from "./account-theme";
 import { AccountSettings } from "./account-settings";
 import AccountManagement from "./account-management";
 import { JobVisits } from "./job-visits";
+import { ScheduledVisits } from "./scheduled-visits";
 import { uploadAttachment } from "@/lib/upload-client";
 import { requiredReportKinds, reportLabels } from "@/lib/installer-workflow";
 import { installAppointments, hourLabel } from "@/lib/install-calendar";
@@ -492,6 +493,7 @@ export default function LiveOperations() {
           </span>
         </header>
         <main className="op-content">
+          {review && ["Overview", "Schedule", "Jobs"].includes(tab) && <div style={{marginBottom:16}}><ScheduledVisits /></div>}
           {savedNotice && (
             <p className="op-callout" role="status">
               {savedNotice}{" "}
@@ -2449,6 +2451,7 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
     [uploading, setUploading] = useState(false),
     [reorderPrompt, setReorderPrompt] = useState(0),
     [laborOpen, setLaborOpen] = useState(false),
+    [visitRevision, setVisitRevision] = useState(0),
     [workspaceTab, setWorkspaceTab] = useState("completion");
   const noOp = useCallback(() => {}, []);
   const act = (a: string, v: any = {}) => clickAction(a, v, j);
@@ -2466,6 +2469,7 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
   if (isInstaller) j.certificateProfile = data.leadProfile;
   return (
     <>
+      {review && <div style={{marginBottom:16}}><ScheduledVisits job={j} onSaved={()=>setVisitRevision(v=>v+1)} /></div>}
       {(isInstaller || review) && <TripShare jobId={j.id} />}
       <Dialog open={laborOpen} onOpenChange={setLaborOpen}>
         <DialogContent style={{width:'96vw',maxWidth:1150,maxHeight:'92dvh',overflowY:'auto'}}>
@@ -3204,10 +3208,10 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
           hidden={workspaceTab !== "notes"}
           style={{ display: workspaceTab === "notes" ? "block" : "none" }}
         >
-          {workspaceTab === "notes" && <JobNotesHistory j={j} save={save} />}
+          {workspaceTab === "notes" && <JobNotesHistory key={visitRevision} j={j} save={save} />}
           <details className="op-disclosure">
             <summary>Job visits</summary>
-            <JobVisits jobId={j.id} onBusy={noOp} onEditing={noOp} />
+            <JobVisits key={visitRevision} jobId={j.id} onBusy={noOp} onEditing={noOp} />
           </details>
           {!isInstaller && <details className="op-disclosure">
             <summary>Customer record and contact notes</summary>

@@ -185,6 +185,7 @@ export function publicJob(m: Member, j: any) {
     scheduleInstructions: j.scheduleInstructions || "",
     reorder: j.reorder || "",
     attachments: (j.attachments || []).filter((a: any) => a.kind !== "visit"),
+    history: j.history || [],
     operations: {
       laborSheets: j.operations?.laborSheets || [],
       leadRenovation: j.operations?.leadRenovation,
@@ -1850,6 +1851,10 @@ export async function operation(m: Member, input: any) {
         alert,
         assigned: installerVisible(m, j),
       });
+    } else if (action === "addNote") {
+      assert(["admin", "supervisor", "production_assistant", "office", "installer"].includes(m.role), "Job access required.");
+      const text = parse(z.string().trim().min(1).max(4000), input.data.text);
+      history = "Note: " + text;
     } else if (action === "jobPhotos") {
       assert(
         canAddJobPhotos(m, j, today),

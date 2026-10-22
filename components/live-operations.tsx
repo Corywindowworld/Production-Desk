@@ -2894,7 +2894,8 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
                     ")"
                   : ""),
             },
-            { id: "history", label: "Payments and History" },
+            { id: "notes", label: "Notes & History" },
+            { id: "history", label: "Payments & Other" },
             { id: "labor", label: "Complete Labor Sheet" },
           ].map((t) => (
             <button
@@ -3198,6 +3199,23 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
         </section>
         <section
           role="tabpanel"
+          id={"job-panel-" + j.id + "-notes"}
+          aria-labelledby={"job-tab-" + j.id + "-notes"}
+          hidden={workspaceTab !== "notes"}
+          style={{ display: workspaceTab === "notes" ? "block" : "none" }}
+        >
+          {workspaceTab === "notes" && <JobNotesHistory j={j} save={save} />}
+          <details className="op-disclosure">
+            <summary>Job visits</summary>
+            <JobVisits jobId={j.id} onBusy={noOp} onEditing={noOp} />
+          </details>
+          {!isInstaller && <details className="op-disclosure">
+            <summary>Customer record and contact notes</summary>
+            <ProjectRecord j={j} />
+          </details>}
+        </section>
+        <section
+          role="tabpanel"
           id={"job-panel-" + j.id + "-history"}
           aria-labelledby={"job-tab-" + j.id + "-history"}
           hidden={workspaceTab !== "history"}
@@ -3248,30 +3266,6 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
               </p>
             )}
           </details>
-          <details className="op-disclosure">
-            <summary>Job visits</summary>
-            <JobVisits jobId={j.id} onBusy={noOp} onEditing={noOp} />
-          </details>
-          {!isInstaller && (
-            <>
-              {" "}
-              <details className="op-disclosure">
-                <summary>Customer record and contact notes</summary>
-                <ProjectRecord j={j} />
-              </details>
-              <details className="op-disclosure">
-                <summary>Job history</summary>
-                {(j.history || []).map((h: any, i: number) => (
-                  <p className="op-history" key={i}>
-                    {displayDate(h.text)}
-                    <small>
-                      {h.by} · {new Date(h.at).toLocaleString()}
-                    </small>
-                  </p>
-                ))}
-              </details>
-            </>
-          )}
         </section>
       </section>
     </>
@@ -3883,6 +3877,29 @@ function RequestForm({ team, save, admin = false, stage }: any) {
       </small>
     </Form>
   );
+}
+function JobNotesHistory({j,save}:any){
+  const [addingNote,setAddingNote]=useState(false),[addingPhoto,setAddingPhoto]=useState(false),[visits,setVisits]=useState<any[]>([]),[visitError,setVisitError]=useState('');
+  useEffect(()=>{let active=true;fetch('/api/job-visits?jobId='+encodeURIComponent(j.id),{cache:'no-store'}).then(async r=>{const d=await r.json();if(!r.ok)throw Error(d.error||'Visit photos could not load.');if(active)setVisits(d.visits||[])}).catch(e=>{if(active)setVisitError(e.message)});return ()=>{active=false}},[j.id,j.version]);
+  const o=j.operations||{},files=[...(j.attachments||[]),...(o.report?.attachments||[]),...(o.reportDraft?.attachments||[]),...(o.previousReports||[]).flatMap((r:any)=>r.attachments||[]),...(o.reorders||[]).flatMap((r:any)=>r.attachments||r.photos||[]),...visits.flatMap((v:any)=>v.photos||[])];
+  const pictures=[...new Map(files.filter((a:any)=>a.key&&/\.(jpe?g|png|webp|gif|heic|heif)$/i.test(a.name||'')).map((a:any)=>[a.key,a])).values()];
+  return <section>
+    <h3>Notes & History</h3>
+    <div style={{display:'flex',gap:12,flexWrap:'wrap',marginBottom:16}}>
+      <button type="button" className="live-button" onClick={()=>setAddingNote(v=>!v)}>{addingNote?'Cancel Note':'Add Note'}</button>
+      <button type="button" className="live-button" onClick={()=>setAddingPhoto(v=>!v)}>{addingPhoto?'Close Photo Upload':'Add Photo'}</button>
+    </div>
+    {addingNote&&<Form submitLabel="Save Note" successMessage="Note added to job history." onSave={async f=>{await save('addNote',{text:field(f,'text')});setAddingNote(false)}}><label>Note<textarea name="text" required maxLength={4000} placeholder="Add a note to this job…"/></label></Form>}
+    {addingPhoto&&<JobPhotoUpload j={j} save={save}/>}
+    <h4>Job history</h4>
+    <div style={{maxHeight:420,overflowY:'auto'}}>
+      {!(j.history||[]).length&&<p>No history yet.</p>}
+      {(j.history||[]).map((h:any,i:number)=><p className="op-history" key={h.at+':'+i} style={{whiteSpace:'pre-wrap'}}>{h.text}<small>{h.by} · {new Date(h.at).toLocaleString('en-US',{timeZone:'America/New_York'})}</small></p>)}
+    </div>
+    <h4>Pictures ({pictures.length})</h4>
+    {visitError&&<p role="alert">{visitError} Other account pictures are shown below.</p>}
+    <Gallery attachments={pictures}/>
+  </section>;
 }
 function Gallery({ attachments }: any) {
   return attachments.length ? (

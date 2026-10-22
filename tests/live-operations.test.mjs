@@ -1670,6 +1670,21 @@ test('service corrections can omit labor only after certificate review and retai
   assert.equal(serviceLaborOmitted(j),false);
   assert.equal((await PDFDocument.load(Buffer.from((await batchData(pa,batch.id,true)).pdf_base64,'base64'))).getPageCount(),2);
 });
+test('job notes persist with authors and PA can add account photos',async()=>{
+  await act(pa,'create',{number:'NOTES-HISTORY',customer:'Notes Customer',address:'1 Note Way',amount:0,assignedInstallerId:installer.id});
+  await act(pa,'addNote',{text:'  Customer requested a morning call.  '});
+  assert.equal(j.history[0].text,'Note: Customer requested a morning call.');
+  assert.equal(j.history[0].by,pa.name);
+  await assert.rejects(()=>act(installer,'addNote',{text:'   '}));
+  await assert.rejects(()=>act({...installer,id:'unassigned'},'addNote',{text:'Not allowed'}),/not assigned/);
+  await act(installer,'addNote',{text:'Confirmed with customer.'});
+  assert.equal((await operationsData(installer)).jobs.find(x=>x.id===j.id).history[0].text,'Note: Confirmed with customer.');
+  const a={kind:'photos',name:'note-photo.jpg',key:`jobs/${j.id}/photos/${crypto.randomUUID()}`};
+  await pg.query("INSERT INTO production.attachment_uploads(key,staging_key,job_id,kind,member_id,name,expires,status,sha256) VALUES($1,$1,$2,$3,$4,$5,0,'ready',$1)",[a.key,j.id,a.kind,pa.id,a.name]);
+  await act(pa,'jobPhotos',{attachments:[a]});
+  assert.equal(j.attachments.find(x=>x.key===a.key).uploadedBy,pa.name);
+  assert.equal(j.stage,'Ordered');
+});
 test("signed certificates and partial photos persist as a resumable completion draft", async () => {
   await act(pa, "create", {
     number: "REPORT-DRAFT",

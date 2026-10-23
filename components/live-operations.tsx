@@ -2490,6 +2490,69 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
     .map((s: any) => linkedSurveyDetails(s, [j]))
     .filter((s: any) => s.job);
   if (isInstaller) j.certificateProfile = data.leadProfile;
+  const completionSection = (isInstaller || review) && (
+            <details open={isInstaller || undefined} className="op-disclosure live-completion">
+              <summary>Job Completion {o.report?.pending ? "✓" : ""}</summary>
+              <p>
+                Select Complete or Incomplete and upload every required photo
+                and certificate. Additional photos are optional.
+              </p>
+              {o.report?.pending ? (
+                <>
+                  <p className="op-callout">
+                    ✓ {o.report.status} result sent — your report was submitted
+                    and is waiting for Field Supervisor approval.
+                  </p>
+                  {o.report.omitLabor && <p>No labor payment requested for this service correction.</p>}
+                  {isInstaller &&
+                    o.report.status === "Incomplete" &&
+                    !(o.reorders || []).some(
+                      (r: any) =>
+                        r.status !== "Declined" &&
+                        r.submittedAt >= o.report.submittedAt,
+                    ) && (
+                      <div className="op-callout" role="status">
+                        <strong>Next step: Complete the reorder form.</strong>
+                        <p>
+                          Enter the items needed and attach issue photos for
+                          your Field Supervisor.
+                        </p>
+                        <button
+                          type="button"
+                          className="op-primary"
+                          onClick={() => {
+                            setWorkspaceTab("reorders");
+                            setReorderPrompt((n) => n + 1);
+                          }}
+                        >
+                          Complete reorder form
+                        </button>
+                      </div>
+                    )}
+                </>
+              ) : j.canReport || review ? (
+                <>
+                  {o.report?.approved && (
+                    <p className="op-callout">
+                      Your previous report was approved. You may submit a new
+                      result for this visit.
+                    </p>
+                  )}
+                  <InstallerReport
+                    key={o.report?.id || "new"}
+                    j={j}
+                    save={save}
+                    reload={reload}
+                  />
+                </>
+              ) : (
+                <p className="op-muted">
+                  Only an assigned installer, Field Supervisor or Administrator
+                  can submit this job’s result.
+                </p>
+              )}
+            </details>
+          );
   return (
     <>
       {(isInstaller || review) && <TripShare key={j.id} jobId={j.id} phone={j.phone} phone2={j.phone2} phone3={j.phone3} />}
@@ -2891,7 +2954,7 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
           }}
         >
           {[
-            { id: "completion", label: "Job Visit & Completion" },
+            { id: "completion", label: isInstaller ? "Job Completion" : "Job Visit & Completion" },
             {
               id: "reorders",
               label:
@@ -2923,7 +2986,7 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
             { id: "notes", label: "Notes & History" },
             { id: "history", label: "Payments & Other" },
             { id: "labor", label: "Complete Labor Sheet" },
-          ].map((t) => (
+          ].filter(t => !isInstaller || t.id !== "labor").map((t) => (
             <button
               type="button"
               role="tab"
@@ -2981,14 +3044,15 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
           hidden={workspaceTab !== "completion"}
           style={{ display: workspaceTab === "completion" ? "block" : "none" }}
         >
-          <section className="op-disclosure" aria-label="Job visits">
+          {isInstaller && completionSection}
+          {!isInstaller && <section className="op-disclosure" aria-label="Job visits">
             <h3>Job Visits</h3>
             {review && <ScheduledVisits job={j} onSaved={()=>setVisitRevision(v=>v+1)} />}
             <details style={{marginTop:12}}>
               <summary>Previous Job Visits</summary>
               <JobVisits key={visitRevision} jobId={j.id} onBusy={noOp} onEditing={noOp} />
             </details>
-          </section>
+          </section>}
           <ApprovedLaborSheets j={j}/>
           <LaborSheet j={j} me={me} profile={data.leadProfile} reload={reload}/>
           {j.leadRenovationJob && (
@@ -2999,69 +3063,7 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
               save={save}
             />
           )}
-          {(isInstaller || review) && (
-            <details className="op-disclosure live-completion">
-              <summary>Job Completion {o.report?.pending ? "✓" : ""}</summary>
-              <p>
-                Select Complete or Incomplete and upload every required photo
-                and certificate. Additional photos are optional.
-              </p>
-              {o.report?.pending ? (
-                <>
-                  <p className="op-callout">
-                    ✓ {o.report.status} result sent — your report was submitted
-                    and is waiting for Field Supervisor approval.
-                  </p>
-                  {o.report.omitLabor && <p>No labor payment requested for this service correction.</p>}
-                  {isInstaller &&
-                    o.report.status === "Incomplete" &&
-                    !(o.reorders || []).some(
-                      (r: any) =>
-                        r.status !== "Declined" &&
-                        r.submittedAt >= o.report.submittedAt,
-                    ) && (
-                      <div className="op-callout" role="status">
-                        <strong>Next step: Complete the reorder form.</strong>
-                        <p>
-                          Enter the items needed and attach issue photos for
-                          your Field Supervisor.
-                        </p>
-                        <button
-                          type="button"
-                          className="op-primary"
-                          onClick={() => {
-                            setWorkspaceTab("reorders");
-                            setReorderPrompt((n) => n + 1);
-                          }}
-                        >
-                          Complete reorder form
-                        </button>
-                      </div>
-                    )}
-                </>
-              ) : j.canReport || review ? (
-                <>
-                  {o.report?.approved && (
-                    <p className="op-callout">
-                      Your previous report was approved. You may submit a new
-                      result for this visit.
-                    </p>
-                  )}
-                  <InstallerReport
-                    key={o.report?.id || "new"}
-                    j={j}
-                    save={save}
-                    reload={reload}
-                  />
-                </>
-              ) : (
-                <p className="op-muted">
-                  Only an assigned installer, Field Supervisor or Administrator
-                  can submit this job’s result.
-                </p>
-              )}
-            </details>
-          )}
+          {!isInstaller && completionSection}
           {me.role === "admin" && <AdminResultForm j={j} save={save} />}
           <details className="op-disclosure">
             <summary>Submitted Job Result</summary>

@@ -2492,7 +2492,7 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
   if (isInstaller) j.certificateProfile = data.leadProfile;
   return (
     <>
-      {(isInstaller || review) && <TripShare jobId={j.id} />}
+      {(isInstaller || review) && <TripShare key={j.id} jobId={j.id} phone={j.phone} phone2={j.phone2} phone3={j.phone3} />}
       <Dialog open={laborOpen} onOpenChange={setLaborOpen}>
         <DialogContent style={{width:'96vw',maxWidth:1150,maxHeight:'92dvh',overflowY:'auto'}}>
           <DialogHeader><DialogTitle>Complete Labor Sheet · {j.customer} · #{j.number}</DialogTitle></DialogHeader>

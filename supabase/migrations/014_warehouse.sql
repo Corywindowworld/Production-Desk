@@ -1,0 +1,13 @@
+BEGIN;
+ALTER TABLE production.members DROP CONSTRAINT IF EXISTS members_role_check;
+ALTER TABLE production.members ADD CONSTRAINT members_role_check CHECK(role IN ('admin','office','production_assistant','supervisor','installer','warehouse'));
+CREATE TABLE IF NOT EXISTS production.warehouse_shipments(id text PRIMARY KEY, reference text NOT NULL UNIQUE, name text NOT NULL, store text NOT NULL, created text NOT NULL, created_by text NOT NULL, source_text text NOT NULL);
+CREATE TABLE IF NOT EXISTS production.warehouse_items(id text PRIMARY KEY, shipment_id text NOT NULL REFERENCES production.warehouse_shipments(id), external_id text NOT NULL UNIQUE, job_id text REFERENCES production.jobs(id) ON DELETE SET NULL, cid text NOT NULL, store text NOT NULL, po text NOT NULL, manufacturer_order text NOT NULL, aq text NOT NULL, description text NOT NULL, status text NOT NULL DEFAULT 'Expected' CHECK(status IN ('Expected','Received','Damaged','Missing','Return Pending','Returned')), bay text NOT NULL DEFAULT '', barcode text UNIQUE, version integer NOT NULL DEFAULT 1, updated text NOT NULL);
+CREATE INDEX IF NOT EXISTS warehouse_items_job ON production.warehouse_items(job_id);
+CREATE TABLE IF NOT EXISTS production.warehouse_events(id text PRIMARY KEY,item_id text NOT NULL REFERENCES production.warehouse_items(id),actor_id text NOT NULL,actor_name text NOT NULL,action text NOT NULL,reason text NOT NULL DEFAULT '',photo_key text,created text NOT NULL);
+ALTER TABLE production.warehouse_shipments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE production.warehouse_items ENABLE ROW LEVEL SECURITY;
+ALTER TABLE production.warehouse_events ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON production.warehouse_shipments,production.warehouse_items,production.warehouse_events FROM PUBLIC;
+DO $$ DECLARE r text; BEGIN FOREACH r IN ARRAY ARRAY['anon','authenticated'] LOOP IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname=r) THEN EXECUTE format('REVOKE ALL ON production.warehouse_shipments,production.warehouse_items,production.warehouse_events FROM %I',r); END IF; END LOOP; END $$;
+COMMIT;

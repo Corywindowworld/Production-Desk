@@ -1,4 +1,6 @@
 'use client';
+import {ClearableSearch} from "@/components/clearable-search";
+
 import {useState} from 'react';
 import {completionBatchFilename} from '@/lib/completion-batch-name';
 
@@ -13,7 +15,7 @@ export function PreviousBatches({batches}:{batches:any[]}){
    <p>Search sent batches by batch date, filename, or the person who prepared or sent them.</p>
    <div style={{display:'flex',gap:12,flexWrap:'wrap'}}>
      <label>Batch date<input type="date" value={date} onChange={e=>setDate(e.target.value)}/></label>
-     <label>Search previous batches<input type="search" placeholder="Filename or staff name" value={query} onChange={e=>setQuery(e.target.value)}/></label>
+     <label>Search previous batches<ClearableSearch onClear={() => setQuery("")} type="search" placeholder="Filename or staff name" value={query} onChange={e=>setQuery(e.target.value)}/></label>
      {searching&&<button type="button" className="live-button" onClick={()=>{setDate('');setQuery('')}}>Clear search</button>}
    </div>
    {searching&&<div style={{maxHeight:360,overflowY:'auto'}}>

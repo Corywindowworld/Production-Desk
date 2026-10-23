@@ -351,3 +351,11 @@ button.tracking-outline:disabled{opacity:.55;cursor:wait}
     border-left: 5px solid var(--crew-color, #2879c8) !important;
   }
 }
+
+/* Shared clear control for search fields, including touch devices. */
+.clearable-search{position:relative;display:flex;align-items:center;min-width:0;width:100%;flex:1}
+.clearable-search>input{min-width:0}
+.clearable-search>input::-webkit-search-cancel-button{display:none}
+.clearable-search>.clear-search-button{position:absolute;right:4px;top:50%;transform:translateY(-50%);display:flex;align-items:center;justify-content:center;width:36px;height:36px;min-height:36px;padding:0;border:0;border-radius:6px;background:#edf2f7;color:#243c53;cursor:pointer}
+.clearable-search>.clear-search-button:hover{background:#dbe6f2}
+.clearable-search>.clear-search-button:focus-visible{outline:2px solid #0055ed;outline-offset:2px}

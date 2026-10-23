@@ -1,4 +1,6 @@
 "use client";
+import {ClearableSearch} from "@/components/clearable-search";
+
 import './operations-palette.css';
 import {Dialog, DialogContent, DialogHeader, DialogTitle} from './ui/dialog';
 import {LaborImport,LaborSheet} from './labor-paperwork';
@@ -1061,7 +1063,7 @@ function JobList({
         </p>
       )}
       <div className="op-filters">
-        <input
+        <ClearableSearch onClear={() => setQuery("")}
           aria-label="Search jobs"
           placeholder="Customer, customer ID, address or installer…"
           value={query}
@@ -4304,7 +4306,7 @@ function Visits({ onOpen }: any) {
   return (
     <section className="op-panel">
       <h2>Recent job visits</h2>
-      <input
+      <ClearableSearch onClear={() => setQ("")}
         aria-label="Search visits"
         placeholder="Search customer or job ID"
         value={q}
@@ -4643,7 +4645,7 @@ function LinkedAccounts({ j, jobs, canEdit, save, onOpen }: any) {
         >
           <label>
             Find account by customer ID, name or address
-            <input value={query} onChange={(e) => setQuery(e.target.value)} />
+            <ClearableSearch onClear={() => setQuery("")} value={query} onChange={(e) => setQuery(e.target.value)} />
           </label>
           <Select
             label="Account for the same customer"

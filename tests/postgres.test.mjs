@@ -244,4 +244,29 @@ test('browser upload uses a signed direct transfer and provides useful failure m
   await assert.rejects(uploadAttachment('job','photos',new File(['x'],'test.jpg')),/browser could not reach/);
  }finally{globalThis.fetch=original}
 });
+test('remembered sign-ins last 30 days and retain credential revocation',async()=>{
+ const email='remember@example.com',password='Remember-password1!',id=crypto.randomUUID();
+ await db.prepare('INSERT INTO members(id,email,name,role,active) VALUES (?,?,?,?,1)').bind(id,email,'Remember test','admin').run();
+ await db.prepare('INSERT INTO credentials(member_id,password_hash,must_change,generation) VALUES (?,?,0,1)').bind(id,await bcrypt.hash(password,4)).run();
+ for(const rememberMe of [false,true]){
+  const before=Date.now(),r=await login.POST(req('auth/login',{email,password,rememberMe}));await success(r);
+  const seconds=rememberMe?2592000:43200;
+  assert.match(r.headers.get('set-cookie'),new RegExp('Max-Age='+seconds+'$'));
+  assert.match(r.headers.get('set-cookie'),/HttpOnly; Secure; SameSite=Lax/);
+  const row=await db.prepare('SELECT expires FROM sessions WHERE member_id=? ORDER BY expires DESC LIMIT 1').bind(id).first();
+  assert.ok(Number(row.expires)>=before+seconds*1000);
+  assert.equal((await me.GET(req('me',null,cookie(r)))).status,200);
+ }
+ const remembered=await login.POST(req('auth/login',{email,password,rememberMe:true}));await success(remembered);
+ await db.prepare('UPDATE credentials SET generation=generation+1 WHERE member_id=?').bind(id).run();
+ assert.equal((await me.GET(req('me',null,cookie(remembered)))).status,401);
+ const temporary=await bcrypt.hash('Temporary-remember1!',4);
+ await db.prepare('UPDATE credentials SET password_hash=?,must_change=1,temporary_expires=? WHERE member_id=?').bind(temporary,Date.now()+86400000,id).run();
+ const restricted=await login.POST(req('auth/login',{email,password:'Temporary-remember1!',rememberMe:true}));await success(restricted);
+ assert.match(restricted.headers.get('set-cookie'),/Max-Age=1200$/);
+ const activated=await change.POST(req('auth/change-password',{password:'Permanent-remember2!',rememberMe:true},cookie(restricted)));await success(activated);
+ assert.match(activated.headers.get('set-cookie'),/Max-Age=2592000$/);
+ await db.prepare('UPDATE members SET active=0 WHERE id=?').bind(id).run();
+ assert.equal((await me.GET(req('me',null,cookie(activated)))).status,401);
+});
 test.after(async()=>{await pg.close()});

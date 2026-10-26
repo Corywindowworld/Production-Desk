@@ -1253,9 +1253,13 @@ test("installer profile ownership and inactivity are enforced", async () => {
     emergencyContact: "Contact",
     emergencyPhone: "8135555678",
   };
+  p.savedDrawnSignature=signature;
   await saveInstallerProfile(installer, p);
   const own = await installerProfiles(installer);
   assert.equal(own.installers.length, 1);
+  assert.equal(own.installers[0].savedDrawnSignature,signature);
+  assert.equal((await operationsData(installer)).leadProfile.savedDrawnSignature,signature);
+  await assert.rejects(()=>saveInstallerProfile(installer,{...p,savedDrawnSignature:"not-a-signature"}),/installer profile/i);
   assert.equal(own.installers[0].leadInstallerName, "Lead Name");
   await assert.rejects(
     () => saveInstallerProfile(installer, { ...p, inactive: true }),
@@ -4429,4 +4433,12 @@ test('document customer names use last-first without changing stored or organiza
  const record=certificateSnapshot({customer:'John de la Cruz',firstName:'John',lastName:'de la Cruz',number:'123456',amount:0},installer,certificate('Complete'),{},new Date().toISOString());
  assert.equal(record.customerName,'John de la Cruz');
  assert.equal(customerDisplayName(record.customerName,record.customerFirstName,record.customerLastName),'de la Cruz, John');
+});
+
+test('completion certificate header pairs customer and ID, date and email, installer and contractor ID',async()=>{
+ const {jobCertificatePrintHtml}=await vite.ssrLoadModule('/lib/print-job-certificate.ts');
+ const html=jobCertificatePrintHtml({...certificate('Complete'),id:'header-qa',customerName:'John Smith',customerId:'123456',installerName:'Test Crew',contractorId:'C123',signedAt:'2026-10-26T16:00:00Z'});
+ const header=html.slice(html.indexOf('<div class="top">'),html.indexOf('<table class="questions">'));
+ const labels=['Customer:</b>','Customer ID:</b>','Date:</b>','Email:</b>','Installer:</b>','Contractor ID:</b>'];
+ for(let i=1;i<labels.length;i++)assert.ok(header.indexOf(labels[i])>header.indexOf(labels[i-1]));
 });

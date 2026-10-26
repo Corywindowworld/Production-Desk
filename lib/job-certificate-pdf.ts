@@ -118,6 +118,20 @@ export async function jobCertificatePdf(c: any) {
   const logo = await pdf.embedPng(certificateLogoPng);
   page.drawImage(logo, { x: left, y: H - 38, width: 28, height: 28 });
   if (complete) center("CONGRATULATIONS ON YOUR NEW WINDOWS!", 11, bold);
+  if (complete) {
+    const pair=(a:string,av:unknown,b:string,bv:unknown,size=13,strong=false)=>{
+      const columns=[{x:left,w:318,label:a,value:av},{x:left+336,w:width-336,label:b,value:bv}];
+      const blocks=columns.map(col=>({...col,rows:lines(col.label+" "+clean(col.value),size,col.w)}));
+      const height=Math.max(...blocks.map(col=>col.rows.length))*(size+3)+8;
+      ensure(height);
+      for(const col of blocks)col.rows.forEach((row,i)=>page.drawText(row,{x:col.x,y:y-size-i*(size+3),size,font:strong?bold:regular}));
+      y-=height;
+    };
+    pair("Customer:",customerDisplayName(c.customerName,c.customerFirstName,c.customerLastName),"Customer ID #:",c.customerId,15,true);
+    pair("Date:",day(c.signedAt),"Email:",c.customerEmail,12);
+    pair(c.signedByStaff?"Staff preparer:":"Installer:",c.installerName,"Contractor ID #:",c.contractorId||"Not recorded",13);
+    field("Property:",[c.address,c.city,c.state,c.zip].filter(Boolean).join(", "));
+  } else {
   field("Customer:", customerDisplayName(c.customerName,c.customerFirstName,c.customerLastName), true);
   field("Customer ID #:", c.customerId, true);
   field(c.signedByStaff ? "Staff preparer:" : "Installer:", c.installerName);
@@ -127,6 +141,7 @@ export async function jobCertificatePdf(c: any) {
     "Property:",
     [c.address, c.city, c.state, c.zip].filter(Boolean).join(", "),
   );
+  }
   rule();
   if (c.type === "Incomplete") {
     center("COMPLETED WINDOWS", 13, bold);

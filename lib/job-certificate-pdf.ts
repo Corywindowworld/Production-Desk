@@ -1,3 +1,4 @@
+import {customerDisplayName} from './customer-display-name';
 import { certificateLogoPng } from "./certificate-logo";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { certificateQuestionsForType } from "./job-certificate";
@@ -101,8 +102,7 @@ export async function jobCertificatePdf(c: any) {
     });
     y -= 8;
   };
-  const field = (label: string, value: unknown) =>
-    text(label + " " + clean(value), 12, { gap: 1 });
+  const field = (label: string, value: unknown, prominent = false) => text(label + " " + clean(value), prominent ? 16 : 13, { bold: prominent, gap: prominent ? 5 : 3 });
   const service = c.type === "Service",
     complete = c.type === "Complete",
     questions = certificateQuestionsForType(c.type);
@@ -118,8 +118,8 @@ export async function jobCertificatePdf(c: any) {
   const logo = await pdf.embedPng(certificateLogoPng);
   page.drawImage(logo, { x: left, y: H - 38, width: 28, height: 28 });
   if (complete) center("CONGRATULATIONS ON YOUR NEW WINDOWS!", 11, bold);
-  field("Customer:", c.customerName);
-  field("Customer ID #:", c.customerId);
+  field("Customer:", customerDisplayName(c.customerName,c.customerFirstName,c.customerLastName), true);
+  field("Customer ID #:", c.customerId, true);
   field(c.signedByStaff ? "Staff preparer:" : "Installer:", c.installerName);
   field("Contractor ID #:", c.contractorId || "Not recorded");
   field("Date:", day(c.signedAt));

@@ -4415,3 +4415,18 @@ test('service division scopes schedules, saves sign-offs, publishes results and 
  await assert.rejects(()=>location.publicLocation(share.token),/ended|expired|unavailable/);
  assert.equal((await jobFor(tech,jobId)).id,jobId);await assert.rejects(()=>jobFor(other,jobId),/not assigned/);
 });
+
+test('document customer names use last-first without changing stored or organization names',async()=>{
+ const {customerDisplayName}=await vite.ssrLoadModule('/lib/customer-display-name.ts');
+ assert.equal(customerDisplayName('Kim & Ryan Nolan'),'Nolan, Kim & Ryan');
+ assert.equal(customerDisplayName('Nolan, Kim & Ryan'),'Nolan, Kim & Ryan');
+ assert.equal(customerDisplayName('John de la Cruz','John','de la Cruz'),'de la Cruz, John');
+ assert.equal(customerDisplayName('John Smith Jr.'),'Smith Jr., John');
+ assert.equal(customerDisplayName('Freedom Square'),'Freedom Square');
+ assert.equal(customerDisplayName('Acme LLC'),'Acme LLC');
+ assert.equal(customerDisplayName('Sullivan'),'Sullivan');
+ const {certificateSnapshot}=await vite.ssrLoadModule('/lib/job-certificate.ts');
+ const record=certificateSnapshot({customer:'John de la Cruz',firstName:'John',lastName:'de la Cruz',number:'123456',amount:0},installer,certificate('Complete'),{},new Date().toISOString());
+ assert.equal(record.customerName,'John de la Cruz');
+ assert.equal(customerDisplayName(record.customerName,record.customerFirstName,record.customerLastName),'de la Cruz, John');
+});

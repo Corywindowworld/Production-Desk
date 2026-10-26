@@ -119,6 +119,8 @@ export function certificateSnapshot(
     id: crypto.randomUUID(),
     customerId: String(j.number),
     customerName: String(j.customer),
+    customerFirstName: String(j.firstName||""),
+    customerLastName: String(j.lastName||""),
     address: String(j.address || ""),
     city: String(j.city || ""),
     state: String(j.state || ""),

@@ -1,3 +1,4 @@
+import {setupServiceDatabase} from './service-schema';
 import {database} from '@/db/raw';
 import {ApiError,Member} from './access';
 import {currentSession,digest,randomToken} from './auth-session';
@@ -11,7 +12,7 @@ export async function locationIdentity(request:Request){
  if(bearer)session=await database().prepare("SELECT m.*,s.token_hash,s.restricted,c.must_change FROM production.location_devices d JOIN sessions s ON s.token_hash=d.session_hash JOIN members m ON m.id=d.member_id JOIN credentials c ON c.member_id=m.id WHERE d.token_hash=? AND d.expires>? AND s.expires>? AND s.generation=c.generation AND m.active=1").bind(await digest(bearer),Date.now(),Date.now()).first();
  else session=await currentSession(request);
  if(!session||session.restricted||session.must_change)throw new ApiError(401,'Sign in again.');
- if(session.role!=='installer')throw new ApiError(403,'Installer access required.');
+ if(!['installer','service_tech'].includes(session.role))throw new ApiError(403,'Installer access required.');
  return session;
 }
 export async function savePosition(session:any,input:unknown){
@@ -36,20 +37,21 @@ export async function deviceToken(request:Request){if(request.headers.has('autho
  await database().prepare('INSERT INTO production.location_devices(token_hash,member_id,session_hash,expires) VALUES(?,?,?,?)').bind(await digest(token),s.id,s.token_hash,Number(session.expires)).run();return {token,expires:Number(session.expires)};
 }
 export async function requireLocation(request:Request,m:Member){
- if(m.role!=='installer')return;
+ if(!['installer','service_tech'].includes(m.role))return;
  const s=await currentSession(request);const row=await database().prepare('SELECT * FROM production.installer_locations WHERE member_id=?').bind(m.id).first();
  if(!row?.sharing||row.session_hash!==s?.token_hash||Date.now()-Number(row.updated_at)>300000)throw new ApiError(412,'Location sharing must be enabled. Return to the sharing screen.');
 }
 export async function mapLocations(m:Member){
- if(!['admin','supervisor'].includes(m.role))throw new ApiError(403,'Admin or Field Supervisor access required.');
- const rows=(await database().prepare("SELECT m.id,m.name,l.latitude,l.longitude,l.accuracy,l.observed_at,l.updated_at,l.sharing,EXISTS(SELECT 1 FROM sessions s JOIN credentials c ON c.member_id=s.member_id WHERE s.token_hash=l.session_hash AND s.expires>? AND s.generation=c.generation) AS signed_in FROM members m LEFT JOIN production.installer_locations l ON l.member_id=m.id WHERE m.role='installer' AND m.active=1"+' ORDER BY m.name').bind(Date.now()).all()).results;
+ if(!['admin','supervisor','service_manager'].includes(m.role))throw new ApiError(403,'Admin or Field Supervisor access required.');
+ const rows=(await database().prepare("SELECT m.id,m.name,l.latitude,l.longitude,l.accuracy,l.observed_at,l.updated_at,l.sharing,EXISTS(SELECT 1 FROM sessions s JOIN credentials c ON c.member_id=s.member_id WHERE s.token_hash=l.session_hash AND s.expires>? AND s.generation=c.generation) AS signed_in FROM members m LEFT JOIN production.installer_locations l ON l.member_id=m.id WHERE m.role IN ('installer','service_tech') AND m.active=1"+' ORDER BY m.name').bind(Date.now()).all()).results;
  return rows.map((r:any)=>{const status=!r.sharing||!r.signed_in?'Not sharing':Date.now()-Number(r.observed_at)>FRESH?'Stale':'Sharing';return {id:r.id,name:r.name,status,latitude:r.latitude,longitude:r.longitude,accuracy:r.accuracy,observed_at:r.observed_at,stale:status!=='Sharing'}});
 }
-export async function createShare(m:Member,jobId:string,etaMinutes?:number){
+export async function createShare(m:Member,jobId:string,etaMinutes?:number,serviceVisitId?:string){
  if(etaMinutes!==undefined&&(!Number.isInteger(etaMinutes)||etaMinutes<5||etaMinutes>240))throw new ApiError(400,'Enter an estimated travel time from 5 to 240 minutes.');
  const row=await database().prepare('SELECT payload FROM jobs WHERE id=?').bind(jobId).first();if(!row)throw new ApiError(404,'Job not found.');const j=storedObject(row.payload);
+ if(serviceVisitId){await setupServiceDatabase(database());const visit=await database().prepare("SELECT * FROM production.service_visits WHERE id=? AND job_id=? AND status='Scheduled'").bind(serviceVisitId,jobId).first();if(!visit||!(['admin','supervisor','service_manager'].includes(m.role)||m.role==='service_tech'&&visit.tech_id===m.id))throw new ApiError(403,'This service visit is not assigned to you.');j.installerId=visit.tech_id;j.stopNumber=storedObject(visit.payload).stopNumber;}
  const crew=await database().prepare('SELECT supervisor_id,name,profile_details FROM members WHERE id=? AND active=1').bind(j.installerId||'').first();
- if(!(m.role==='admin'||m.role==='supervisor'&&crew?.supervisor_id===m.id||m.role==='installer'&&j.installerId===m.id))throw new ApiError(403,'This job is not assigned to you.');
+ if(!(m.role==='admin'||!!serviceVisitId&&['supervisor','service_manager'].includes(m.role)||m.role==='supervisor'&&crew?.supervisor_id===m.id||['installer','service_tech'].includes(m.role)&&j.installerId===m.id))throw new ApiError(403,'This job is not assigned to you.');
  if(!j.installerId)throw new ApiError(400,'Assign an installer first.');
  const loc=await database().prepare('SELECT * FROM production.installer_locations WHERE member_id=?').bind(j.installerId).first();if(!loc?.sharing||Date.now()-Number(loc.observed_at)>FRESH)throw new ApiError(409,'Installer needs a fresh location before sharing a customer link.');
  const active=await database().prepare('SELECT s.token_hash FROM sessions s JOIN credentials c ON c.member_id=s.member_id WHERE s.token_hash=? AND s.expires>? AND s.generation=c.generation').bind(loc.session_hash,Date.now()).first();if(!active)throw new ApiError(409,'Installer must sign in and share location first.');
@@ -57,19 +59,22 @@ export async function createShare(m:Member,jobId:string,etaMinutes?:number){
  const arrivalAt=etaMinutes?Date.now()+etaMinutes*60000:null,stopNumber=Number.isInteger(j.stopNumber)&&j.stopNumber>0?j.stopNumber:null;
  await database().transaction(async tx=>{await tx.prepare('UPDATE production.location_shares SET revoked=true WHERE member_id=?').bind(j.installerId).run();await tx.prepare('INSERT INTO production.location_shares(token_hash,member_id,job_id,expires,arrival_at,stop_number) VALUES(?,?,?,?,?,?)').bind(await digest(token),j.installerId,jobId,expires,arrivalAt,stopNumber).run();});
  const name=storedObject(crew?.profile_details||{}).leadInstallerName||crew?.name||m.name;
- const greeting=m.role==='installer'?`Hi, this is ${String(name).trim().split(/\s+/)[0]} with Window World. I am on the way to you now!`:`Hi, this is ${m.name}, our team is on the way to you now!`;
+ const greeting=['installer','service_tech'].includes(m.role)?`Hi, this is ${String(name).trim().split(/\s+/)[0]} with Window World. I am on the way to you now!`:`Hi, this is ${m.name}, our team is on the way to you now!`;
  return {token,expires,greeting};
 }
-export async function revokeShare(m:Member,jobId:string){
+export async function revokeShare(m:Member,jobId:string,serviceVisitId?:string){
  const row=await database().prepare('SELECT payload FROM jobs WHERE id=?').bind(jobId).first();if(!row)throw new ApiError(404,'Job not found.');const j=storedObject(row.payload);
+ if(serviceVisitId){await setupServiceDatabase(database());const visit=await database().prepare("SELECT * FROM production.service_visits WHERE id=? AND job_id=? AND status='Scheduled'").bind(serviceVisitId,jobId).first();if(!visit||!(['admin','supervisor','service_manager'].includes(m.role)||m.role==='service_tech'&&visit.tech_id===m.id))throw new ApiError(403,'This service visit is not assigned to you.');j.installerId=visit.tech_id;j.stopNumber=storedObject(visit.payload).stopNumber;}
  const crew=await database().prepare('SELECT supervisor_id FROM members WHERE id=? AND active=1').bind(j.installerId||'').first();
- if(!(m.role==='admin'||m.role==='supervisor'&&crew?.supervisor_id===m.id||m.role==='installer'&&j.installerId===m.id))throw new ApiError(403,'Access denied.');
+ if(!(m.role==='admin'||!!serviceVisitId&&['supervisor','service_manager'].includes(m.role)||m.role==='supervisor'&&crew?.supervisor_id===m.id||['installer','service_tech'].includes(m.role)&&j.installerId===m.id))throw new ApiError(403,'Access denied.');
  await database().prepare('UPDATE production.location_shares SET revoked=true WHERE job_id=?').bind(jobId).run();
 }
 export async function publicLocation(token:string){
  if(!/^[A-Za-z0-9_-]{43}$/.test(token))throw new ApiError(404,'Tracking link is unavailable.');
  const r=await database().prepare('SELECT l.latitude,l.longitude,l.accuracy,l.observed_at,l.sharing,l.session_hash,s.member_id,s.expires,s.arrival_at,s.stop_number,m.name,m.profile_details,j.payload FROM production.location_shares s JOIN production.installer_locations l ON l.member_id=s.member_id JOIN jobs j ON j.id=s.job_id JOIN members m ON m.id=s.member_id WHERE s.token_hash=? AND s.revoked=false AND s.expires>? AND m.active=1').bind(await digest(token),Date.now()).first();
- if(!r||storedObject(r.payload).installerId!==r.member_id)throw new ApiError(404,'This trip has ended or the link has expired.');
+ let assigned=!!r&&storedObject(r.payload).installerId===r.member_id;
+ if(r&&!assigned){await setupServiceDatabase(database());assigned=!!await database().prepare("SELECT id FROM production.service_visits WHERE job_id=? AND tech_id=? AND status='Scheduled' LIMIT 1").bind(storedObject(r.payload).id,r.member_id).first();}
+ if(!r||!assigned)throw new ApiError(404,'This trip has ended or the link has expired.');
  const active=await database().prepare('SELECT s.token_hash FROM sessions s JOIN credentials c ON c.member_id=s.member_id WHERE s.token_hash=? AND s.expires>? AND s.generation=c.generation').bind(r.session_hash,Date.now()).first();
  if(!r.sharing||!active)throw new ApiError(404,'Location sharing has stopped.');
  const profile=storedObject(r.profile_details||{});

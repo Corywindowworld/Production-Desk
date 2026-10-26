@@ -4353,3 +4353,65 @@ test('approved labor leaves accounting audit fields blank and retains supervisor
 test('labor PDF includes the lead renovation checkbox only for required jobs',async()=>{const {laborFormPdf}=await vite.ssrLoadModule('/lib/labor-form-pdf.ts'),{blankLaborTemplate}=await vite.ssrLoadModule('/lib/labor-template.ts'),pdfjs=await import('pdfjs-dist/legacy/build/pdf.mjs');const lines=blankLaborTemplate(),sheet={lines,approvedLines:lines,approvedTotal:0,formFields:{}};for(const required of [false,true]){const data=await laborFormPdf({customer:'Lead requirement test',number:'100001',leadRenovationJob:required},sheet),doc=await pdfjs.getDocument({data:new Uint8Array(data),isEvalSupported:false}).promise;try{assert.equal(doc.numPages,1);const text=(await (await doc.getPage(1)).getTextContent()).items.map(i=>i.str||'').join(' ');assert.equal(text.includes('Lead Renovation form'),required);}finally{await doc.destroy();}}});
 
 test('labor payment summary carries check number only for check payments',async()=>{const {laborPaymentSummary}=await vite.ssrLoadModule('/lib/labor-approval.ts');assert.equal(laborPaymentSummary({operations:{report:{certificate:{paymentMethod:'Check',paymentReference:'001234'}}}}).checkNumber,'001234');assert.equal(laborPaymentSummary({operations:{report:{certificate:{paymentMethod:'Finance',paymentReference:'001234'}}}}).checkNumber,'');});
+
+test('service division scopes schedules, saves sign-offs, publishes results and handles returns',async()=>{
+ const {serviceData,serviceAction}=await vite.ssrLoadModule('/lib/service-store.ts');
+ const tech={id:crypto.randomUUID(),name:'Service Tech',role:'service_tech',active:1},other={id:crypto.randomUUID(),name:'Other Tech',role:'service_tech',active:1},manager={id:crypto.randomUUID(),name:'Service Manager',role:'service_manager',active:1};
+ const params=new URLSearchParams({from:today,to:today});
+ await serviceData(admin,params);
+ for(const member of [tech,other,manager])await pg.query('INSERT INTO production.members(id,email,name,role,active,profile_details) VALUES($1,$2,$3,$4,1,$5)',[member.id,member.id+'@example.com',member.name,member.role,JSON.stringify({savedDrawnSignature:signature})]);
+ const jobId=crypto.randomUUID(),at=new Date().toISOString(),job={id:jobId,number:'SERVICE-TEST',customer:'Service Customer',address:'1 Main',city:'Tampa',state:'FL',zip:'33601',email:'customer@example.com',amount:0,stage:'Closed',installerId:installer.id,history:[],operations:{}};
+ await pg.query('INSERT INTO production.jobs(id,payload,version,updated) VALUES($1,$2,1,$3)',[jobId,JSON.stringify(job),at]);
+ const schedule={jobId,techId:tech.id,date:today,period:'AM',stopNumber:1,instructions:'Replace hardware'};
+ await assert.rejects(()=>serviceAction(tech,{action:'schedule',data:schedule}),/scheduling permission/);
+ const created=await serviceAction(manager,{action:'schedule',data:schedule});
+ assert.equal((await serviceData(tech,params)).visits.length,1);assert.equal((await serviceData(other,params)).visits.length,0);
+ await assert.rejects(()=>serviceAction(other,{action:'draft',visitId:created.id,version:1,data:{outcome:'Complete',notes:'Fixed'}}),/not assigned/);
+ const key='jobs/'+jobId+'/photos/'+crypto.randomUUID(),attachment={key,name:'service.jpg',kind:'photos'};
+ await pg.query("INSERT INTO production.attachment_uploads(key,staging_key,job_id,kind,member_id,name,expires,status,sha256) VALUES($1,$1,$2,'photos',$3,'service.jpg',0,'ready',$1)",[key,jobId,tech.id]);
+ const signoff={...certificate('Service'),paymentAmount:0,paymentMethod:''};
+ const values={outcome:'Complete',notes:'Hardware replaced and tested',attachments:[attachment],certificate:signoff};
+ const saved=await serviceAction(tech,{action:'draft',visitId:created.id,version:1,data:values});
+ const restored=(await serviceData(tech,params)).visits[0];assert.equal(restored.draft.certificate.customerSignatureDataUrl,signature);
+ await assert.rejects(()=>serviceAction(tech,{action:'result',visitId:created.id,version:1,data:values}),/changed/);
+ await assert.rejects(()=>serviceAction(tech,{action:'result',visitId:created.id,version:saved.version,data:{...values,attachments:[]}}),/at least one/);
+ const finished=await serviceAction(tech,{action:'result',visitId:created.id,version:saved.version,data:values});
+ assert.ok(finished.emailId);const view=(await serviceData(manager,params)).visits[0];assert.equal(view.status,'Complete');assert.equal(view.result.certificate.remainingBalance,0);assert.equal(view.result.certificate.installerId,tech.id);
+ await assert.rejects(()=>serviceAction(tech,{action:'result',visitId:created.id,version:finished.version,data:values}),/already has a result/);
+ const stored=JSON.parse((await pg.query('SELECT payload FROM production.jobs WHERE id=$1',[jobId])).rows[0].payload);assert.equal(stored.stage,'Closed');assert.equal(stored.amount,0);assert.equal(stored.operations.serviceVisitResults[0].visitId,created.id);assert.equal(stored.attachments[0].key,key);
+ assert.ok((await serviceData(manager,params)).alerts.some(a=>a.message.startsWith('Service Complete')));
+ for(const outcome of ['Customer Reset','Service Reset']){
+  const appointment=await serviceAction(fs,{action:'schedule',data:schedule});
+  await assert.rejects(()=>serviceAction(tech,{action:'result',visitId:appointment.id,version:1,data:{outcome,notes:''}}),/reason/);
+  await serviceAction(tech,{action:'result',visitId:appointment.id,version:1,data:{outcome,notes:'',reason:'Customer requested a new day'}});
+  const followup=await serviceAction(manager,{action:'schedule',data:{...schedule,sourceId:appointment.id}});
+  assert.ok(followup.id);
+  await assert.rejects(()=>serviceAction(manager,{action:'schedule',data:{...schedule,sourceId:appointment.id}}),/already has a return/);
+ }
+ const incomplete=await serviceAction(admin,{action:'schedule',data:schedule});
+ await assert.rejects(()=>serviceAction(tech,{action:'result',visitId:incomplete.id,version:1,data:{...values,outcome:'Incomplete',reason:''}}),/reason/);
+ await serviceAction(tech,{action:'result',visitId:incomplete.id,version:1,data:{...values,outcome:'Incomplete',reason:'Need replacement part',certificate:null}});
+ const results=(await serviceData(manager,params)).visits;assert.ok(results.some(v=>v.status==='Incomplete'));
+ const unpaidId=crypto.randomUUID();await pg.query('INSERT INTO production.jobs(id,payload,version,updated) VALUES($1,$2,1,$3)',[unpaidId,JSON.stringify({...job,id:unpaidId,amount:50}),at]);
+ await assert.rejects(()=>serviceAction(manager,{action:'schedule',data:{...schedule,jobId:unpaidId}}),/paid-in-full/);
+
+ const {actor,jobFor}=await vite.ssrLoadModule('/lib/access.ts');
+ const {randomToken,digest,sessionCookie}=await vite.ssrLoadModule('/lib/auth-session.ts');
+ const token=randomToken(),hash=await digest(token);
+ await pg.query("INSERT INTO production.credentials(member_id,password_hash,must_change,generation) VALUES($1,'test-hash',0,1)",[tech.id]);
+ await pg.query("INSERT INTO production.sessions(token_hash,member_id,generation,restricted,expires) VALUES($1,$2,1,0,$3)",[hash,tech.id,Date.now()+3600000]);
+ const request=path=>new Request('https://example.com'+path,{headers:{cookie:sessionCookie(token,3600)}});
+ assert.equal((await actor(request('/api/service'))).role,'service_tech');
+ await assert.rejects(()=>actor(request('/api/operations')),/Service Desk/);
+ const location=await vite.ssrLoadModule('/lib/location-store.ts');
+ await location.savePosition({id:tech.id,token_hash:hash},{latitude:27.9,longitude:-82.4,accuracy:10,observedAt:Date.now()});
+ assert.equal((await location.locationIdentity(request('/api/location'))).id,tech.id);
+ const scheduled=(await serviceData(tech,params)).visits.find(v=>v.status==='Scheduled');
+ const share=await location.createShare(tech,jobId,15,scheduled.id);
+ assert.equal((await location.publicLocation(share.token)).name,tech.name);
+ assert.ok((await location.mapLocations(manager)).some(p=>p.id===tech.id));
+ await assert.rejects(()=>location.createShare(other,jobId,15,scheduled.id),/not assigned/);
+ await location.revokeShare(tech,jobId,scheduled.id);
+ await assert.rejects(()=>location.publicLocation(share.token),/ended|expired|unavailable/);
+ assert.equal((await jobFor(tech,jobId)).id,jobId);await assert.rejects(()=>jobFor(other,jobId),/not assigned/);
+});

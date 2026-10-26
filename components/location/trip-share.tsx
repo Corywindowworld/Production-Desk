@@ -2,7 +2,7 @@
 import {useState} from 'react';
 import {Dialog,DialogContent,DialogHeader,DialogTitle,DialogDescription} from '@/components/ui/dialog';
 
-export function TripShare({jobId,phone,phone2,phone3}:{jobId:string;phone?:string;phone2?:string;phone3?:string}){
+export function TripShare({jobId,serviceVisitId,phone,phone2,phone3}:{jobId:string;serviceVisitId?:string;phone?:string;phone2?:string;phone3?:string}){
  const [url,setUrl]=useState(''),[greeting,setGreeting]=useState(''),[eta,setEta]=useState(''),[message,setMessage]=useState(''),[busy,setBusy]=useState(false),[choosing,setChoosing]=useState(false),[recipient,setRecipient]=useState('');
  const numbers=[phone,phone2,phone3].map((value,index)=>({label:`Ph#${index+1}`,display:value||'',number:String(value||'').replace(/[^+\d]/g,'')})).filter((entry,index,all)=>entry.number.replace(/\D/g,'').length>=7&&all.findIndex(other=>other.number.replace(/^\+?1(?=\d{10}$)/,'')===entry.number.replace(/^\+?1(?=\d{10}$)/,''))===index);
  const copyText=greeting+'\n\n'+url;
@@ -14,7 +14,7 @@ export function TripShare({jobId,phone,phone2,phone3}:{jobId:string;phone?:strin
   setBusy(true);setMessage('');
   try{
    if(action==='start'&&(!eta||Number(eta)<5||Number(eta)>240))throw Error('Enter your approximate travel time (5–240 minutes).');
-   const r=await fetch('/api/location/share',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({jobId,action,etaMinutes:Number(eta)})}),d=await r.json();
+   const r=await fetch('/api/location/share',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({jobId,serviceVisitId,action,etaMinutes:Number(eta)})}),d=await r.json();
    if(!r.ok)throw Error(d.error);
    setUrl(d.url||'');setGreeting(d.greeting||'');
    if(action==='end'){setRecipient('');setMessage('Customer tracking ended.');}

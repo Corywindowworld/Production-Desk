@@ -532,7 +532,7 @@ export default function LiveOperations() {
             </div>
           )}
           <div className="op-heading">
-            <h1>{tab === "Overview" ? "Field Operations" : tab}</h1>
+            <h1>{tab === "Overview" ? "Field Operations" : tab}</h1>{["admin","supervisor"].includes(me.role)&&<a className="live-button" href="/service">Service Desk</a>}
             <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
               <span role="status" aria-live="polite">{refreshing ? "Refreshing your workspace…" : refreshNotice}</span>
               <button className="live-button" onClick={refresh} disabled={refreshing} aria-busy={refreshing}>

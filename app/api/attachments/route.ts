@@ -9,6 +9,7 @@ export const maxDuration=60;
 const beginSchema=z.object({action:z.literal('begin'),jobId:z.string().uuid(),kind:z.enum(uploadKinds),name:z.string().min(1).max(255),size:z.number().int().positive().max(MAX_UPLOAD_BYTES)});
 const finishSchema=z.object({action:z.literal('finish'),key:z.string().max(250)});
 async function uploadAccess(member:Member,jobId:string,kind:string){
+ if(['service_tech','service_manager'].includes(member.role)){if(kind!=='photos')throw new ApiError(403,'Service accounts can upload service photos only.');await jobFor(member,jobId);return;}
  if(kind==='warehouse'&&member.role==='warehouse'){const item=await database().prepare('SELECT id FROM jobs WHERE id=?').bind(jobId).first();if(!item)throw new ApiError(404,'Job not found.');return;}
  if(kind==='visit'&&member.role!=='supervisor'&&member.role!=='admin')throw new ApiError(403,'Only supervisors and administrators can upload visit photos.');
  const job=kind==='visit'?await visitJobFor(member,jobId):await jobFor(member,jobId);

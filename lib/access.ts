@@ -1,11 +1,14 @@
 import {currentSession} from '@/lib/auth-session';
 import { database } from '@/db/raw';
-export type Member={id:string;email:string;user_id?:string;name:string;role:'admin'|'office'|'production_assistant'|'supervisor'|'installer'|'warehouse';supervisor_id?:string;can_edit_jobs?:number;can_score_all_installers?:number;active:number};
+export type Member={id:string;email:string;user_id?:string;name:string;role:'admin'|'office'|'production_assistant'|'supervisor'|'installer'|'warehouse'|'service_tech'|'service_manager';supervisor_id?:string;can_edit_jobs?:number;can_score_all_installers?:number;active:number};
 export class ApiError extends Error {constructor(public status:number,message:string){super(message)}}
 export async function actor(request:Request):Promise<Member>{
  const session=await currentSession(request);
  if(!session)throw new ApiError(401,'Sign in with your email and password.');
  if(session.restricted||session.must_change)throw new ApiError(428,'Change your temporary password before accessing the app.');
+ const serviceRole=['service_tech','service_manager'].includes(session.role);
+ const path=new URL(request.url).pathname;
+ if(serviceRole&&path.startsWith('/api/')&&!['/api/service','/api/location','/api/location/share','/api/location/device','/api/me','/api/preferences','/api/team/profile','/api/notifications','/api/push'].some(p=>path===p||path.startsWith(p+'/'))&&path!=='/api/attachments')throw new ApiError(403,'Use the Service Desk for this account.');
  const {id,email,name,role,supervisor_id,can_edit_jobs,can_score_all_installers,active}=session;
  return {id,email,name,role,supervisor_id,can_edit_jobs,can_score_all_installers,active};
 }
@@ -45,7 +48,7 @@ export function apiError(e:unknown,step?:DashboardStep){
  console.error('Production Desk request failed',{reference,code:known?code:'UNCLASSIFIED',reason:known?reasons[code]:'Unexpected server error',...(step?{step,errorType}: {})});
  return Response.json({error:`Unable to complete this request.${step?` Dashboard step: ${step}; ${known?code:errorType}.`:' Please try again.'} Reference: ${reference}`},{status:500,headers:{'Cache-Control':'no-store'}});
 }
-export async function jobFor(m:Member,id:string){const row:any=await database().prepare('SELECT payload,version FROM jobs WHERE id=?').bind(id).first();if(!row)throw new ApiError(404,'Job not found.');const j={...JSON.parse(row.payload),version:row.version};if(!canSeeJob(m,j))throw new ApiError(403,'This job is not assigned to you.');return j}
+export async function jobFor(m:Member,id:string){const row:any=await database().prepare('SELECT payload,version FROM jobs WHERE id=?').bind(id).first();if(!row)throw new ApiError(404,'Job not found.');const j={...JSON.parse(row.payload),version:row.version};if(m.role==='service_manager')return j;if(m.role==='service_tech'){const v=await database().prepare('SELECT id FROM production.service_visits WHERE job_id=? AND tech_id=? LIMIT 1').bind(id,m.id).first();if(v)return j;}if(!canSeeJob(m,j))throw new ApiError(403,'This job is not assigned to you.');return j}
 
 export const hasJobEditPermission=(m:Member)=>m.role==='admin'||m.role==='production_assistant'||(['office','supervisor'].includes(m.role)&&m.can_edit_jobs===1);
 export const canCreateJobs=(m:Member)=>hasJobEditPermission(m);

@@ -33,15 +33,15 @@ export async function jobCertificatePdf(c: any) {
     serif = await pdf.embedFont(StandardFonts.TimesRomanBold);
   const W = 612,
     H = 2400,
-    left = 42,
-    right = 42,
-    bottom = 42,
+    left = c.type === "Service" ? 42 : 24,
+    right = left,
+    bottom = left,
     width = W - left - right;
   let page = pdf.addPage([W, H]),
-    y = H - 42;
+    y = H - left;
   const addPage = () => {
     page = pdf.addPage([W, H]);
-    y = H - 42;
+    y = H - left;
   };
   const ensure = (height: number) => {
     if (y - height < bottom) addPage();
@@ -346,16 +346,17 @@ export async function jobCertificatePdf(c: any) {
   const source = await PDFDocument.load(sourceBytes);
   const output = await PDFDocument.create();
   const embedded = await output.embedPage(source.getPage(0), {
-    left: 0,
+    left: c.type === "Service" ? 0 : left,
     bottom: contentBottom,
-    right: W,
-    top: H,
+    right: c.type === "Service" ? W : W - right,
+    top: c.type === "Service" ? H : H - 6,
   });
   const target = output.addPage([612, 792]);
-  const scale = Math.min(1, 720 / embedded.height, 552 / embedded.width);
+  const inset = c.type === "Service" ? 36 : 22;
+  const scale = Math.min(1, (792 - inset * 2) / embedded.height, (612 - inset * 2) / embedded.width);
   target.drawPage(embedded, {
     x: (612 - embedded.width * scale) / 2,
-    y: 792 - 36 - embedded.height * scale,
+    y: 792 - inset - embedded.height * scale,
     xScale: scale,
     yScale: scale,
   });

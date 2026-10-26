@@ -1601,7 +1601,7 @@ function Approvals({ jobs, me, review, saving, change, onOpen }: any) {
                 {j.operations.report.submittedByName || j.crew}
               </h4>
               <p>{j.operations.report.notes}</p>
-              <p>{j.operations.report.reason}</p>
+              <p>{j.operations.report.reason}</p>{j.operations.report.backordered&&<p className="op-callout">Product backordered — no reorder form required. Job remains ORD until the full order is received.</p>}
               {j.operations.report.omitLabor && <p className="op-callout">Service correction: no labor payment requested. Approving this result will omit the labor sheet from the Completion Desk batch.</p>}
               <SignedJobCertificate
                 record={j.operations.report.certificate}
@@ -1617,7 +1617,7 @@ function Approvals({ jobs, me, review, saving, change, onOpen }: any) {
                         "reviewReport",
                         {
                           approve: true,
-                          ...(j.operations.report.status === "Incomplete"
+                          ...(j.operations.report.status === "Incomplete" && !j.operations.report.backordered
                             ? {
                                 reorder: field(f, "reorder"),
                                 reorderDate: field(f, "reorderDate"),
@@ -1628,7 +1628,7 @@ function Approvals({ jobs, me, review, saving, change, onOpen }: any) {
                       )
                     }
                   >
-                    {j.operations.report.status === "Incomplete" && (
+                    {j.operations.report.status === "Incomplete" && !j.operations.report.backordered && (
                       <>
                         <Text
                           name="reorder"
@@ -1649,7 +1649,7 @@ function Approvals({ jobs, me, review, saving, change, onOpen }: any) {
                       Approve this result and move to{" "}
                       {j.operations.report.status === "Complete"
                         ? "COMP"
-                        : "INC"}
+                        : j.operations.report.backordered ? "ORD" : "INC"}
                       .
                     </p>
                   </Form>
@@ -2480,7 +2480,7 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
   const act = (a: string, v: any = {}) => clickAction(a, v, j);
   const save = async (a: string, v: any) => {
     await change(a, v, j);
-    if (isInstaller && a === "report" && v.status === "Incomplete") {
+    if (isInstaller && a === "report" && v.status === "Incomplete" && !v.backordered) {
       setWorkspaceTab("reorders");
       setReorderPrompt((n) => n + 1);
     }
@@ -2505,7 +2505,7 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
                   </p>
                   {o.report.omitLabor && <p>No labor payment requested for this service correction.</p>}
                   {isInstaller &&
-                    o.report.status === "Incomplete" &&
+                    o.report.status === "Incomplete" && !o.report.backordered &&
                     !(o.reorders || []).some(
                       (r: any) =>
                         r.status !== "Declined" &&
@@ -3680,6 +3680,7 @@ function ReceiveForm({ j, save }: any) {
         save("receive", {
           received: field(f, "received"),
           materials: rows,
+          allProductsReceived: f.has("allProductsReceived"),
           reference: field(f, "reference"),
         })
       }
@@ -3698,6 +3699,7 @@ function ReceiveForm({ j, save }: any) {
           label="Source / reason if correcting received date"
         />
       )}
+      {j.backordered&&<label className="op-check"><input type="checkbox" name="allProductsReceived" required style={{width:26,height:26}}/>I confirm all products for this order, including backordered items, have been received and are usable.</label>}
       <MaterialRows rows={rows} setRows={setRows} product={j.product} />
     </Form>
   );
@@ -3952,15 +3954,16 @@ function InstallerReport({ j, save, reload }: any) {
     [reason, setReason] = useState(usableDraft?.reason || ""),
     [notes, setNotes] = useState(usableDraft?.notes || ""),
     [omitLabor, setOmitLabor] = useState(usableDraft?.omitLabor || false),
+    [backordered,setBackordered]=useState(usableDraft?.backordered||j.backordered||false),
     [uploadCount, setUploadCount] = useState(0),
     [draftSaving, setDraftSaving] = useState(false),
     [draftMessage, setDraftMessage] = useState(usableDraft ? "Draft restored." : ""),
     [error, setError] = useState("");
-  const stateRef = useRef({status,attachments,certificate,installed,reason,notes,omitLabor}),
+  const stateRef = useRef({status,attachments,certificate,installed,reason,notes,omitLabor,backordered}),
     draftQueue = useRef<Promise<any>>(Promise.resolve()),
     draftSaveCount = useRef(0),
     acceptedCertificate = useRef(usableDraft?.certificate || null);
-  stateRef.current = {status,attachments,certificate,installed,reason,notes,omitLabor};
+  stateRef.current = {status,attachments,certificate,installed,reason,notes,omitLabor,backordered};
   const busy = uploadCount > 0;
   const requirements = requiredReportKinds(status);
   const persistDraft = async (changes: Record<string, any> = {}, refresh = true) => {
@@ -4035,6 +4038,7 @@ function InstallerReport({ j, save, reload }: any) {
           await save("report", {
             id: crypto.randomUUID(),
             omitLabor,
+            backordered: status === "Incomplete" && (backordered||j.backordered),
             status,
             reason,
             notes,
@@ -4053,6 +4057,7 @@ function InstallerReport({ j, save, reload }: any) {
               const nextStatus=e.target.value,
                 nextAttachments=attachments.filter((a) => nextStatus === "Incomplete" || a.kind !== "issue");
               setStatus(nextStatus);
+              if(nextStatus!=="Incomplete"){setBackordered(false);stateRef.current.backordered=false;}
               setCertificate(null);
               acceptedCertificate.current=null;
               setAttachments(nextAttachments);
@@ -4089,7 +4094,7 @@ function InstallerReport({ j, save, reload }: any) {
         {status === "Incomplete" && (
           <>
             <label>Reason incomplete<textarea name="reason" required value={reason} onChange={e=>{setReason(e.target.value);stateRef.current.reason=e.target.value}} /></label>
-            {!j.reorder && (
+            {!j.reorder && !backordered && (
               <p className="op-callout">
                 After submitting this INC result, you’ll be prompted to complete
                 the reorder form for Field Supervisor review.
@@ -4136,6 +4141,7 @@ function InstallerReport({ j, save, reload }: any) {
               .join(", ") || "Optional"}
           </small>
         </label>
+        {status === "Incomplete" && j.stage !== "SVC" && <label style={{display:"flex",alignItems:"center",gap:12}}><input type="checkbox" style={{width:26,height:26}} checked={backordered||j.backordered} disabled={draftSaving||busy||!!j.backordered} onChange={e=>{const checked=e.target.checked;setBackordered(checked);void persistDraft({backordered:checked}).catch(e=>setError((e as Error).message));}}/>Is the product backordered? No reorder form is required. This job stays ORD until all products are received.</label>}
         <PhotoUploadProgress jobId={j.id}/>{busy && <p role="status">{uploadCount} photo(s) uploading or queued. You can select more photos while these finish.</p>}
         {draftSaving && <p role="status">Saving completion draft…</p>}
         {error && <p className="op-red">{error}</p>}

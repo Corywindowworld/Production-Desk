@@ -86,7 +86,7 @@ export async function warehouseOperation(m:Member,input:any){
    allowed(job.stage==='Ordered','Only an ORD job can be marked received here. Other job statuses are preserved.',409);
    allowed(v.received<=localDay(),'Received date cannot be in the future.',400);
    allowed(v.materials.every(i=>allowedMaterials(job.product||'Windows').includes(i.materialType)),'Product types must match this account.',400);
-   job.materials=v.materials;job.received=v.received;job.stage='Received';job.bay=v.materials[0].bay;job.brand=v.materials[0].brand;job.materialType=v.materials[0].materialType;
+   job.materials=v.materials;job.received=v.received;job.stage='Received';job.backordered=false;job.bay=v.materials[0].bay;job.brand=v.materials[0].brand;job.materialType=v.materials[0].materialType;
    job.history=[{at,by:m.name,text:'Warehouse confirmed all required products received and usable; marked RCVD'},...(job.history||[])];
    await tx.prepare('UPDATE jobs SET payload=?,version=version+1,updated=? WHERE id=?').bind(JSON.stringify(job),at,v.jobId).run();return {ok:true};
   });

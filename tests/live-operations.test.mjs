@@ -4442,3 +4442,32 @@ test('completion certificate header pairs customer and ID, date and email, insta
  const labels=['Customer:</b>','Customer ID:</b>','Date:</b>','Email:</b>','Installer:</b>','Contractor ID:</b>'];
  for(let i=1;i<labels.length;i++)assert.ok(header.indexOf(labels[i])>header.indexOf(labels[i-1]));
 });
+
+test('backordered INC certificates stay ORD, skip reorders and require full receipt confirmation',async()=>{
+ async function fixture(){
+  const id=crypto.randomUUID(),at=new Date().toISOString(),job={id,number:'BO-'+id.slice(0,8),customer:'Backorder Test',address:'1 Main',stage:'Production',received:today,amount:0,product:'Windows',installerId:installer.id,supervisorId:fs.id,history:[],operations:{}};
+  await pg.query('INSERT INTO production.jobs(id,payload,version,updated) VALUES($1,$2,1,$3)',[id,JSON.stringify(job),at]);
+  const attachments=['front','rear','left','right','issue'].map(kind=>({key:'jobs/'+id+'/'+kind+'/'+crypto.randomUUID(),kind,name:kind+'.jpg'}));
+  for(const a of attachments)await pg.query("INSERT INTO production.attachment_uploads(key,staging_key,job_id,kind,member_id,name,expires,status,sha256) VALUES($1,$1,$2,$3,$4,$5,0,'ready',$1)",[a.key,id,a.kind,installer.id,a.name]);
+  const current=async()=>{const row=(await pg.query('SELECT payload,version FROM production.jobs WHERE id=$1',[id])).rows[0];return {...JSON.parse(row.payload),version:row.version}};
+  const result={id:crypto.randomUUID(),status:'Incomplete',reason:'One product is backordered',notes:'Installed available products',installed:today,attachments,certificate:certificate('Incomplete'),backordered:true};
+  return {id,current,result};
+ }
+ const f=await fixture();
+ await saveReportDraft(installer,{jobId:f.id,data:f.result});
+ assert.equal((await f.current()).operations.reportDraft.backordered,true);
+ await operation(installer,{action:'report',jobId:f.id,version:1,data:f.result});
+ let saved=await f.current();assert.equal(saved.stage,'Ordered');assert.equal(saved.received,'');assert.equal(saved.backordered,true);assert.equal(saved.operations.report.backordered,true);
+ await operation(fs,{action:'reviewReport',jobId:f.id,version:saved.version,data:{approve:true}});
+ saved=await f.current();assert.equal(saved.stage,'Ordered');assert.equal(saved.operations.report.approved,true);assert.equal(saved.reorder,undefined);
+ const receipt={received:today,materials:[{materialType:'Window',brand:'Simonton',bay:'A1'}]};
+ await assert.rejects(()=>operation(pa,{action:'receive',jobId:f.id,version:saved.version,data:receipt}),/all backordered products/);
+ await operation(pa,{action:'receive',jobId:f.id,version:saved.version,data:{...receipt,allProductsReceived:true}});
+ saved=await f.current();assert.equal(saved.stage,'Received');assert.equal(saved.backordered,false);assert.equal(saved.received,today);
+ const early=await fixture();await operation(installer,{action:'report',jobId:early.id,version:1,data:early.result});let e=await early.current();
+ await operation(pa,{action:'receive',jobId:early.id,version:e.version,data:{...receipt,allProductsReceived:true}});e=await early.current();
+ await operation(fs,{action:'reviewReport',jobId:early.id,version:e.version,data:{approve:true}});assert.equal((await early.current()).stage,'Received');
+ const regular=await fixture();await operation(installer,{action:'report',jobId:regular.id,version:1,data:{...regular.result,backordered:false}});const r=await regular.current();
+ await assert.rejects(()=>operation(fs,{action:'reviewReport',jobId:regular.id,version:r.version,data:{approve:true}}),/reorder information/);
+ const invalid=await fixture();await assert.rejects(()=>operation(installer,{action:'report',jobId:invalid.id,version:1,data:{...invalid.result,status:'Complete',certificate:certificate('Complete')}}),/only to incomplete/);
+});

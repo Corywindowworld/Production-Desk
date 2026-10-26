@@ -31,6 +31,7 @@ export const reportAttachment = z.object({
 });
 export const reportSchema = z.object({
   omitLabor: z.boolean().default(false),
+  backordered: z.boolean().default(false),
   id: z.string().uuid(),
   jobId: z.string().uuid(),
   version: z.number().int().min(1),
@@ -43,6 +44,7 @@ export const reportSchema = z.object({
 });
 export const reportDraftSchema = z.object({
   omitLabor: z.boolean().default(false),
+  backordered: z.boolean().default(false),
   status: z.enum(["Complete", "Incomplete"]),
   reason: z.string().trim().max(1000).default(""),
   notes: z.string().max(4000).default(""),

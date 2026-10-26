@@ -146,6 +146,7 @@ export function publicJob(m: Member, j: any) {
   };
   return {
     ...installerJob(j),
+    backordered: !!j.backordered,
     leadRenovationJob: !!j.leadRenovationJob,
     serviceCompletionJob: !!j.serviceCompletionJob,
     inspectionComplete: !!j.inspectionComplete,
@@ -479,6 +480,7 @@ export async function saveReportDraft(m: Member, input: any) {
       "Only the assigned installer, Field Supervisor or Administrator can save this completion draft.",
     );
     assert(!o.report?.pending, "A completed report is already awaiting review.", 409);
+    assert(!draft.backordered || (draft.status === "Incomplete" && j.stage !== "SVC"), "Backorders apply only to incomplete installation results.", 400);
     const expectedType = j.stage === "SVC" ? "Service" : draft.status;
     assert(!draft.omitLabor || j.stage === "SVC", "Labor can only be omitted for service work.", 400);
     assert(!draft.omitLabor || !(o.laborSheets || []).some((s:any) => s.status === "Submitted"), "Return the submitted labor sheet before omitting labor.", 409);
@@ -1492,6 +1494,7 @@ export async function operation(m: Member, input: any) {
         "Reorder Date cannot be in the future.",
         400,
       );
+      assert(!j.backordered || !input.data.received,"Use Materials Received and confirm the full order before marking a backordered job RCVD.",400);
       const oldReorder = j.reorderDate;
       Object.assign(j, f);
       if (j.stage === "Incomplete" && f.reorderDate)
@@ -1608,6 +1611,7 @@ export async function operation(m: Member, input: any) {
       history='Administrator cleared received date '+previous+' and returned job to ORD.'+(reason?' Reason: '+reason:'');
     } else if (action === "receive") {
       edit();
+      assert(!j.backordered || input.data.allProductsReceived === true,"Confirm that all backordered products are received and usable.",400);
       const r = input.data.materials
         ? parse(receiveItemsSchema, input.data)
         : (() => {
@@ -1626,6 +1630,7 @@ export async function operation(m: Member, input: any) {
         "Windows/SPD, Entry Doors, and Diamond Screens must be received on separate accounts.",
         400,
       );
+      j.backordered = false;
       j.materials = r.materials;
       j.bay = r.materials.map((v) => v.bay).join(", ");
       j.brand = r.materials[0].brand;
@@ -1958,6 +1963,9 @@ export async function operation(m: Member, input: any) {
         409,
       );
       const r = parse(reportSchema, { ...input.data, jobId: j.id, version });
+      assert(!r.backordered || (r.status === "Incomplete" && j.stage !== "SVC"), "Backorders apply only to incomplete installation results.", 400);
+      assert(!j.backordered || r.status === "Incomplete", "Confirm all backordered products received before submitting Complete.", 400);
+      if(j.backordered && r.status === "Incomplete")r.backordered=true;
       const expectedCertificateType = j.stage === "SVC" ? "Service" : r.status;
       assert(!r.omitLabor || j.stage === "SVC", "Labor can only be omitted for service work.", 400);
       assert(!r.omitLabor || !(o.laborSheets || []).some((s:any) => s.status === "Submitted"), "Return the submitted labor sheet before omitting labor.", 409);
@@ -2062,10 +2070,11 @@ export async function operation(m: Member, input: any) {
           at,
         )
         .run();
+      if(r.backordered){j.backordered=true;j.stage="Ordered";j.received="";j.incompleteSince="";}
       o.report = report;
       o.reportDraft = null;
       j.attachments = [...(j.attachments || []), ...r.attachments];
-      history = `Installer submitted ${r.status} with signed digital certificate; awaiting approval`;
+      history = `Installer submitted ${r.status} with signed digital certificate; awaiting approval` + (r.backordered ? "; product backordered; job stays ORD" : "");
       await tx
         .prepare(
           "INSERT INTO production.operations_email(id,recipient,subject,body,status,created,updated) VALUES(?,?,?,?,?,?,?)",
@@ -2102,7 +2111,7 @@ export async function operation(m: Member, input: any) {
       };
       if (approve) {
         if (
-          o.report.status === "Incomplete" &&
+          o.report.status === "Incomplete" && !o.report.backordered &&
           input.data.reorder !== undefined
         ) {
           j.reorder = parse(
@@ -2117,17 +2126,17 @@ export async function operation(m: Member, input: any) {
           );
         }
         assert(!reportError(o.report), reportError(o.report), 400);
-        if (o.report.status === "Incomplete")
+        if (o.report.status === "Incomplete" && !o.report.backordered)
           assert(
             String(j.reorder || "").trim(),
             "Enter reorder information before approving an INC result.",
             400,
           );
-        j.stage = o.report.status === "Complete" ? "Closed" : "Incomplete";
+        j.stage = o.report.backordered ? (j.backordered ? "Ordered" : j.stage) : o.report.status === "Complete" ? "Closed" : "Incomplete";
         if (j.stage === "Closed")
           j.scheduleCompletedOn = o.report.installed || today;
         if (j.stage === "Incomplete") j.incompleteSince = j.reorderDate || at;
-        history = `Installer report approved; job moved to ${j.stage === "Closed" ? "COMP" : "INC"}`;
+        history = `Installer report approved; job moved to ${j.stage === "Closed" ? "COMP" : j.stage === "Ordered" ? "ORD" : j.stage === "Received" ? "RCVD" : "INC"}`;
         if (o.report.omitLabor && o.report.certificate?.type === "Service") {
           // Preserve this visit independently of future service reports.
           const packetJob = structuredClone({...j, operations: {...o, laborSheets: [], serviceNoLaborPackets: []}});
@@ -2142,7 +2151,7 @@ export async function operation(m: Member, input: any) {
       } else history = "Installer report returned for correction";
       await alert(
         j.installerId,
-        `Job #${j.number}: report ${approve ? `approved and moved to ${j.stage === "Closed" ? "COMP" : "INC"}` : "returned for correction"}.`,
+        `Job #${j.number}: report ${approve ? `approved and moved to ${j.stage === "Closed" ? "COMP" : j.stage === "Ordered" ? "ORD" : j.stage === "Received" ? "RCVD" : "INC"}` : "returned for correction"}.`,
       );
     } else if (action === "dismissApproval") {
       assert(reviewer(m), "Supervisor or administrator access required.");
@@ -2157,13 +2166,13 @@ export async function operation(m: Member, input: any) {
         409,
       );
       assert(!reportError(o.report), reportError(o.report), 400);
-      if (o.report.status === "Incomplete")
+      if (o.report.status === "Incomplete" && !o.report.backordered)
         assert(
           String(j.reorder || "").trim(),
           "Enter reorder information before approving INC.",
           400,
         );
-      j.stage = o.report.status === "Complete" ? "Closed" : "Incomplete";
+      j.stage = o.report.backordered ? (j.backordered ? "Ordered" : j.stage) : o.report.status === "Complete" ? "Closed" : "Incomplete";
       if (j.stage === "Closed")
         j.scheduleCompletedOn = o.report.installed || today;
       if (j.stage === "Incomplete") j.incompleteSince = j.reorderDate || at;

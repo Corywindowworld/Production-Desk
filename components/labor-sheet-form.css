@@ -14,3 +14,5 @@
 .labor-paper-header>div:nth-child(-n+3){font-size:17px;font-weight:700;line-height:1.35;min-height:44px}.labor-paper-header>div:nth-child(-n+3)>span{font-size:18px;font-weight:700;overflow-wrap:anywhere}.labor-paper .labor-review-emphasis{font-size:16px;font-weight:700;line-height:1.4}.labor-paper .labor-review-emphasis input{font-size:16px;font-weight:700}
 
 .labor-completion-box{border:1px solid #222;margin-top:0}.labor-completion-box .labor-questions,.labor-completion-box .labor-signoff{border:0}.labor-signature-line{border-top:1px solid #111;margin:12px 0 0;padding-top:4px;font-size:12px;font-weight:700;width:70%}
+
+.labor-completion-box .labor-questions{padding-top:16px}.labor-inspection-divider{border:0;border-top:1px solid #222;margin:16px 0}

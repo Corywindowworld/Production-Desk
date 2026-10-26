@@ -4014,7 +4014,7 @@ function InstallerReport({ j, save, reload }: any) {
       </div>
       {usableDraft && <p className="op-callout">A saved completion draft was restored. The customer signature and previously uploaded photos are retained until this report is submitted.</p>}
       {draftMessage && <p role="status">{draftMessage}</p>}
-      <Form
+      <Form submitLabel="Submit"
         onSave={async (f) => {
           if (busy || draftSaving) throw Error("Wait for the draft and uploads to finish saving.");
           const missing = requirements.find(

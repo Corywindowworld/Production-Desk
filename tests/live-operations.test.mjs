@@ -4645,3 +4645,16 @@ test('FS can submit marble sills without photos and unselected dimension fields 
  await operation(fs,{action:'reorderRequest',jobId:id,version:1,data:{command:'submit',reason:'Very long sill',acknowledged:true,items:[{type:'Marble Sill',window:'Living room',quantity:1,sillLength:200,sillDepth:6,photos:[]}],chargebacks:['Installer'],chargebackNote:'Broken sill'}});
  const saved=JSON.parse((await pg.query('SELECT payload FROM production.jobs WHERE id=$1',[id])).rows[0].payload),r=saved.operations.reorders[0];assert.equal(r.status,'Approved');assert.equal(r.items.length,3);assert.ok(r.items.every(i=>i.sillLength<=73));assert.equal(r.items.reduce((n,i)=>n+i.sillLength,0),200);
 });
+
+test('job opening defers uploaded labor editors and keeps the standalone labor sheet usable',async()=>{
+ const React=await import('react'),{renderToStaticMarkup}=await import('react-dom/server'),prior=globalThis.React;globalThis.React=React;
+ try{
+  const {LaborSheet}=await vite.ssrLoadModule('/components/labor-paperwork.tsx'),{blankLaborTemplate}=await vite.ssrLoadModule('/lib/labor-template.ts');
+  const sheets=Array.from({length:20},(_,i)=>({id:'sheet-'+i,status:i?'Approved':'Draft',source:'upload',standardLayout:true,visitType:'Installation',lines:blankLaborTemplate().map(l=>({...l,contract:2,actual:2,rate:l.rate??0})),approvedTotal:i?172:undefined,sourceKey:'jobs/test/labor/'+i+'.pdf'}));
+  const j={id:'test',customer:'Uploaded Labor',number:'123456',amount:0,version:1,operations:{laborSheets:sheets}},props={j,me:{role:'admin'},profile:{},reload:async()=>{}},before=JSON.stringify(j);
+  const closed=renderToStaticMarkup(React.createElement(LaborSheet,props));
+  assert.match(closed,/Installer labor &amp; payment approval/);assert.doesNotMatch(closed,/class="labor-paper"/);assert.doesNotMatch(closed,/Actual units/);assert.ok(closed.length<3000);
+  const standalone=renderToStaticMarkup(React.createElement(LaborSheet,{...props,standalone:true}));
+  assert.equal((standalone.match(/class="labor-paper"/g)||[]).length,1);assert.match(standalone,/Actual units Installation - Standard/);assert.match(standalone,/Approved Labor Sheets/);assert.equal(JSON.stringify(j),before);
+ }finally{globalThis.React=prior;}
+});

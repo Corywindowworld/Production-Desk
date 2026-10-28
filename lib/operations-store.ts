@@ -1,3 +1,4 @@
+import {bonusClosingDay} from './bonus-closing';
 import {currentSurveysSQL} from './survey-records';
 import {resetJobSchedule} from "./schedule-reset";
 import {salesResultEmail} from "./sales-result-email";
@@ -2473,18 +2474,9 @@ export async function deliverOperationEmail(id: string, sourceId = id) {
 
 // Preserve the closing result once; repeated cron invocations cannot overwrite it.
 export async function saveMonthEndBonusSnapshot(now = new Date()) {
-  const day = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "America/New_York",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(now);
-  const tomorrow = new Date(Date.parse(day + "T12:00:00Z") + 86400000)
-    .toISOString()
-    .slice(0, 10);
-  if (day.slice(0, 7) === tomorrow.slice(0, 7))
-    return { saved: false, reason: "Not the last day of the month" };
-  const period = bonusPeriod(day.slice(0, 7) + "-01"),
+  const day=bonusClosingDay(now);
+  if(!day)return {saved:false,reason:"Outside bonus-month closing window"};
+  const period=bonusPeriod(day),
     db = database();
   return db.transaction(async (tx) => {
     const existing = await tx
@@ -2513,7 +2505,7 @@ export async function saveMonthEndBonusSnapshot(now = new Date()) {
         .first()
     )?.payload;
     const config = raw == null ? null : parse(configSchema, storedObject(raw));
-    // Use month-end balances/statuses, and the closing month's survey period.
+    // Freeze balances, aging and quality against the final day of this bonus period.
     const metrics = bonusMetrics(jobs, surveys, config, period.end);
     const aged = jobs.filter((j) => aging(j, day).aged);
     metrics.amount =

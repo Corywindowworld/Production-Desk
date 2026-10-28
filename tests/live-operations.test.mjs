@@ -1057,16 +1057,16 @@ test("month-end snapshot export saves once and exposes history only to reviewers
     false,
   );
   assert.equal(
-    (await saveMonthEndBonusSnapshot(new Date("2026-10-01T03:59:00Z"))).saved,
+    (await saveMonthEndBonusSnapshot(new Date("2026-09-30T03:59:00Z"))).saved,
     true,
   );
   assert.equal(
-    (await saveMonthEndBonusSnapshot(new Date("2026-10-01T03:59:30Z"))).saved,
+    (await saveMonthEndBonusSnapshot(new Date("2026-09-30T03:59:30Z"))).saved,
     false,
   );
   const snapshots = (await operationsData(admin)).bonusSnapshots;
   assert.equal(snapshots[0].period.end, "2026-09-29");
-  assert.equal(snapshots[0].asOf, "2026-09-30");
+  assert.equal(snapshots[0].asOf, "2026-09-29");
   assert.ok((await operationsData(fs)).bonusSnapshots.length);
   assert.equal((await operationsData(pa)).bonusSnapshots.length, 0);
 });
@@ -4518,4 +4518,62 @@ test('both certificate PDF headers use the requested left and right rows and sta
    const row=label=>items.find(i=>i.str.startsWith(label));for(const [left,right] of [['Customer:','Customer ID #:'],['Email:','Installer:'],['Date:','Contractor ID #:']]){assert.ok(row(left).transform[4]<row(right).transform[4]);assert.ok(Math.abs(row(left).transform[5]-row(right).transform[5])<1);}
   }finally{await doc.destroy();}
  }
+});
+
+test('bonus month closing follows the final Tuesday at 11:59pm Eastern across DST',async()=>{
+ const {bonusClosingDay}=await vite.ssrLoadModule('/lib/bonus-closing.ts');
+ for(const [instant,day] of [
+  ['2026-10-28T03:59:00Z','2026-10-27'],['2026-10-28T04:05:00Z','2026-10-27'],
+  ['2026-11-25T04:59:00Z','2026-11-24'],['2026-11-25T05:20:00Z','2026-11-24'],
+  ['2026-10-28T03:58:00Z',null],['2026-10-28T04:59:00Z',null],
+  ['2026-11-25T03:59:00Z',null],['2026-11-01T03:59:00Z',null],['2026-10-29T03:59:00Z',null]
+ ])assert.equal(bonusClosingDay(new Date(instant)),day,instant);
+ const {saveMonthEndBonusSnapshot}=await vite.ssrLoadModule('/lib/operations-store.ts');
+ const saved=await saveMonthEndBonusSnapshot(new Date('2026-10-28T03:59:00Z'));
+ assert.equal(saved.saved,true);assert.equal(saved.period,'2026-10-27');
+ const before=(await pg.query("SELECT payload FROM production.bonus_snapshots WHERE period_end='2026-10-27'")).rows[0].payload;
+ assert.equal(before.asOf,'2026-10-27');assert.equal(before.metrics.period.end,'2026-10-27');assert.equal(before.period.start,'2026-09-30');
+ assert.equal((await saveMonthEndBonusSnapshot(new Date('2026-10-28T04:15:00Z'))).saved,false);
+ assert.deepEqual((await pg.query("SELECT payload FROM production.bonus_snapshots WHERE period_end='2026-10-27'")).rows[0].payload,before);
+});
+
+test('completion packet includes late lead paperwork without replacing approved visit history',async()=>{
+ const {completionPacketJob,completionPacketMissing}=await vite.ssrLoadModule('/lib/completion-batch-packet.ts');
+ const report={approved:true,certificate:{id:'approved-visit'}},lead={signatureDataUrl:signature,signedAt:'2026-10-28T12:00:00Z'};
+ const packet={leadRenovationJob:false,operations:{report}},live={leadRenovationJob:true,operations:{report:{certificate:{id:'newer-visit'}},leadRenovation:lead}};
+ const resolved=completionPacketJob(live,{packetJob:packet});
+ assert.equal(resolved.operations.report,report);assert.equal(resolved.operations.leadRenovation,lead);assert.equal(resolved.leadRenovationJob,true);assert.deepEqual(completionPacketMissing(resolved),[]);
+ const missing=completionPacketJob({...live,operations:{}},{packetJob:packet});assert.deepEqual(completionPacketMissing(missing),['Lead Renovation sheet']);
+ const historicalLead={...lead,signedAt:'2026-10-27T12:00:00Z'};
+ assert.equal(completionPacketJob(live,{packetJob:{...packet,operations:{report,leadRenovation:historicalLead}}}).operations.leadRenovation,historicalLead);
+});
+
+test('completion batches attach lead forms added after approval and omit batch codes and page numbers',async()=>{
+ const {batchAction,batchData}=await vite.ssrLoadModule('/lib/completion-batches.ts'),{blankLaborTemplate}=await vite.ssrLoadModule('/lib/labor-template.ts'),{certificateSnapshot}=await vite.ssrLoadModule('/lib/job-certificate.ts'),{PDFDocument}=await import('pdf-lib'),pdfjs=await import('pdfjs-dist/legacy/build/pdf.mjs');
+ const id=crypto.randomUUID(),sheetId=crypto.randomUUID(),at=new Date().toISOString();
+ const job={id,number:'LEAD-BATCH-TEST',customer:'Lead Batch Customer',address:'1 Main Street',city:'Tampa',state:'FL',zip:'33601',amount:0,installerId:installer.id,stage:'Closed',history:[],operations:{}};
+ job.operations.report={approved:true,status:'Complete',installed:today,certificate:certificateSnapshot(job,installer,certificate('Complete'),{},at)};
+ const packetJob=structuredClone(job),lead={customerId:job.number,customerName:job.customer,address:job.address,city:job.city,state:'FL',zip:job.zip,renovatorName:installer.name,renovatorId:'C123',epaCertification:'EPA123',answers:Array(13).fill(true),signatureDataUrl:signature,signedAt:at};
+ job.leadRenovationJob=true;job.operations.leadRenovation=lead;job.operations.laborSheets=[{id:sheetId,status:'Approved',lines:blankLaborTemplate(),approvedTotal:0,approvedAt:at,packetJob}];
+ await pg.query('INSERT INTO production.jobs(id,payload,version,updated) VALUES($1,$2,1,$3)',[id,JSON.stringify(job),at]);
+ assert.deepEqual((await batchData(pa)).jobs.find(j=>j.laborId===sheetId).missing,[]);
+ const batch=await batchAction(pa,{items:[{jobId:id,laborId:sheetId}]}),result=await batchData(pa,batch.id),bytes=Buffer.from(result.pdf_base64,'base64');
+ assert.equal((await PDFDocument.load(bytes)).getPageCount(),4);
+ const doc=await pdfjs.getDocument({data:new Uint8Array(bytes),isEvalSupported:false}).promise;
+ try{
+  const cover=(await (await doc.getPage(1)).getTextContent()).items.map(i=>i.str||'').join(' ');
+  assert.doesNotMatch(cover,new RegExp(batch.id));assert.doesNotMatch(cover,/Pages \d|Index \d/);
+  const last=(await (await doc.getPage(4)).getTextContent()).items.map(i=>i.str||'').join(' ');assert.match(last,/Lead Renovation Procedures Record/);assert.match(last,/EPA123/);
+  for(let page=1;page<=doc.numPages;page++){const items=(await (await doc.getPage(page)).getTextContent()).items.filter(i=>i.str?.trim()&&i.transform[4]>=530&&i.transform[5]<=25);assert.deepEqual(items,[]);}
+ }finally{await doc.destroy();}
+ const current=await batchData(pa,batch.id,true);assert.equal((await PDFDocument.load(Buffer.from(current.pdf_base64,'base64'))).getPageCount(),4);
+ const {writeFileSync}=await import('node:fs');writeFileSync('C:/tmp/lead-batch-layout-qa.pdf',bytes);
+});
+
+test('bonus closing endpoint requires its configured cron secret',async()=>{
+ const {GET}=await vite.ssrLoadModule('/app/api/operations/bonus-snapshot/route.ts'),before=process.env.CRON_SECRET;
+ try{delete process.env.CRON_SECRET;assert.equal((await GET(new Request('https://example.com/api/operations/bonus-snapshot'))).status,503);
+ process.env.CRON_SECRET='local-test-only-secret';assert.equal((await GET(new Request('https://example.com/api/operations/bonus-snapshot'))).status,401);
+ assert.equal((await GET(new Request('https://example.com/api/operations/bonus-snapshot',{headers:{authorization:'Bearer incorrect'}}))).status,401);
+ }finally{if(before===undefined)delete process.env.CRON_SECRET;else process.env.CRON_SECRET=before;}
 });

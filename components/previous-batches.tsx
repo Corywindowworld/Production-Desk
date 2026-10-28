@@ -1,4 +1,5 @@
 'use client';
+import {InAppDocumentLink} from './in-app-document-link';
 import {ClearableSearch} from "@/components/clearable-search";
 
 import {useState} from 'react';
@@ -23,8 +24,8 @@ export function PreviousBatches({batches}:{batches:any[]}){
      {results.map(b=><div key={b.id} style={{padding:14,borderBottom:'1px solid #ccd6df'}}>
        <strong>{completionBatchFilename(b.created)}</strong>
        <p>Prepared by {b.created_by} · Sent by {b.sent_by} on {new Date(b.sent_at).toLocaleString('en-US',{timeZone:'America/New_York'})}</p>
-       <a className="live-button" target="_blank" rel="noopener noreferrer" href={'/api/completion-batches?id='+encodeURIComponent(b.id)+'&view=print'}>View / Print PDF</a>{' '}
-       <a className="live-button" href={'/api/completion-batches?id='+encodeURIComponent(b.id)}>Download PDF</a>
+       <InAppDocumentLink className="live-button" href={'/api/completion-batches?id='+encodeURIComponent(b.id)+'&view=print&layout=current'}>View / Print PDF</InAppDocumentLink>{' '}
+       <a className="live-button" href={'/api/completion-batches?id='+encodeURIComponent(b.id)+'&layout=current'}>Download PDF</a>{' '}<a className="live-button" href={'/api/completion-batches?id='+encodeURIComponent(b.id)}>Archived original PDF</a>
      </div>)}
    </div>}
  </details>;

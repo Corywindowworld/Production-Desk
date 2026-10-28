@@ -222,6 +222,16 @@ export async function operationsData(
     ...withCustomerRecord(storedObject(r.payload), r.record),
     version: r.version,
   }));
+  // A representative's saved contact is authoritative across their jobs.
+  // Older job snapshots must not restore a typo or an intentionally cleared email.
+  const savedSalesReps = (
+    await db.prepare("SELECT payload FROM production.operations_config WHERE id LIKE 'sales-rep:%'").all()
+  ).results.map((r:any)=>storedObject(r.payload));
+  const salesRepContacts = new Map<string,any>(savedSalesReps.filter((rep:any)=>rep.name).map((rep:any)=>[choiceKey(rep.name),rep]));
+  for(const job of all){
+    const contact=salesRepContacts.get(choiceKey(job.salesRep||''));
+    if(typeof contact?.email==='string')job.salesRepEmail=contact.email;
+  }
   onStep("installer-view");
   const jobs = all
     .filter((j: any) => m.role !== "installer" || installerVisible(m, j))
@@ -385,13 +395,7 @@ export async function operationsData(
       : cityDropdownChoices([...savedCities, ...all.map((j: any) => j.city)]);
   const salesReps: any[] = [];
   if (m.role !== "installer") {
-    const saved = (
-      await db
-        .prepare(
-          "SELECT payload FROM production.operations_config WHERE id LIKE 'sales-rep:%'",
-        )
-        .all()
-    ).results.map((r: any) => storedObject(r.payload));
+    const saved = savedSalesReps;
     const byName = new Map<string, any>();
     for (const j of all) {
       if (j.salesRep?.trim()) {
@@ -413,7 +417,7 @@ export async function operationsData(
         byName.set(key, {
           name: choiceName(previous?.name, name),
           phone: rep.phone || previous?.phone || "",
-          email: rep.email || previous?.email || "",
+          email: rep.email ?? previous?.email ?? "",
         });
       }
     salesReps.push(
@@ -1118,6 +1122,12 @@ export async function operation(m: Member, input: any) {
             .first()
         )?.payload,
       );
+      if(j.salesRep?.trim()){
+        const contactRow=await tx.prepare("SELECT payload FROM production.operations_config WHERE id=?")
+          .bind("sales-rep:"+choiceKey(j.salesRep)).first();
+        const contact=contactRow?storedObject(contactRow.payload):null;
+        if(typeof contact?.email==='string')j.salesRepEmail=contact.email;
+      }
       assert(
         // Reports append a new result to the locked, current job; they do not
         // replace job information. Draft/photo/labor saves may advance its

@@ -115,6 +115,26 @@ async function act(m, action, data = {}) {
 }
 const signature =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+test('corrected sales rep email persists across jobs, unrelated saves and clearing', async()=>{
+ const name='Email Correction Rep',ids=[];
+ for(let i=0;i<2;i++){
+  await operation(pa,{action:'create',data:{number:'REP-EMAIL-'+i,customer:'Rep Email Test '+i,address:'1 Test Street',amount:0,salesRep:name,salesRepEmail:'typo@example.com'}});
+  ids.push((await operationsData(admin)).jobs.find(v=>v.number==='REP-EMAIL-'+i).id);
+ }
+ const current=async id=>(await operationsData(admin)).jobs.find(v=>v.id===id);
+ const edit=async(id,data)=>operation(pa,{action:'edit',jobId:id,version:(await current(id)).version,data});
+ await edit(ids[0],{salesRepEmail:'corrected@example.com'});
+ for(const id of ids)assert.equal((await current(id)).salesRepEmail,'corrected@example.com');
+ await edit(ids[1],{notes:'Unrelated update on an older account'});
+ let data=await operationsData(admin);
+ assert.equal(data.salesReps.find(r=>r.name===name).email,'corrected@example.com');
+ for(const id of ids)assert.equal((await current(id)).salesRepEmail,'corrected@example.com');
+ await edit(ids[0],{salesRepEmail:''});
+ await edit(ids[1],{notes:'Keep an intentionally cleared email blank'});
+ data=await operationsData(admin);
+ assert.equal(data.salesReps.find(r=>r.name===name).email,'');
+ for(const id of ids)assert.equal((await current(id)).salesRepEmail,'');
+});
 const certificate = (type) => ({
   type,
   customerEmail: "customer@example.com",

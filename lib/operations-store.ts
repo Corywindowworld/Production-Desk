@@ -429,6 +429,7 @@ export async function operationsData(
   if (ownProfile)
     ownProfile.profile_details = readProfileDetails(ownProfile.profile_details);
   return {
+    leadInstallers: reviewer(m)?(await db.prepare("SELECT id,name,active,profile_details,installer_code FROM members WHERE role='installer' ORDER BY name").all()).results.map((row:any)=>{const p=readProfileDetails(row.profile_details);return {id:row.id,name:row.name,active:row.active,renovatorName:p.leadInstallerName||row.name,renovatorId:p.contractorNumber||row.installer_code||'',epaCertification:p.epaCertification||''};}):[],
     leadProfile: {
       savedDrawnSignature:
         ownProfile?.profile_details?.savedDrawnSignature || "",
@@ -1846,11 +1847,11 @@ export async function operation(m: Member, input: any) {
       }
     } else if (action === "leadRenovation") {
       assert(
-        m.role === "installer" && installerVisible(m, j),
-        "Only an assigned installer may sign this form.",
+        reviewer(m) || (m.role === "installer" && installerVisible(m, j)),
+        "Only an assigned installer or FS/Admin may complete this form.",
       );
       await saveLeadRenovation(tx, j, m, input.data, at);
-      history = "Lead Renovation Procedures Record signed by " + m.name;
+      history = "Lead Renovation Procedures Record "+(o.leadRenovation?.signedByStaff?"completed for "+o.leadRenovation.renovatorName+" and signed by FS/Admin ":"signed by ")+m.name;
     } else if (action === "reorderRequest") {
       history = await reorderOperation({
         tx,
@@ -1954,7 +1955,7 @@ export async function operation(m: Member, input: any) {
       assert(
         !j.leadRenovationJob ||
           m.role !== "installer" ||
-          o.leadRenovation?.signedBy === m.id,
+          (o.leadRenovation?.signedBy === m.id || (o.leadRenovation?.signedByStaff && o.leadRenovation?.installerId === m.id)),
         "Complete and sign the Lead Renovation Procedures Record first.",
         400,
       );

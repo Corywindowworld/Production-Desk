@@ -3055,11 +3055,12 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
           </section>}
           <ApprovedLaborSheets j={j}/>
           <LaborSheet j={j} me={me} profile={data.leadProfile} reload={reload}/>
-          {j.leadRenovationJob && (
+          {(j.leadRenovationJob || review) && (
             <LeadRenovation
               j={j}
               me={me}
               profile={data.leadProfile}
+              installers={data.leadInstallers || []}
               save={save}
             />
           )}

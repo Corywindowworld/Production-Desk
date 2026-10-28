@@ -3484,8 +3484,8 @@ test("lead renovation forms require EPA, installer signature and truthful review
     saveSignature: true,
   };
   await assert.rejects(
-    () => act(fs, "leadRenovation", data),
-    /assigned installer/,
+    () => act(pa, "leadRenovation", data),
+    /assigned installer|FS\/Admin/,
   );
   await assert.rejects(
     () => act(installer, "leadRenovation", data),
@@ -4576,4 +4576,72 @@ test('bonus closing endpoint requires its configured cron secret',async()=>{
  process.env.CRON_SECRET='local-test-only-secret';assert.equal((await GET(new Request('https://example.com/api/operations/bonus-snapshot'))).status,401);
  assert.equal((await GET(new Request('https://example.com/api/operations/bonus-snapshot',{headers:{authorization:'Bearer incorrect'}}))).status,401);
  }finally{if(before===undefined)delete process.env.CRON_SECRET;else process.env.CRON_SECRET=before;}
+});
+
+test('FS/Admin can add a late lead sheet for an installer without using or replacing their signature',async()=>{
+ const id=crypto.randomUUID(),at=new Date().toISOString(),job={id,number:'LATE-LEAD-TEST',customer:'Late Lead Customer',address:'12 Main St',city:'Tampa',state:'FL',zip:'33610',installerId:installer.id,amount:0,stage:'Closed',history:[],operations:{}};
+ await pg.query('INSERT INTO production.jobs(id,payload,version,updated) VALUES($1,$2,1,$3)',[id,JSON.stringify(job),at]);
+ const old=(await pg.query('SELECT profile_details FROM production.members WHERE id=$1',[installer.id])).rows[0].profile_details;
+ const staffOld=(await pg.query('SELECT profile_details FROM production.members WHERE id=$1',[fs.id])).rows[0].profile_details;
+ await pg.query('UPDATE production.members SET profile_details=$1 WHERE id=$2',[JSON.stringify({epaCertification:'EPA-INSTALLER-123',contractorNumber:'C123',leadInstallerName:'Lead Installer',savedDrawnSignature:signature}),installer.id]);
+ const current=async()=>{const r=(await pg.query('SELECT payload,version FROM production.jobs WHERE id=$1',[id])).rows[0];return {...JSON.parse(r.payload),version:r.version};};
+ const values={answers:Array(13).fill(true),signature:'Wrong client label',signatureDataUrl:signature,confirmed:true,saveSignature:true,installerId:installer.id};
+ try{
+  for(const member of [pa,installer])await assert.rejects(()=>operation(member,{action:'leadRenovation',jobId:id,version:1,data:values}),/FS\/Admin|not marked/);
+  await operation(fs,{action:'leadRenovation',jobId:id,version:1,data:values});
+  let saved=await current(),lead=saved.operations.leadRenovation;
+  assert.equal(saved.leadRenovationJob,true);assert.equal(lead.renovatorName,'Lead Installer');assert.equal(lead.renovatorId,'C123');assert.equal(lead.epaCertification,'EPA-INSTALLER-123');assert.equal(lead.installerId,installer.id);assert.equal(lead.signedBy,fs.id);assert.equal(lead.signedByStaff,true);assert.equal(lead.signature,fs.name);assert.equal(lead.signedByName,fs.name);
+  assert.match(saved.history[0].text,/completed for Lead Installer/);
+  const p=(await pg.query('SELECT profile_details FROM production.members WHERE id=$1',[installer.id])).rows[0].profile_details;assert.equal(p.savedDrawnSignature,signature);assert.equal(p.savedSignature,undefined);
+  const staff=(await pg.query('SELECT profile_details FROM production.members WHERE id=$1',[fs.id])).rows[0].profile_details;assert.equal(staff.savedSignature,fs.name);
+  const view=await operationsData(fs),shown=view.leadInstallers.find(i=>i.id===installer.id);assert.equal(shown.epaCertification,'EPA-INSTALLER-123');assert.equal(shown.savedDrawnSignature,undefined);assert.deepEqual((await operationsData(pa)).leadInstallers,[]);
+  await operation(admin,{action:'leadRenovation',jobId:id,version:saved.version,data:{...values,saveSignature:false,epaCertification:'EPA-CORRECTED'}});
+  saved=await current();assert.equal(saved.operations.leadRenovationHistory[0].signedBy,fs.id);assert.equal(saved.operations.leadRenovation.signedBy,admin.id);assert.equal(saved.operations.leadRenovation.epaCertification,'EPA-CORRECTED');
+  const {leadRenovationPdf}=await vite.ssrLoadModule('/lib/lead-renovation-pdf.ts'),{leadRenovationPrintHtml}=await vite.ssrLoadModule('/lib/print-lead-renovation.ts'),{PDFDocument}=await import('pdf-lib'),pdfjs=await import('pdfjs-dist/legacy/build/pdf.mjs');
+  const bytes=await leadRenovationPdf(saved.operations.leadRenovation);assert.equal((await PDFDocument.load(bytes)).getPageCount(),1);
+  const doc=await pdfjs.getDocument({data:new Uint8Array(bytes),isEvalSupported:false}).promise;try{const text=(await (await doc.getPage(1)).getTextContent()).items.map(i=>i.str||'').join(' ');assert.match(text,/FS\/Admin electronic signature/);assert.match(text,/Lead Installer/);assert.match(text,/EPA-CORRECTED/);assert.ok(text.includes(admin.name));}finally{await doc.destroy();}
+  const html=leadRenovationPrintHtml(saved.operations.leadRenovation);assert.match(html,/FS\/Admin electronic signature/);assert.ok(html.includes(admin.name));
+  const {writeFileSync}=await import('node:fs');writeFileSync('C:/tmp/staff-lead-qa.pdf',bytes);
+ }finally{await pg.query('UPDATE production.members SET profile_details=$1 WHERE id=$2',[old,installer.id]);await pg.query('UPDATE production.members SET profile_details=$1 WHERE id=$2',[staffOld,fs.id]);}
+});
+
+test('lead form can be opened by FS on an unmarked account and uses their signature',async()=>{
+ const React=await import('react'),{renderToStaticMarkup}=await import('react-dom/server'),before=globalThis.React;globalThis.React=React;
+ try{const {LeadRenovation}=await vite.ssrLoadModule('/components/lead-renovation.tsx');const html=renderToStaticMarkup(React.createElement(LeadRenovation,{j:{customer:'Test',number:'1',installerId:installer.id},me:fs,profile:{savedDrawnSignature:signature},installers:[{id:installer.id,name:'Test Crew',active:1,renovatorId:'C123',epaCertification:'EPA123'}],save:async()=>{}}));assert.match(html,/Save Lead Sheet/);assert.match(html,/EPA123/);assert.match(html,/Installer \/ renovator/);assert.match(html,/FS\/Admin signing this record/);assert.match(html,/Add \/ Complete/);}finally{globalThis.React=before;}
+});
+
+test('marble sills split at 73 inches and preserve total length and quantities',async()=>{
+ const {sillPieceLengths,splitMarbleSills,formatSillInches}=await vite.ssrLoadModule('/lib/marble-sill.ts');
+ for(const [length,expected] of [[72,[72]],[73,[73]],[73.0625,[36.53125,36.53125]],[80,[40,40]],[146,[73,73]],[147,[49,49,49]]])assert.deepEqual(sillPieceLengths(length),expected);
+ for(const length of [73.03125,100,146.03125,200,300,3650]){const pieces=sillPieceLengths(length);assert.ok(pieces.every(n=>n>0&&n<=73));assert.equal(pieces.reduce((a,b)=>a+b,0),length);}
+ const items=splitMarbleSills([{type:'Marble Sill',sillLength:80,sillDepth:6.5,quantity:2,window:'Kitchen',photos:[]}]);assert.equal(items.length,2);assert.equal(items.reduce((a,b)=>a+b.quantity,0),4);assert.ok(items.every(i=>i.sillDepth===6.5&&i.sillLength===40&&i.sillOriginalLength===80));assert.deepEqual(items.map(i=>i.sillSplitPart),[1,2]);assert.deepEqual(splitMarbleSills(items),items);
+ assert.equal(formatSillInches(36.53125),'36 17/32');assert.equal(formatSillInches(6.5),'6 1/2');
+ const {reorderSubmission}=await vite.ssrLoadModule('/lib/reorder-requests.ts');
+ const base={reason:'Broken sill',acknowledged:true,items:[{type:'Marble Sill',window:'Kitchen',quantity:1,sillLength:80,sillDepth:6,photos:[]}]};
+ assert.equal(reorderSubmission.safeParse(base).success,true);
+ for(const changes of [{sillDepth:undefined},{sillLength:0},{sillLength:73.1},{sillLength:Infinity}])assert.equal(reorderSubmission.safeParse({...base,items:[{...base.items[0],...changes}]}).success,false);
+});
+
+test('marble sill submission requires installer photos, stores split pieces and prints length and depth',async()=>{
+ const id=crypto.randomUUID(),at=new Date().toISOString(),job={id,number:'MARBLE-TEST',customer:'Marble Customer',address:'1 Main',amount:0,stage:'Production',installerId:installer.id,supervisorId:fs.id,history:[],operations:{}};
+ await pg.query('INSERT INTO production.jobs(id,payload,version,updated) VALUES($1,$2,1,$3)',[id,JSON.stringify(job),at]);
+ const base={command:'submit',reason:'Installer broke the marble sill',remaining:'Replace sill',acknowledged:true,items:[{type:'Marble Sill',window:'Kitchen',quantity:1,sillLength:80,sillDepth:6.5,photos:[]}]};
+ await assert.rejects(()=>operation(installer,{action:'reorderRequest',jobId:id,version:1,data:base}),/at least one photo/);
+ const key='jobs/'+id+'/issue/'+crypto.randomUUID();await pg.query("INSERT INTO production.attachment_uploads(key,staging_key,job_id,kind,member_id,name,expires,status,sha256) VALUES($1,$1,$2,'issue',$3,'sill.jpg',0,'ready',$1)",[key,id,installer.id]);
+ await operation(installer,{action:'reorderRequest',jobId:id,version:1,data:{...base,items:[{...base.items[0],photos:[{key,name:'sill.jpg',kind:'issue'}]}]}});
+ let row=(await pg.query('SELECT payload,version FROM production.jobs WHERE id=$1',[id])).rows[0],saved=JSON.parse(row.payload),r=saved.operations.reorders[0];assert.equal(r.items.length,2);assert.ok(r.items.every(i=>i.sillLength===40&&i.sillDepth===6.5));assert.equal(r.status,'Submitted');
+ await operation(fs,{action:'reorderRequest',jobId:id,version:row.version,data:{command:'review',id:r.id,decision:'Approved',chargebacks:['Installer'],chargebackNote:'Broken during install',comment:'',reviewAcknowledged:true}});
+ row=(await pg.query('SELECT payload FROM production.jobs WHERE id=$1',[id])).rows[0];saved=JSON.parse(row.payload);r=saved.operations.reorders[0];assert.equal(r.status,'Approved');assert.equal(saved.stage,'Incomplete');
+ const {reorderPrintHtml}=await vite.ssrLoadModule('/lib/print-reorder.ts'),html=reorderPrintHtml(saved,r);
+ assert.match(html,/Marble Sill/);assert.match(html,/Length: 40 inches/);assert.match(html,/Depth: 6 1\/2 inches/);assert.match(html,/Piece 1 of 2/);assert.match(html,/Piece 2 of 2/);
+ const {writeFileSync}=await import('node:fs');writeFileSync('C:/tmp/marble-sill-reorder-qa.html',html);
+});
+
+test('FS can submit marble sills without photos and unselected dimension fields do not block other parts',async()=>{
+ const {reorderSubmission}=await vite.ssrLoadModule('/lib/reorder-requests.ts');
+ assert.equal(reorderSubmission.safeParse({reason:'Replacement',acknowledged:true,items:[{type:'Other Part',window:'Kitchen',quantity:1,sillLength:null,sillDepth:null,photos:[]}]}).success,true);
+ const id=crypto.randomUUID(),at=new Date().toISOString(),job={id,number:'MARBLE-FS',customer:'Staff Sill',address:'1 Main',amount:0,stage:'Production',installerId:installer.id,history:[],operations:{}};
+ await pg.query('INSERT INTO production.jobs(id,payload,version,updated) VALUES($1,$2,1,$3)',[id,JSON.stringify(job),at]);
+ await operation(fs,{action:'reorderRequest',jobId:id,version:1,data:{command:'submit',reason:'Very long sill',acknowledged:true,items:[{type:'Marble Sill',window:'Living room',quantity:1,sillLength:200,sillDepth:6,photos:[]}],chargebacks:['Installer'],chargebackNote:'Broken sill'}});
+ const saved=JSON.parse((await pg.query('SELECT payload FROM production.jobs WHERE id=$1',[id])).rows[0].payload),r=saved.operations.reorders[0];assert.equal(r.status,'Approved');assert.equal(r.items.length,3);assert.ok(r.items.every(i=>i.sillLength<=73));assert.equal(r.items.reduce((n,i)=>n+i.sillLength,0),200);
 });

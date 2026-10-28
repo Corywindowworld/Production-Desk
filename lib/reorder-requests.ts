@@ -1,12 +1,15 @@
+import {splitMarbleSills} from './marble-sill';
 import {z} from 'zod';
 import {ApiError} from './access';
 import {localDay} from './operations';
-export const reorderTypes=['Whole Window','Screen Frame','Sash','Frame','SPD','Entry Door','Other Part'] as const;
+export const reorderTypes=['Whole Window','Screen Frame','Sash','Frame','SPD','Entry Door','Marble Sill','Other Part'] as const;
 export const chargeParties=['Factory','Installer','Sales Rep','Customer','Window World'] as const;
 const text=z.string().trim().max(4000).default('');
 const validSize=(value:string)=>{const dimensions=value.split(/\s*x\s*/i);return dimensions.length===2&&dimensions.every(d=>{const m=d.trim().match(/^(\d+)(?:\s+(\d+)\/(\d+))?$/);if(!m)return false;const inches=Number(m[1]),num=Number(m[2]||0),den=Number(m[3]||1);return inches<=300&&[1,2,4,8,16].includes(den)&&num<den&&inches+num/den>0;});};
 const photo=z.object({key:z.string().max(250),name:z.string().max(255),kind:z.literal('issue')});
-const item=z.object({type:z.enum(reorderTypes),window:text,quantity:z.number().int().min(1).max(999),sameSizeAsOrder:z.boolean().optional(),windowInstalled:z.boolean().optional(),orderedSize:text,actualSize:text,reorderSize:text,serial:text,specialShape:z.boolean().optional(),orderedLegHeight:text,actualLegHeight:text,reorderLegHeight:text,position:text,panelSide:text,panelOperation:text,description:text,photos:z.array(photo).max(20)}).superRefine((v,c)=>{
+const sillMeasure=z.number().finite().positive().max(3650).multipleOf(1/32);
+const item=z.object({sillLength:sillMeasure.nullable().optional(),sillDepth:sillMeasure.nullable().optional(),sillOriginalLength:sillMeasure.optional(),sillSplitPart:z.number().int().min(1).max(50).optional(),sillSplitCount:z.number().int().min(1).max(50).optional(),type:z.enum(reorderTypes),window:text,quantity:z.number().int().min(1).max(999),sameSizeAsOrder:z.boolean().optional(),windowInstalled:z.boolean().optional(),orderedSize:text,actualSize:text,reorderSize:text,serial:text,specialShape:z.boolean().optional(),orderedLegHeight:text,actualLegHeight:text,reorderLegHeight:text,position:text,panelSide:text,panelOperation:text,description:text,photos:z.array(photo).max(20)}).superRefine((v,c)=>{
+ if(v.type==='Marble Sill'&&(!v.sillLength||!v.sillDepth))c.addIssue({code:'custom',message:'Enter marble sill Length and Depth in inches.'});
  if(!v.window)c.addIssue({code:'custom',message:'Enter a window number or location.'});
  if(v.type==='Whole Window'&&![v.orderedSize,...(v.windowInstalled?[]:[v.sameSizeAsOrder?v.orderedSize:v.actualSize]),v.reorderSize].every(s=>validSize(s||'')))c.addIssue({code:'custom',message:'Enter ordered, actual and reorder sizes in inches and fractions down to 1/16.'});
  if(['Screen Frame','Sash','Frame'].includes(v.type)&&!v.serial)c.addIssue({code:'custom',message:'Enter the serial number.'});
@@ -25,6 +28,7 @@ export async function reorderOperation({tx,j,m,data,at,alert,assigned}:any){
  const event=(r:any,message:string)=>{r.events=[...(r.events||[]),{at,by:m.name,message}];r.updatedAt=at;};
  if(data.command==='submit'){
   const v=read(reorderSubmission,data);
+  v.items=splitMarbleSills(v.items);check(v.items.length<=50,"The sill splits create more than 50 items. Submit separate reorder forms.");
   for(const i of v.items)if(i.type==='Whole Window'){if(i.windowInstalled){i.actualSize='';i.actualLegHeight='';i.sameSizeAsOrder=false;}else if(i.sameSizeAsOrder){i.actualSize=i.orderedSize;i.actualLegHeight=i.orderedLegHeight;}}
   if(m.role==='installer')check(v.items.every(i=>i.photos.length>0),'Installers must upload at least one photo for each reorder item.');
   const old=v.id?o.reorders.find((r:any)=>r.id===v.id):null;

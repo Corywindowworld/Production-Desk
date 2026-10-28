@@ -15,7 +15,7 @@ import {SignaturePad} from './signature-pad';
 import {readReport} from '@/lib/read-report';
 import {uploadAttachment} from '@/lib/upload-client';
 import {parseLaborText,laborTotal,laborVisitType,laborCustomerId,laborCertificateReady} from '@/lib/labor';
-const money=(n:number)=>n.toLocaleString('en-US',{style:'currency',currency:'USD'});
+const money=(n:number|null|undefined)=>n==null?'':n.toLocaleString('en-US',{style:'currency',currency:'USD'});
 async function post(body:any){const r=await fetch('/api/labor',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}),d=await r.json();if(!r.ok)throw Error(d.error);return d;}
 export function LaborImport({jobs,reload}:{jobs:any[];reload:()=>Promise<any>}){
  const [results,setResults]=useState<any[]>([]),[progress,setProgress]=useState(''),[busy,setBusy]=useState(false),[savedMessage,setSavedMessage]=useState('');

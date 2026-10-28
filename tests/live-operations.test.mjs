@@ -4658,3 +4658,19 @@ test('job opening defers uploaded labor editors and keeps the standalone labor s
   assert.equal((standalone.match(/class="labor-paper"/g)||[]).length,1);assert.match(standalone,/Actual units Installation - Standard/);assert.match(standalone,/Approved Labor Sheets/);assert.equal(JSON.stringify(j),before);
  }finally{globalThis.React=prior;}
 });
+
+
+test('uploaded labor with blank pay rates opens alongside an existing installer draft',async()=>{
+ const React=await import('react'),{renderToStaticMarkup}=await import('react-dom/server'),prior=globalThis.React;globalThis.React=React;
+ try{
+  const {LaborSheet}=await vite.ssrLoadModule('/components/labor-paperwork.tsx'),{blankLaborTemplate}=await vite.ssrLoadModule('/lib/labor-template.ts');
+  const lines=blankLaborTemplate().map(l=>({...l,contract:l.description==='Installation - Standard'?2:0,actual:0}));
+  const uploaded={id:'scan',status:'Imported',source:'upload',standardLayout:true,visitType:'Installation',sourceKey:'jobs/test/labor/scan.pdf',lines};
+  const j={id:'test',number:'123456',customer:'Scanned Labor',version:1,amount:0,operations:{laborSheets:[{id:'draft',status:'Draft',source:'manual',templateVersion:'LS-2500',lines:blankLaborTemplate()},uploaded]}};
+  const before=JSON.stringify(j),props={j,me:{role:'admin'},profile:{},reload:async()=>{}};
+  const html=renderToStaticMarkup(React.createElement(LaborSheet,{...props,standalone:true}));
+  assert.match(html,/Uploaded contract labor/);assert.match(html,/\$172\.00/);assert.match(html,/Open original labor PDF/);assert.match(html,/Miscellaneous Labor/);assert.match(html,/Trip Charge/);assert.doesNotMatch(html,/NaN|undefined|null/);
+  const closed=renderToStaticMarkup(React.createElement(LaborSheet,props));assert.match(closed,/Installer labor/);assert.equal(JSON.stringify(j),before);
+  assert.equal(uploaded.lines[25].rate,null);assert.equal(uploaded.lines[26].rate,null);
+ }finally{globalThis.React=prior;}
+});

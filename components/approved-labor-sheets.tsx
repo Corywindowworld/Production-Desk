@@ -1,4 +1,5 @@
 "use client";
+import {InAppDocumentLink} from "./in-app-document-link";
 
 export function ApprovedLaborSheets({ j }: { j: any }) {
   const sheets = [...(j.operations?.laborSheets || [])]
@@ -17,10 +18,10 @@ export function ApprovedLaborSheets({ j }: { j: any }) {
                 {sheet.approvedAt ? new Date(sheet.approvedAt).toLocaleDateString("en-US", { timeZone: "America/New_York" }) : "Approved"} · Approved by {sheet.approvedBy || "management"}
               </small>
             </div>
-            <a className="labor-action-button" target="_blank" rel="noopener noreferrer"
+            <InAppDocumentLink className="labor-action-button"
               href={"/api/labor?jobId=" + encodeURIComponent(j.id) + "&sheetId=" + encodeURIComponent(sheet.id)}>
               View / Print Labor Sheet
-            </a>
+            </InAppDocumentLink>
           </div>
         ))}
       </div>

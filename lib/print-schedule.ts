@@ -1,4 +1,4 @@
-import {withPrintExit} from './print-exit';
+import {openInAppPrint} from "./in-app-print";
 import {datesFor,type ScheduleViewMode} from '../app/operations-preview/schedule-view';
 import {installAppointments,hourLabel} from './install-calendar';
 import {displayedJobStatus} from './payment-status';
@@ -28,9 +28,7 @@ export function weeklyScheduleHtml({jobs,daysOff=[],day,colors={},daily=false,vi
  </style></head><body><div class="toolbar"><button id="print" type="button">Print / Save PDF</button>${daily||monthly?'Landscape · Letter · Default scale (100%). Additional pages are used when needed.':'Landscape · Letter · One page. Busy weeks use smaller text.'} Turn off browser headers and footers.</div><div id="page"><div id="sheet"><header><h1>Production Desk · ${daily?'Daily':monthly?'Monthly':'Weekly'} Schedule</h1><p>${escape(label(start))}${daily?'':' – '+escape(label(dates[dates.length-1]))}</p></header><div class="week">${columns}</div></div></div></body></html>`;
 }
 export function printWeeklySchedule(options:Parameters<typeof weeklyScheduleHtml>[0]){
- const preview=window.open('','_blank','width=1200,height=850');
- if(!preview)throw Error('Allow pop-ups for Production Desk to open the printable schedule.');
- preview.document.open();preview.document.write(withPrintExit(weeklyScheduleHtml(options)));preview.document.close();
+ const preview=openInAppPrint(weeklyScheduleHtml(options),"Schedule");
  const fit=()=>{if(options.daily||options.view==='Day'||options.view==='Month')return;const sheet=preview.document.getElementById('sheet')!,page=preview.document.getElementById('page')!;sheet.style.width='100%';sheet.style.setProperty('--schedule-font','10px');sheet.style.setProperty('--schedule-pad','5px');let size=10;while(sheet.scrollHeight>page.clientHeight&&size>5){size-=.5;sheet.style.setProperty('--schedule-font',size+'px');sheet.style.setProperty('--schedule-pad',Math.max(2,size/2)+'px');}};
  const print=()=>{fit();preview.focus();preview.print();};
  preview.document.getElementById('print')!.addEventListener('click',print);

@@ -4435,11 +4435,11 @@ test('document customer names use last-first without changing stored or organiza
  assert.equal(customerDisplayName(record.customerName,record.customerFirstName,record.customerLastName),'de la Cruz, John');
 });
 
-test('completion certificate header pairs customer and ID, date and email, installer and contractor ID',async()=>{
+test('certificate header pairs customer and ID, email and installer, date and contractor ID',async()=>{
  const {jobCertificatePrintHtml}=await vite.ssrLoadModule('/lib/print-job-certificate.ts');
  const html=jobCertificatePrintHtml({...certificate('Complete'),id:'header-qa',customerName:'John Smith',customerId:'123456',installerName:'Test Crew',contractorId:'C123',signedAt:'2026-10-26T16:00:00Z'});
  const header=html.slice(html.indexOf('<div class="top">'),html.indexOf('<table class="questions">'));
- const labels=['Customer:</b>','Customer ID:</b>','Date:</b>','Email:</b>','Installer:</b>','Contractor ID:</b>'];
+ const labels=['Customer:</b>','Customer ID:</b>','Email:</b>','Installer:</b>','Date:</b>','Contractor ID:</b>'];
  for(let i=1;i<labels.length;i++)assert.ok(header.indexOf(labels[i])>header.indexOf(labels[i-1]));
 });
 
@@ -4470,4 +4470,52 @@ test('backordered INC certificates stay ORD, skip reorders and require full rece
  const regular=await fixture();await operation(installer,{action:'report',jobId:regular.id,version:1,data:{...regular.result,backordered:false}});const r=await regular.current();
  await assert.rejects(()=>operation(fs,{action:'reviewReport',jobId:regular.id,version:r.version,data:{approve:true}}),/reorder information/);
  const invalid=await fixture();await assert.rejects(()=>operation(installer,{action:'report',jobId:invalid.id,version:1,data:{...invalid.result,status:'Complete',certificate:certificate('Complete')}}),/only to incomplete/);
+});
+
+test('submitted labor payment boxes recalculate from approved units and chargeback',async()=>{
+ const React=await import('react'),{renderToStaticMarkup}=await import('react-dom/server');
+ const previous=globalThis.React;globalThis.React=React;
+ try{
+  const {LaborSheetForm}=await vite.ssrLoadModule('/components/labor-sheet-form.tsx');
+  const lines=[{description:'Installation - Standard',contract:4,actual:4,rate:86}],props={job:{customer:'Test Customer',number:'123456'},sheet:{status:'Submitted',source:'manual',lines,requestedTotal:344},lines,onLines:()=>{},fields:{},onFields:()=>{},submitted:true,review:true,setUnits:()=>{},signoff:null};
+  for(const [units,chargeback,total] of [[[4],0,'344'],[[2],0,'172'],[[2],20,'152'],[[0],0,'0']]){
+   const html=renderToStaticMarkup(React.createElement(LaborSheetForm,{...props,units,chargeback}));
+   assert.ok(html.includes('Amount to Pay: $'+total),html);
+   assert.ok(html.includes('<output>$'+(units[0]*86)+'</output>'),html);
+  }
+ }finally{globalThis.React=previous;}
+});
+
+test('approved labor saves FS checkboxes and identifiers and prints approved quantities without zero clutter',async()=>{
+ const {laborAction}=await vite.ssrLoadModule('/lib/labor-store.ts'),{laborFormPdf}=await vite.ssrLoadModule('/lib/labor-form-pdf.ts'),pdfjs=await import('pdfjs-dist/legacy/build/pdf.mjs');
+ const id=crypto.randomUUID(),sheetId=crypto.randomUUID(),at=new Date().toISOString();
+ const lines=[{description:'Installation - Standard',contract:4,actual:4,rate:86,reason:'',extra:false},{description:'Trip Charge',contract:0,actual:0,rate:30,reason:'',extra:false}];
+ const job={id,number:'REVIEW-'+id.slice(0,6),customer:'Review Fields',installerId:installer.id,supervisorId:fs.id,amount:0,stage:'Closed',history:[],operations:{report:{status:'Complete',approved:true,submittedAt:at,certificate:{id:crypto.randomUUID(),type:'Complete',paymentAmount:0,paymentMethod:'Finance'}},laborSheets:[{id:sheetId,status:'Submitted',source:'manual',lines,originalLines:lines,installerSignature:signature,submittedAt:at,formFields:{answer0:'Yes',truck:['Vacuum'],truckInitials:'OLD'}}]}};
+ await pg.query('INSERT INTO production.jobs(id,payload,version,updated) VALUES($1,$2,1,$3)',[id,JSON.stringify(job),at]);
+ const old=(await pg.query('SELECT profile_details FROM production.members WHERE id=$1',[fs.id])).rows[0].profile_details;
+ await pg.query('UPDATE production.members SET profile_details=$1 WHERE id=$2',[JSON.stringify({savedDrawnSignature:signature,employeeNumber:'1728'}),fs.id]);
+ try{
+  await laborAction(fs,{action:'review',jobId:id,version:1,sheetId,approve:true,truckInspected:true,approvedUnits:[2,0],note:'Approved work performed',chargeback:20,chargebackReason:'Correction',formFields:{truck:['Vacuum','Parts'],truckInitials:'CR',truckEmployeeNumber:'1728',receivedBy:fs.name,authorization:'other',chargebackTo:['Factory']}});
+  const saved=JSON.parse((await pg.query('SELECT payload FROM production.jobs WHERE id=$1',[id])).rows[0].payload).operations.laborSheets[0];
+  assert.equal(saved.approvedTotal,152);assert.equal(saved.authorization,'other');assert.deepEqual(saved.chargebackTo,['Factory']);
+  assert.equal(saved.formFields.answer0,'Yes');assert.equal(saved.formFields.truckInitials,'CR');assert.deepEqual(saved.formFields.truck,['Vacuum','Parts']);assert.equal(saved.formFields.truckEmployeeNumber,'1728');
+  const data=await laborFormPdf(saved.packetJob,saved),doc=await pdfjs.getDocument({data:new Uint8Array(data),isEvalSupported:false}).promise;
+  try{assert.equal(doc.numPages,1);const items=(await (await doc.getPage(1)).getTextContent()).items.filter(i=>i.str);
+   const actual=items.filter(i=>i.transform[4]>=252&&i.transform[4]<288&&i.transform[5]<616&&i.transform[5]>580).map(i=>i.str).filter(s=>s.trim());
+   assert.deepEqual(actual,['2']);const text=items.map(i=>i.str).join(' ');assert.match(text,/152\.00/);assert.match(text,/CR/);assert.match(text,/1728/);
+  }finally{await doc.destroy();}
+ }finally{await pg.query('UPDATE production.members SET profile_details=$1 WHERE id=$2',[old,fs.id]);}
+});
+
+test('both certificate PDF headers use the requested left and right rows and stay one page',async()=>{
+ const {jobCertificatePdf}=await vite.ssrLoadModule('/lib/job-certificate-pdf.ts'),{jobCertificatePrintHtml}=await vite.ssrLoadModule('/lib/print-job-certificate.ts'),pdfjs=await import('pdfjs-dist/legacy/build/pdf.mjs');
+ for(const type of ['Complete','Incomplete']){
+  const c={...certificate(type),id:'header-qa',customerName:'John Smith',customerId:'123456',customerEmail:'customer@example.com',installerName:'Test Crew',contractorId:'C123',signedAt:'2026-10-26T16:00:00Z'};
+  const html=jobCertificatePrintHtml(c),header=html.slice(html.indexOf('<div class="top">'),html.indexOf('<table class="questions">'));
+  const labels=['Customer:</b>','Customer ID:</b>','Email:</b>','Installer:</b>','Date:</b>','Contractor ID:</b>'];for(let i=1;i<labels.length;i++)assert.ok(header.indexOf(labels[i])>header.indexOf(labels[i-1]));
+  const doc=await pdfjs.getDocument({data:new Uint8Array(await jobCertificatePdf(c)),isEvalSupported:false}).promise;
+  try{assert.equal(doc.numPages,1);const items=(await (await doc.getPage(1)).getTextContent()).items.filter(i=>i.str);
+   const row=label=>items.find(i=>i.str.startsWith(label));for(const [left,right] of [['Customer:','Customer ID #:'],['Email:','Installer:'],['Date:','Contractor ID #:']]){assert.ok(row(left).transform[4]<row(right).transform[4]);assert.ok(Math.abs(row(left).transform[5]-row(right).transform[5])<1);}
+  }finally{await doc.destroy();}
+ }
 });

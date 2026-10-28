@@ -1,4 +1,5 @@
 "use client";
+import {InAppDocumentLink} from "./in-app-document-link";
 import { ApprovedLaborSheets } from "./approved-labor-sheets";
 import { useState } from "react";
 import { SignedJobCertificate } from "./job-certificate";
@@ -124,14 +125,14 @@ export function DigitalDocuments({ j }: any) {
                 <strong>{a.name}</strong>
                 <small>{a.kind || "Job document"}</small>
               </div>
-              <a
+              <InAppDocumentLink
                 className="live-button"
                 href={"/api/attachments?key=" + encodeURIComponent(a.key)}
-                target="_blank"
-                rel="noreferrer"
+
+
               >
                 Open document
-              </a>
+              </InAppDocumentLink>
             </div>
           ))}
         </div>

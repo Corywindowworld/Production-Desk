@@ -4532,10 +4532,11 @@ test('both certificate PDF headers use the requested left and right rows and sta
  for(const type of ['Complete','Incomplete']){
   const c={...certificate(type),id:'header-qa',customerName:'John Smith',customerId:'123456',customerEmail:'customer@example.com',installerName:'Test Crew',contractorId:'C123',signedAt:'2026-10-26T16:00:00Z'};
   const html=jobCertificatePrintHtml(c),header=html.slice(html.indexOf('<div class="top">'),html.indexOf('<table class="questions">'));
-  const labels=['Customer:</b>','Customer ID:</b>','Email:</b>','Installer:</b>','Date:</b>','Contractor ID:</b>'];for(let i=1;i<labels.length;i++)assert.ok(header.indexOf(labels[i])>header.indexOf(labels[i-1]));
+  const labels=['Customer:</b>','Date:</b>','Email:</b>','Installer:</b>','Customer ID:</b>','Contractor ID:</b>'];for(let i=1;i<labels.length;i++)assert.ok(header.indexOf(labels[i])>header.indexOf(labels[i-1]));
   const doc=await pdfjs.getDocument({data:new Uint8Array(await jobCertificatePdf(c)),isEvalSupported:false}).promise;
   try{assert.equal(doc.numPages,1);const items=(await (await doc.getPage(1)).getTextContent()).items.filter(i=>i.str);
-   const row=label=>items.find(i=>i.str.startsWith(label));for(const [left,right] of [['Customer:','Customer ID #:'],['Email:','Installer:'],['Date:','Contractor ID #:']]){assert.ok(row(left).transform[4]<row(right).transform[4]);assert.ok(Math.abs(row(left).transform[5]-row(right).transform[5])<1);}
+   const row=label=>items.find(i=>i.str.startsWith(label));for(const [left,right] of [['Customer:','Date:'],['Email:','Installer:'],['Customer ID #:','Contractor ID #:']]){assert.ok(row(left).transform[4]<row(right).transform[4]);assert.ok(Math.abs(row(left).transform[5]-row(right).transform[5])<1);}
+   const {mkdirSync,writeFileSync}=await import('node:fs');mkdirSync('/tmp/certificate-position-qa',{recursive:true});writeFileSync('/tmp/certificate-position-qa/'+type+'.pdf',await jobCertificatePdf(c));
   }finally{await doc.destroy();}
  }
 });

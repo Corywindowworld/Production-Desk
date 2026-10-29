@@ -127,9 +127,9 @@ export async function jobCertificatePdf(c: any) {
       for(const col of blocks)col.rows.forEach((row,i)=>page.drawText(row,{x:col.x,y:y-size-i*(size+3),size,font:strong?bold:regular}));
       y-=height;
     };
-    pair("Customer:",customerDisplayName(c.customerName,c.customerFirstName,c.customerLastName),"Customer ID #:",c.customerId,15,true);
+    pair("Customer:",customerDisplayName(c.customerName,c.customerFirstName,c.customerLastName),"Date:",day(c.signedAt),15,true);
     pair("Email:",c.customerEmail,c.signedByStaff?"Staff preparer:":"Installer:",c.installerName,12);
-    pair("Date:",day(c.signedAt),"Contractor ID #:",c.contractorId||"Not recorded",13);
+    pair("Customer ID #:",c.customerId,"Contractor ID #:",c.contractorId||"Not recorded",13);
     field("Property:",[c.address,c.city,c.state,c.zip].filter(Boolean).join(", "));
   } else {
   field("Customer:", customerDisplayName(c.customerName,c.customerFirstName,c.customerLastName), true);

@@ -44,6 +44,13 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
  const ca=process.env.DATABASE_CA_CERT?.replace(/\\n/g,'\n').trim();
  const ssl=process.env.DATABASE_SSL==='disable'?false:ca?{rejectUnauthorized:true,ca:[...rootCertificates,ca]}:'verify-full';
  const sql=postgres(process.env.DATABASE_URL,{prepare:false,max:1,connect_timeout:10,ssl});
- try{console.log('Sales representative email correction: '+JSON.stringify(await correctSalesRepEmail(sql,{name:process.argv[2],email:process.argv[3],repairId:process.argv[4]})));}
+ try{
+  if(process.argv[2]==='--inspect'){
+   const needle=z.string().trim().min(3).max(80).parse(process.argv[3]);
+   const jobs=await sql.unsafe("SELECT DISTINCT payload::jsonb->>'salesRep' AS name FROM production.jobs WHERE payload::jsonb->>'salesRep' ILIKE $1 LIMIT 20",['%'+needle+'%']);
+   const contacts=await sql.unsafe("SELECT id,payload::jsonb->>'name' AS name FROM production.operations_config WHERE id LIKE 'sales-rep:%' AND payload::jsonb->>'name' ILIKE $1 LIMIT 20",['%'+needle+'%']);
+   console.log('Matching sales representative names: '+JSON.stringify({jobs,contacts}));
+  }else console.log('Sales representative email correction: '+JSON.stringify(await correctSalesRepEmail(sql,{name:process.argv[2],email:process.argv[3],repairId:process.argv[4]})));
+ }
  finally{await sql.end();}
 }

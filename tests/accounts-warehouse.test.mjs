@@ -57,8 +57,19 @@ test('warehouse schedule matches multi-day and service calendars and exposes onl
  await assert.rejects(()=>warehouseScheduleData(warehouse,{from:'not-a-date'}));
 });
 
+test('warehouse crew colors persist per account and reject invalid or unauthorized updates',async()=>{
+ const {warehouseCrewColors,saveWarehouseCrewColors}=await vite.ssrLoadModule('/lib/warehouse-crew-colors.ts');
+ await pg.query("INSERT INTO production.members(id,email,name,role) VALUES('warehouse','warehouse@example.com','Warehouse','warehouse')");
+ const before=await warehouseCrewColors(warehouse);assert.match(before.crewColors.crew,/^#[0-9a-f]{6}$/i);assert.equal(before.team[0].name,'Current Crew');
+ await saveWarehouseCrewColors(warehouse,{crew:'#af3170'});assert.equal((await warehouseScheduleData(warehouse)).crewColors.crew,'#af3170');assert.notEqual((await warehouseCrewColors(admin)).crewColors.crew,'#af3170');
+ await assert.rejects(()=>saveWarehouseCrewColors({role:'installer'},{crew:'#123456'}),e=>e.status===403);
+ await assert.rejects(()=>saveWarehouseCrewColors(warehouse,{unknown:'#123456'}),e=>e.status===400);
+ await assert.rejects(()=>saveWarehouseCrewColors(warehouse,{crew:'red'}));
+ assert.equal((await warehouseCrewColors(warehouse)).crewColors.crew,'#af3170');
+});
+
 test('read-only warehouse schedule renders loading data without job mutation controls',async()=>{
  const React=await import('react'),{renderToStaticMarkup}=await import('react-dom/server');globalThis.React=React;
- try{const {WarehouseSchedule}=await vite.ssrLoadModule('/components/warehouse-schedule.tsx');const data=await warehouseScheduleData(warehouse,{from:'2026-10-30'}),html=renderToStaticMarkup(React.createElement(WarehouseSchedule,{initialData:data}));assert.match(html,/Installation schedule/);assert.match(html,/op-calendar-grid/);assert.match(html,/warehouse-calendar-card/);assert.match(html,/>Month<\/button>/);assert.doesNotMatch(html,/<table/);assert.match(html,/Read-only/);assert.match(html,/Current Crew/);assert.match(html,/B12/);assert.doesNotMatch(html,/Schedule Work|Save schedule|Update information|\/api\/operations|href="\/\?job=/);}finally{delete globalThis.React;}
+ try{const {WarehouseSchedule}=await vite.ssrLoadModule('/components/warehouse-schedule.tsx');const data=await warehouseScheduleData(warehouse,{from:'2026-10-30'}),html=renderToStaticMarkup(React.createElement(WarehouseSchedule,{initialData:data}));assert.match(html,/Installation schedule/);assert.match(html,/op-calendar-grid/);assert.match(html,/warehouse-calendar-card/);assert.match(html,/>Month<\/button>/);assert.doesNotMatch(html,/<table/);assert.match(html,/Read-only/);assert.match(html,/Current Crew/);assert.match(html,/B12/);assert.match(html,/Crew color key/);assert.match(html,/--crew-color:#af3170/);assert.doesNotMatch(html,/Schedule Work|Save schedule|Update information|\/api\/operations|href="\/\?job=/);}finally{delete globalThis.React;}
 });
 test.after(async()=>{await vite.close();await pg.close();delete globalThis.__accountsWarehouseDb;});

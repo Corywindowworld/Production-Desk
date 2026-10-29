@@ -4694,3 +4694,16 @@ test('uploaded labor with blank pay rates opens alongside an existing installer 
   assert.equal(uploaded.lines[25].rate,null);assert.equal(uploaded.lines[26].rate,null);
  }finally{globalThis.React=prior;}
 });
+
+
+test('batch cover groups COMP before INC, keeps packet order, and places payment before final status column',async()=>{
+ const {completionBatchPdf}=await vite.ssrLoadModule('/lib/completion-batch-pdf.ts'),{certificateSnapshot}=await vite.ssrLoadModule('/lib/job-certificate.ts'),pdfjs=await import('pdfjs-dist/legacy/build/pdf.mjs');
+ const make=(number,type,paymentMethod)=>{const job={id:number,number,customer:'Batch '+number,address:'1 Main Street',city:'Tampa',state:'FL',zip:'33601',amount:0,operations:{}};job.operations.report={approved:true,status:type,certificate:certificateSnapshot(job,installer,{...certificate(type),paymentMethod,cardOnFile:paymentMethod==='Credit Card'},{},'2026-10-29T12:00:00Z')};return {job,labor:{omitLabor:true}};};
+ const items=[make('100001','Incomplete','Check'),make('100002','Complete','Credit Card'),make('100003','Complete','')];
+ const bytes=await completionBatchPdf('private-batch-id',items,'2026-10-29T12:00:00Z'),doc=await pdfjs.getDocument({data:new Uint8Array(bytes),isEvalSupported:false}).promise;
+ try{const cover=(await (await doc.getPage(1)).getTextContent()).items.filter(i=>i.str?.trim()),text=cover.map(i=>i.str).join(' ');assert.ok(text.indexOf('100002')<text.indexOf('100003'));assert.ok(text.indexOf('100003')<text.indexOf('100001'));assert.match(text,/Credit Card/);assert.match(text,/Check/);assert.match(text,/None recorded/);
+ const header=label=>cover.find(i=>i.str===label);assert.ok(header('Payment method').transform[4]<header('Status').transform[4]);const statuses=cover.filter(i=>['COMP','INC'].includes(i.str));assert.deepEqual(statuses.map(i=>i.str),['COMP','COMP','INC']);assert.ok(statuses.every(i=>i.transform[4]===header('Status').transform[4]));
+ for(const [page,cid] of [[2,'100002'],[3,'100003'],[4,'100001']]){const text=(await (await doc.getPage(page)).getTextContent()).items.map(i=>i.str||'').join(' ');assert.match(text,new RegExp(cid));}
+ const {writeFileSync,mkdirSync}=await import('node:fs');mkdirSync('/tmp/production-desk-pdf-qa',{recursive:true});writeFileSync('/tmp/production-desk-pdf-qa/batch-columns.pdf',bytes);
+ }finally{await doc.destroy();}assert.equal(items[0].job.number,'100001');
+});

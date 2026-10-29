@@ -2,6 +2,7 @@ import {database} from '@/db/raw';
 import {ApiError,type Member} from './access';
 import {storedObject} from './stored-data';
 import {localDay,optionalDate,dayDifference,addDays} from './operations';
+import {warehouseCrewColors} from './warehouse-crew-colors';
 import {installAppointments} from './install-calendar';
 
 export async function warehouseScheduleData(m:Member,range:{from?:string;to?:string}={}){
@@ -23,5 +24,5 @@ export async function warehouseScheduleData(m:Member,range:{from?:string;to?:str
   }
  }
  appointments.sort((a,b)=>a.date.localeCompare(b.date)||a.crew.localeCompare(b.crew)||(a.stop??999)-(b.stop??999)||(a.time||a.period).localeCompare(b.time||b.period)||String(a.number).localeCompare(String(b.number)));
- return {from,to,readOnly:true,appointments};
+ return {from,to,readOnly:true,appointments,...await warehouseCrewColors(m)};
 }

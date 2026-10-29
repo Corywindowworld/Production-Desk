@@ -7,7 +7,7 @@ import {visitSchema} from '@/lib/job-visits';
 export async function GET(request:Request){
  try{
   const m=await actor(request);
-  if(!isOffice(m)&&m.role!=='supervisor')throw new ApiError(403,'Job visits are available to supervisors and office staff.');
+  if(!isOffice(m)&&!['supervisor','installer'].includes(m.role))throw new ApiError(403,'Job visits are unavailable.');
   const jobId=new URL(request.url).searchParams.get('jobId')||'';
   await visitJobFor(m,jobId);
   const rows=await database().prepare('SELECT payload FROM job_visits WHERE job_id=? ORDER BY created DESC').bind(jobId).all();

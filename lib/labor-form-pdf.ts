@@ -1,0 +1,40 @@
+import {customerDisplayName} from './customer-display-name';
+import {laborPaymentSummary,staffInitials} from './labor-approval';
+import {PDFDocument,StandardFonts,rgb} from 'pdf-lib';
+import {laborAgreement,laborQuestions,laborTruckItems} from './labor-template';
+import {displayDate} from './display-date';
+const clean=(v:any)=>String(v??'').replace(/[^\x20-\x7e\n]/g,' ');
+export async function laborFormPdf(job:any,sheet:any){
+ const approval={...laborPaymentSummary(job),...(sheet.approvalSummary||{})},initials=sheet.approverInitials||staffInitials(sheet.approvedBy||''),employee=sheet.approverEmployeeNumber||'Not recorded';
+ const pdf=await PDFDocument.create(),font=await pdf.embedFont(StandardFonts.Helvetica),bold=await pdf.embedFont(StandardFonts.HelveticaBold),serif=await pdf.embedFont(StandardFonts.TimesRomanBold),p=pdf.addPage([612,792]),f=sheet.formFields||{},extra:string[]=[];
+ const text=(v:any,x:number,y:number,size=8,strong=false)=>p.drawText(clean(v),{x,y,size,font:strong?bold:font,color:rgb(0,0,0)});
+ const box=(x:number,y:number,w:number,h:number)=>p.drawRectangle({x,y,width:w,height:h,borderWidth:.5,borderColor:rgb(0,0,0)});
+ const wrap=(v:any,x:number,y:number,w:number,size=8,max=100,strong=false)=>{const face=strong?bold:font;let row='',n=0;for(const word of clean(v).split(/\s+/)){if(face.widthOfTextAtSize((row?row+' ':'')+word,size)>w&&row){if(n<max)text(row,x,y-n*(size+2),size,strong);n++;row='';}row+=(row?' ':'')+word;}if(row){if(n<max)text(row,x,y-n*(size+2),size,strong);n++;}if(n>max)extra.push(clean(v));return n;};
+ const check=(label:string,yes:boolean,x:number,y:number)=>{box(x,y-1,7,7);if(yes){p.drawLine({start:{x:x+1,y:y+2},end:{x:x+3,y},thickness:1});p.drawLine({start:{x:x+3,y},end:{x:x+6,y:y+5},thickness:1});}text(label,x+10,y,7);};
+ const money=(v:any)=>Number(v||0).toFixed(2),x=36,left=360,right=410,rw=166;
+ p.drawText('Window World of Tampa Bay Job Labor Sheet',{x,y:754,size:17,font:serif});text(`Stop # ${f.stop||'_____'} of ${f.stopOf||'_____'}`,455,744,8);
+ box(36,712,260,28);box(304,712,92,28);box(410,712,166,28);
+ box(36,691,360,19);box(36,671,260,18);box(304,671,92,18);box(410,671,166,38);box(36,635,360,34);
+ wrap(customerDisplayName(job.customer,job.firstName,job.lastName),40,728,252,12,2,true);text(`ID#: ${job.number}`,308,725,11,true);wrap(`Crew: ${sheet.contractorId||''} ${sheet.installerName||job.crew||''}`,414,729,rw-8,10,2,true);
+ wrap(`Address: ${job.address||''}`,40,697,352,9,1);wrap(`City / State: ${[job.city,job.state,job.zip].filter(Boolean).join(', ')}`,40,677,252,8,1);text('Region: Tampa',308,677,8);wrap(`Salesman: ${job.salesRep||''}`,414,695,rw-8,8,2);
+ ['phone','phone2','phone3'].forEach((k,i)=>text(`Phone #${i+1}: ${job[k]||''}`,40,660-i*10,8));
+ const cols=[36,216,252,288,302,340,396],top=627,h=11.8,rows=sheet.lines.slice(0,27),bottom=top-h*(rows.length+1);
+ for(const a of cols)p.drawLine({start:{x:a,y:top},end:{x:a,y:bottom},thickness:.45});for(let i=0;i<=rows.length+1;i++)p.drawLine({start:{x,y:top-i*h},end:{x:396,y:top-i*h},thickness:.45});
+ ['','Contract','Actual','','Pay','Total'].forEach((t,i)=>text(t,cols[i]+3,top-8,7,true));
+ rows.forEach((l:any,i:number)=>{const y=top-(i+2)*h+3,a=sheet.approvedLines?.[i]?.actual??l.actual;wrap(l.description,39,y,174,7,1);text(l.contract||'',220,y,8);text(a||'',256,y,8);text('x',292,y,8);text(l.rate==null?'':Number(l.rate).toString(),306,y,8);text(a==null||l.rate==null?'':money(a*l.rate),343,y,8);});
+ sheet.lines.forEach((l:any,i:number)=>{if(l.reason)extra.push(`${l.description} - ${l.reason}`);if(sheet.approvedLines?.[i]&&sheet.approvedLines[i].actual!==l.actual)extra.push(`${l.description} - Requested units: ${l.actual}; approved units: ${sheet.approvedLines[i].actual}`);});
+ if(sheet.lines.length>27)extra.push('Additional labor: '+sheet.lines.slice(27).map((l:any,i:number)=>`${l.description}: ${sheet.approvedLines?.[i+27]?.actual??l.actual} x $${money(l.rate)}; ${l.reason||''}`).join('; '));
+ let y=bottom-6;box(36,y-37,215,37);text('Office Use Only',40,y-10,8,true);text('Audited Pay: $________________',40,y-22,9,true);text('Auth. By: ____________________',40,y-33,8);text('TOTAL PAY',272,y-13,10,true);box(332,y-31,64,26);text('$'+money(sheet.approvedTotal??sheet.requestedTotal),337,y-21,10,true);
+ y-=43;box(36,y-43,left,43);text('Charge Back:',40,y-11,8,true);['Sales Rep','Contractor','Factory','Warranty'].forEach((v,i)=>check(v,sheet.chargebackTo?.includes(v),115+i*68,y-11));wrap('(Explain) '+(sheet.chargebackReason||''),40,y-23,350,7,1);text(`Amount: ${sheet.chargeback?'$'+money(sheet.chargeback):'____________'}`,40,y-37,8);
+ y-=49;box(36,36,left,y-36+5);y-=7;laborQuestions.forEach((q,i)=>{wrap(q,40,y,245,7.2,2);check('Yes',f['answer'+i]==='Yes',292,y);check('No',f['answer'+i]==='No',335,y);y-=i===0?18:26;});if(f.checklistExplanation)extra.push('Checklist explanation: '+f.checklistExplanation);
+ wrap(laborAgreement,40,y+2,352,7.2,7);const sigY=42;if(sheet.installerSignature){const img=await pdf.embedPng(sheet.installerSignature),s=Math.min(135/img.width,28/img.height);p.drawImage(img,{x:117,y:sigY+3,width:img.width*s,height:img.height*s});}p.drawLine({start:{x:116,y:sigY-2},end:{x:260,y:sigY-2},thickness:.7});text('Installer Signature:',40,sigY,8,true);p.drawLine({start:{x:292,y:sigY-2},end:{x:390,y:sigY-2},thickness:.7});text('Date: '+(sheet.submittedAt?displayDate(sheet.submittedAt.slice(0,10)):''),270,sigY,8);
+ box(right,42,rw,631);let ry=658;
+ const section=(title:string,value:any,height:number)=>{for(let i=0;i<Math.floor((height-24)/13);i++)p.drawLine({start:{x:right+7,y:ry-22-i*13},end:{x:right+rw-7,y:ry-22-i*13},thickness:.25,color:rgb(.65,.65,.65)});text(title,right+7,ry,8,true);wrap(value,right+7,ry-17,rw-14,8,Math.max(1,Math.floor((height-25)/10)));ry-=height;};
+ section('Instructions to Installer',`Amt to Collect: $${money(job.amount)}\n${job.scheduleInstructions||job.instructions||''}`,86);
+ section('Explain Differences From Contract',f.differences||'',80);section('Authorized Misc Labor (Describe Fully)',f.miscLabor||'',80);wrap('Auth. By: '+(sheet.approvedBy||''),right+7,ry+4,rw-14,7,1);
+ ry-=14;text('Truck Inspection',right+45,ry,8,true);laborTruckItems.forEach((v,i)=>check(v,!!f.truck?.includes(v),right+7+(i%2)*80,ry-18-Math.floor(i/2)*18));ry-=76;wrap('Rec\'d By: '+(f.receivedBy||''),right+7,ry,rw-14,7,1);ry-=20;wrap('FS/Admin Init: '+(f.truckInitials||initials||'_____'),right+7,ry,rw-14,9,1,true);ry-=12;wrap('Emp #: '+(f.truckEmployeeNumber||employee),right+7,ry,rw-14,9,1,true);ry-=14;if(typeof sheet.truckInspected==='boolean')wrap('Reviewer inspected truck: '+(sheet.truckInspected?'Yes':'No'),right+7,ry,rw-14,9,2,true);ry-=26;
+ p.drawLine({start:{x:right+7,y:ry+11},end:{x:right+rw-7,y:ry+11},thickness:.6});text('Reasons payment has been authorized',right+5,ry,7.8,true);ry-=12;text('(Field Supervisor Use Only)',right+20,ry,7);ry-=18;check('Job completed and fully paid',sheet.authorization==='complete',right+7,ry);ry-=18;check('Other (explain in detail below)',sheet.authorization==='other',right+7,ry);wrap(sheet.reviewNote||'',right+7,ry-16,rw-14,7,3);ry-=82;wrap(approval.label,right+7,ry+34,rw-14,9,2);text('Payment amount: '+(approval.paymentAmount==null?'Not recorded':'$'+money(approval.paymentAmount)),right+7,ry+12,8);if(approval.checkNumber){wrap('Check number: '+approval.checkNumber,right+7,ry,rw-14,8,1);ry-=18;}if(job.leadRenovationJob)check('Lead Renovation form',true,right+7,ry);ry-=18;text('Labor to Pay: $'+money(sheet.approvedTotal),right+7,ry,10,true);wrap('FS/Admin Init: '+initials+'  Emp #: '+employee,right+7,ry-15,rw-14,9,2,true);
+ if(sheet.reviewerSignature){const img=await pdf.embedPng(sheet.reviewerSignature),s=Math.min(135/img.width,22/img.height);p.drawImage(img,{x:right+7,y:43,width:img.width*s,height:img.height*s});}
+ text('Form # LS-2500',36,26,6);text('Revised 1-20-2022',503,26,6);
+ return pdf.save();
+}

@@ -1,0 +1,20 @@
+import {PDFDocument,StandardFonts,rgb} from 'pdf-lib';
+import {leadStatements} from './lead-form';
+const clean=(v:any)=>String(v??'').replace(/[^\x20-\x7e\n]/g,' ');
+export async function leadRenovationPdf(r:any){
+ const pdf=await PDFDocument.create(),font=await pdf.embedFont(StandardFonts.Helvetica),bold=await pdf.embedFont(StandardFonts.HelveticaBold),page=pdf.addPage([612,792]);const x=45,w=522;let y=748;
+ const text=(value:any,tx:number,ty:number,size=10,strong=false)=>page.drawText(clean(value),{x:tx,y:ty,size,font:strong?bold:font});
+ const rows=(value:any,width:number,size=10)=>{const out:string[]=[];let row='';for(const word of clean(value).split(/\s+/)){if(font.widthOfTextAtSize(row+' '+word,size)>width&&row){out.push(row);row='';}row+=(row?' ':'')+word;}if(row)out.push(row);return out;};
+ const paragraph=(value:any,size=9)=>{for(const row of rows(value,w,size)){text(row,x,y,size);y-=size+2;}y-=3;};
+ const heading=(value:string)=>{y-=18;text(value,x,y,13,true);page.drawLine({start:{x,y:y-2},end:{x:x+bold.widthOfTextAtSize(value,13),y:y-2},thickness:.6});y-=18;};
+ const field=(label:string,value:any)=>{const content=rows(value,w-136,10),h=Math.max(20,content.length*12+7);page.drawRectangle({x,y:y-h,width:126,height:h,color:rgb(.93,.93,.93),borderColor:rgb(.25,.25,.25),borderWidth:.6});page.drawRectangle({x:x+126,y:y-h,width:w-126,height:h,borderColor:rgb(.25,.25,.25),borderWidth:.6});text(label,x+5,y-14,10,true);content.forEach((v,i)=>text(v,x+131,y-14-i*12));y-=h;};
+ const check=(yes:boolean,tx:number,ty:number)=>{page.drawRectangle({x:tx,y:ty-1,width:10,height:10,borderWidth:1,borderColor:rgb(0,0,0)});if(yes){page.drawLine({start:{x:tx+2,y:ty+3},end:{x:tx+4,y:ty+1},thickness:1.2});page.drawLine({start:{x:tx+4,y:ty+1},end:{x:tx+8,y:ty+7},thickness:1.2});}};
+ const answers=(start:number,end:number)=>{for(let i=start;i<end;i++){const lines=rows(leadStatements[i],w-106,9.5);check(r.answers?.[i]===true,x,y-1);text('Yes',x+14,y,9);check(r.answers?.[i]===false,x+45,y-1);text('No',x+59,y,9);lines.forEach((s,n)=>text(s,x+104,y-n*11.5,9.5));y-=Math.max(17,lines.length*11.5+4);}};
+ const title='Lead Renovation Procedures Record';text(title,(612-bold.widthOfTextAtSize(title,20))/2,y,20,true);y-=15;
+ field('Customer ID #:',r.customerId);field('Customer Name:',r.customerName);field('Street Address:',r.address);field('City / State / Zip:',[r.city,r.state,r.zip].filter(Boolean).join(' '));y-=6;
+ field('Renovator Name:',r.renovatorName);field('Renovator ID #:',r.renovatorId);field('EPA Certification #:',r.epaCertification);
+ heading('EPA Credentials');answers(0,1);heading('Determination of Renovation Procedures');paragraph('The home and work areas were inspected by a Certified EPA Lead-Safe Renovator who made the following determination:');answers(1,2);paragraph('If Yes, answer every statement below. If No, you certify that standard installation procedures will not disturb potential lead paint in the home.');heading('Renovation Procedure Check List');answers(2,12);heading('Customer Copy');answers(12,13);
+ y-=4;paragraph(r.signedByStaff?`I, ${r.signedByName||r.signature}, completed this record for ${r.renovatorName} and certify that it is truthful and accurate.`:`I, ${r.renovatorName||''}, certify that I have completed this form truthfully and accurately.`,10);text(r.signedByStaff?'FS/Admin electronic signature:':'Renovator electronic signature:',x,y,10,true);y-=45;if(r.signatureDataUrl){const image=await pdf.embedPng(r.signatureDataUrl),scale=Math.min(240/image.width,38/image.height);page.drawImage(image,{x,y:y+3,width:image.width*scale,height:image.height*scale});}else text(r.signature||'',x,y+12,10);
+ const date=r.signedAt?new Date(r.signedAt).toLocaleDateString('en-US',{timeZone:'America/New_York',month:'2-digit',day:'2-digit',year:'numeric'}).replaceAll('/','-'):'';y-=12;text('Date: '+date,x,y,10,true);y-=17;text('Production Desk - Lead Renovation Procedures Record - Safe inset print',x,y,8);
+ if(y<35)throw Error('Lead Renovation record is too long for its one-page layout. Shorten the customer or renovator fields.');return pdf.save();
+}

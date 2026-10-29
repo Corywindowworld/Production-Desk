@@ -1,0 +1,7 @@
+/* Keep the shared operations calendar inside the warehouse workspace. */
+.wh-page .warehouse-calendar{min-height:0;background:transparent;font-size:14px;line-height:1.5;min-width:0}
+.warehouse-calendar .op-panel{margin:22px 0;min-width:0;--line:#e0e7ee;--ink:#142b42;--muted:#65768a}
+.warehouse-calendar .op-schedule-actions input{width:auto}
+.warehouse-calendar .op-calendar-grid{max-width:100%}
+.warehouse-calendar .warehouse-calendar-card{cursor:default;overflow-wrap:anywhere;border-left:5px solid #2879c8}
+.warehouse-calendar .op-section-head button{display:flex;align-items:center;justify-content:center}

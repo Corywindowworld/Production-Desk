@@ -347,7 +347,7 @@ button.tracking-outline:disabled{opacity:.55;cursor:wait}
 
 /* Crew identity takes precedence over generic control and theme borders. */
 @media screen {
-  .op-calendar-day > button.crew-colored-job {
+  .op-calendar-day > :is(button,.warehouse-calendar-card).crew-colored-job {
     border-left: 5px solid var(--crew-color, #2879c8) !important;
   }
 }

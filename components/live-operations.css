@@ -82,7 +82,7 @@
   background: white;
   color: #182d3b;
 }
-.live-operations .op-calendar-day > button {
+.live-operations .op-calendar-day > :is(button,.warehouse-calendar-card) {
   border: 1px solid #e1e7ef;
 }
 .live-operations .op-detail-body > p {
@@ -211,7 +211,7 @@ html[data-theme="dark"] .live-completion {
   border: 0;
   background: transparent;
 }
-.live-operations .op-calendar-day > button {
+.live-operations .op-calendar-day > :is(button,.warehouse-calendar-card) {
   border-left-width: 6px;
 }
 .live-danger-zone {

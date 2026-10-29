@@ -938,6 +938,7 @@ export async function operation(m: Member, input: any) {
     }
   }
   await db.transaction(async (tx) => {
+    if(['create','edit'].includes(action))await tx.prepare('SELECT pg_advisory_xact_lock(820261029)').first();
     let j: any,
       version = 0;
     if (action === "create") {

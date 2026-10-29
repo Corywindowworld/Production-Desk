@@ -125,6 +125,7 @@ export async function jobCertificatePdf(c: any) {
       const height=Math.max(...blocks.map(col=>col.rows.length))*(size+3)+8;
       ensure(height);
       for(const col of blocks)col.rows.forEach((row,i)=>page.drawText(row,{x:col.x,y:y-size-i*(size+3),size,font:strong?bold:regular}));
+      for(const col of blocks)page.drawLine({start:{x:col.x,y:y-height+5},end:{x:col.x+col.w,y:y-height+5},thickness:0.7,color:rgb(0.25,0.3,0.35)});
       y-=height;
     };
     pair("Customer:",customerDisplayName(c.customerName,c.customerFirstName,c.customerLastName),"Date:",day(c.signedAt),15,true);

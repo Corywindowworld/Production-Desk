@@ -7,7 +7,7 @@ test('targeted email repair verifies matching jobs, preserves others and applies
  const db=new PGlite();
  try{
   await db.exec('CREATE SCHEMA production; CREATE TABLE production.jobs(id text PRIMARY KEY,payload text,version int,updated text); CREATE TABLE production.operations_config(id text PRIMARY KEY,payload text,updated_by text,updated text);');
-  for(const [id,name] of [['a','Test Rep'],['b',' TEST  REP '],['c','Another Rep']])await db.query('INSERT INTO production.jobs VALUES($1,$2,1,\'before\')',[id,JSON.stringify({salesRep:name,salesRepEmail:'typo@example.com',amount:150,history:[]})]);
+  for(const [id,name] of [['a','Test Rep'],['b',' REP, TEST '],['c','Another Rep']])await db.query('INSERT INTO production.jobs VALUES($1,$2,1,\'before\')',[id,JSON.stringify({salesRep:name,salesRepEmail:'typo@example.com',amount:150,history:[]})]);
   const wrap=tx=>({unsafe:async(q,args=[])=>q.includes('pg_advisory_xact_lock')?[]:(await tx.query(q,args)).rows});
   const sql={begin:fn=>db.transaction(tx=>fn(wrap(tx)))};
   const args={name:'Test Rep',email:'correct@example.com',repairId:'test-request'};

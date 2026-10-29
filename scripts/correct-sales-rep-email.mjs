@@ -4,6 +4,7 @@ import postgres from 'postgres';
 import {z} from 'zod';
 
 const key=value=>value.trim().replace(/\s+/g,' ').toLocaleLowerCase();
+const nameWords=value=>key(value).replace(/[^a-z]+/g,' ').trim();
 export async function correctSalesRepEmail(sql,{name,email,repairId}){
  name=z.string().trim().min(1).max(160).parse(name);
  email=z.string().trim().email().parse(email);
@@ -13,13 +14,16 @@ export async function correctSalesRepEmail(sql,{name,email,repairId}){
   const marker='maintenance:sales-rep-email:'+repairId;
   if((await tx.unsafe('SELECT id FROM production.operations_config WHERE id=$1',[marker])).length)
    return {alreadyApplied:true,name,email};
-  const normalize="lower(regexp_replace(trim(payload::jsonb->>'salesRep'), '\\s+', ' ', 'g'))";
-  const jobs=await tx.unsafe('SELECT id,payload,version FROM production.jobs WHERE '+normalize+'=$1 FOR UPDATE',[key(name)]);
-  const repId='sales-rep:'+key(name);
-  const contacts=await tx.unsafe('SELECT payload FROM production.operations_config WHERE id=$1 FOR UPDATE',[repId]);
+  const words=nameWords(name),parts=words.split(' ');
+  const matches=[...new Set([words,...(parts.length===2?[parts.toReversed().join(' ')]:[])])];
+  const normalize="trim(regexp_replace(lower(payload::jsonb->>'salesRep'), '[^a-z]+', ' ', 'g'))";
+  const contactNormalize="trim(regexp_replace(lower(payload::jsonb->>'name'), '[^a-z]+', ' ', 'g'))";
+  const jobs=await tx.unsafe('SELECT id,payload,version FROM production.jobs WHERE '+normalize+'=ANY($1::text[]) FOR UPDATE',[matches]);
+  const contacts=await tx.unsafe("SELECT id,payload FROM production.operations_config WHERE id LIKE 'sales-rep:%' AND "+contactNormalize+'=ANY($1::text[]) FOR UPDATE',[matches]);
   if(!jobs.length&&!contacts.length)throw Error('No matching sales representative found; no changes applied.');
   const parse=value=>typeof value==='string'?JSON.parse(value):value;
-  const contact=contacts.length?parse(contacts[0].payload):{name,phone:parse(jobs[0].payload).salesRepPhone||''};
+  const fallback=jobs.length?parse(jobs[0].payload):null;
+  const targets=contacts.length?contacts:[{id:'sales-rep:'+key(fallback.salesRep),payload:{name:fallback.salesRep,phone:fallback.salesRepPhone||''}}];
   const at=new Date().toISOString();let updatedJobs=0;
   for(const row of jobs){
    const job=parse(row.payload);
@@ -29,10 +33,10 @@ export async function correctSalesRepEmail(sql,{name,email,repairId}){
    await tx.unsafe('UPDATE production.jobs SET payload=$1,version=version+1,updated=$2 WHERE id=$3',[JSON.stringify(job),at,row.id]);
    updatedJobs++;
   }
-  await tx.unsafe('INSERT INTO production.operations_config(id,payload,updated_by,updated) VALUES($1,$2,$3,$4) ON CONFLICT(id) DO UPDATE SET payload=EXCLUDED.payload,updated_by=EXCLUDED.updated_by,updated=EXCLUDED.updated',[repId,JSON.stringify({...contact,name:contact.name||name,email}),'maintenance',at]);
-  const remaining=await tx.unsafe('SELECT id FROM production.jobs WHERE '+normalize+'=$1 AND (payload::jsonb->>\'salesRepEmail\') IS DISTINCT FROM $2',[key(name),email]);
-  const saved=parse((await tx.unsafe('SELECT payload FROM production.operations_config WHERE id=$1',[repId]))[0].payload);
-  if(remaining.length||saved.email!==email)throw Error('Sales representative email verification failed; changes rolled back.');
+  for(const target of targets)await tx.unsafe('INSERT INTO production.operations_config(id,payload,updated_by,updated) VALUES($1,$2,$3,$4) ON CONFLICT(id) DO UPDATE SET payload=EXCLUDED.payload,updated_by=EXCLUDED.updated_by,updated=EXCLUDED.updated',[target.id,JSON.stringify({...parse(target.payload),email}),'maintenance',at]);
+  const remaining=await tx.unsafe('SELECT id FROM production.jobs WHERE '+normalize+'=ANY($1::text[]) AND (payload::jsonb->>\'salesRepEmail\') IS DISTINCT FROM $2',[matches,email]);
+  const saved=await tx.unsafe("SELECT id FROM production.operations_config WHERE id LIKE 'sales-rep:%' AND "+contactNormalize+"=ANY($1::text[]) AND (payload::jsonb->>'email') IS DISTINCT FROM $2",[matches,email]);
+  if(remaining.length||saved.length)throw Error('Sales representative email verification failed; changes rolled back.');
   const result={name,email,matchedJobs:jobs.length,updatedJobs,verified:true};
   await tx.unsafe('INSERT INTO production.operations_config(id,payload,updated_by,updated) VALUES($1,$2,$3,$4)',[marker,JSON.stringify(result),'maintenance',at]);
   return result;
@@ -44,13 +48,6 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
  const ca=process.env.DATABASE_CA_CERT?.replace(/\\n/g,'\n').trim();
  const ssl=process.env.DATABASE_SSL==='disable'?false:ca?{rejectUnauthorized:true,ca:[...rootCertificates,ca]}:'verify-full';
  const sql=postgres(process.env.DATABASE_URL,{prepare:false,max:1,connect_timeout:10,ssl});
- try{
-  if(process.argv[2]==='--inspect'){
-   const needle=z.string().trim().min(3).max(80).parse(process.argv[3]);
-   const jobs=await sql.unsafe("SELECT DISTINCT payload::jsonb->>'salesRep' AS name FROM production.jobs WHERE payload::jsonb->>'salesRep' ILIKE $1 LIMIT 20",['%'+needle+'%']);
-   const contacts=await sql.unsafe("SELECT id,payload::jsonb->>'name' AS name FROM production.operations_config WHERE id LIKE 'sales-rep:%' AND payload::jsonb->>'name' ILIKE $1 LIMIT 20",['%'+needle+'%']);
-   console.log('Matching sales representative names: '+JSON.stringify({jobs,contacts}));
-  }else console.log('Sales representative email correction: '+JSON.stringify(await correctSalesRepEmail(sql,{name:process.argv[2],email:process.argv[3],repairId:process.argv[4]})));
- }
+ try{console.log('Sales representative email correction: '+JSON.stringify(await correctSalesRepEmail(sql,{name:process.argv[2],email:process.argv[3],repairId:process.argv[4]})));}
  finally{await sql.end();}
 }

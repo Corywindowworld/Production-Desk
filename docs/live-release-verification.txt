@@ -1,0 +1,17 @@
+LIVE OPERATIONS VERIFICATION — 2026-09-17
+
+npm run build: PASS (Next.js production build)
+npx tsc --noEmit: PASS
+npm test: 9 passed, 0 failed, 1 skipped
+The skipped test requires TEST_DATABASE_URL for an external PostgreSQL server.
+Database workflow tests ran against PGlite, including repeat application of migration 008.
+
+Verified: auth/session behavior; role permissions; profiles and account management;
+signed uploads; pending installer reports; supervisor review; payment/late schedule
+approval; installer financial redaction; stale-write rejection; service appointments;
+admin-only ACCRF and UTI approvals; category survey scoring and duplicate prevention;
+aging and bonus-period boundaries; Sunday-start weeks/months; storage settings.
+
+No authenticated production deployment, real provider delivery, device push, or
+browser visual review was performed. Complete the account/device checks in
+DEPLOY-LIVE.txt before routing staff to the new release.

@@ -1,0 +1,53 @@
+GUILD QUALITY SCORES & ACCOUNT PROFILES
+
+This update is prepared and tested locally. It has not been deployed.
+It builds on the account-management update already uploaded to your repository.
+
+FIRST: paste this code (not the filename) into Supabase SQL Editor and Run:
+
+BEGIN;
+ALTER TABLE production.members
+  ADD COLUMN IF NOT EXISTS profile_details jsonb NOT NULL DEFAULT '{}'::jsonb;
+COMMIT;
+
+Then extract this ZIP and upload its app, components, lib, supabase, tests and
+docs folders at the root of Corywindowworld/Production-Desk, on branch
+claude/review-and-begin-29bnd5. Preserve folder names and replace matching files.
+Commit, wait for that commit's Vercel deployment to show Ready, and promote it
+to Production if it is a Preview deployment.
+
+WHAT CHANGED
+- Dashboard shows one Guild Quality Scores overall average, not individual rows.
+- The average includes all active installers with a valid score, with each
+  installer weighted equally. Unrated, inactive and out-of-range legacy scores
+  are excluded. The displayed average is rounded to two decimals.
+- Guild Quality Scores is a separate navigation tab at /quality.
+- Scores: 0–3.59 Poor; 3.60–3.69 Fair; 3.70–3.79 Good; 3.80–4.00 Outstanding.
+- Exactly 4.00 displays a gold star. Poor remains red, rated scores above it green.
+- Scores now accept 0–4.00 with up to two decimal places. Any old score above
+  4.00 is preserved and marked Review score until an authorized user corrects it.
+- Existing supervisor and administrator scoring permissions are retained.
+- Your dashboard password link is moved into Account management > My profile.
+- Clicking a person's name/profile card header opens their full profile.
+- Profiles include phone, job title, start date, address, emergency contact,
+  skills/certifications, notes, and up to 20 custom information fields.
+- Profile information is available only to administrators. Existing protected
+  administrator/owner edit rules remain, and administrators may edit their own
+  profile details without changing their access permissions.
+- Account management opens to the directory. A new-account form opens only
+  when Add account is explicitly clicked. Edit account & permissions opens an
+  existing account's settings from their profile.
+
+CHECK AFTER DEPLOYMENT
+1. Open the dashboard: confirm only the overall average is shown.
+2. Open Guild Quality Scores: confirm the scale and authorized edit controls.
+3. Set a test installer's score to 4.00 and verify its gold star.
+4. Account management should open without a new-account dialog.
+5. Open a person's profile, add information, save, leave and reopen it.
+6. Open My profile and confirm the Change password link is there.
+
+VERIFICATION
+Production Next.js build and TypeScript passed. PostgreSQL-compatible tests
+passed for score boundary labels and range validation, overall-average behavior,
+profile persistence and access controls, and the existing account, scoring and
+upload flows. Live browser visual review and deployment remain unverified.

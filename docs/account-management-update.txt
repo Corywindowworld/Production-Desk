@@ -1,0 +1,76 @@
+PRODUCTION DESK — ACCOUNT MANAGEMENT, QUALITY PERMISSIONS & PHOTO STORAGE
+
+Prepared against your uploaded installer update (d051b34). Not deployed yet.
+
+STEP 1 — SUPABASE SQL EDITOR
+Delete the editor's current text. Paste and run the SQL below (not a filename):
+
+BEGIN;
+ALTER TABLE production.members
+  ADD COLUMN IF NOT EXISTS can_score_all_installers integer NOT NULL DEFAULT 0
+  CHECK (can_score_all_installers IN (0,1));
+COMMIT;
+
+This adds one permission. Existing field supervisors retain assigned-installer
+scoring unless an administrator enables the new permission. Your previous
+quality-score migration must already have been run, as confirmed in this chat.
+
+STEP 2 — GITHUB
+Extract this ZIP. Open Corywindowworld/Production-Desk and select branch
+claude/review-and-begin-29bnd5. Use Add file > Upload files. Drag the app,
+components, lib, supabase, tests and docs folders onto the upload area at the
+repository root. Preserve folder names and replace matching files. Do not
+upload the ZIP or the enclosing extraction folder. Commit the changes.
+
+STEP 3 — VERCEL
+Wait for the deployment of that exact new commit to show Ready. If it is
+Preview, promote it to Production. Rebuilding an older commit does not include
+the new code.
+
+STEP 4 — ACCOUNTS & QUALITY SCORES
+Sign in with your administrator account. Select Account management from the
+main page (or open /accounts on the same site).
+- Accounts: search, filter by role/status, add, edit, deactivate, delete or reset
+  passwords. Email and phone details can be edited.
+- Edit & permissions > Edit any installer's quality score: enable for each
+  field supervisor who should score other supervisors' installers.
+- Administrators automatically see and can score every active installer.
+- Supervisors without that permission can score their own installers.
+- Quality scores are available on the main page and the management Quality
+  scores tab. Installers can only read their own score. Below 3.60 is red;
+  3.60 and above is green.
+- Permission/account edits sign the affected user out; have them sign in again.
+- Owner access and self-deletion are protected. Only the owner can manage
+  administrator accounts. Reassign linked jobs/installers before deletion.
+  For retaining an installer's historical assignments, deactivate instead.
+- Account deletion removes login credentials and sessions, retaining reports
+  and job/audit history. Deletion must be confirmed in the dialog.
+
+STEP 5 — PHOTO UPLOADS
+Open Account management > Photo storage > Check storage.
+If it reports missing storage or unsuitable settings, use Set up / repair
+storage. This creates the configured private bucket if missing, or updates
+its settings for 15 MB files. Existing photos remain stored. App-side content
+and permission validation remain enforced.
+If it reports missing or rejected credentials, follow the displayed guidance
+in Vercel; do not share your server key in chat. The repair button cannot fix
+an incorrect server key or a workplace network restriction.
+After configuration succeeds, open an existing test job > Update information
+and upload a small JPG, then Save job. Reopen it and view the attachment. Also
+test installer reporting with an appropriate test job, since submitting a
+report changes its production status.
+
+Upload changes: clearer failure messages at preparation/transfer/finalization;
+failed storage preparation no longer consumes a pending-upload slot; trimmed
+bucket configuration; administrator-only connection check and repair. The
+actual cause of your live error has not been verified. If it persists after
+repair, send the exact new on-screen error so the next fix targets that cause.
+
+VALIDATION
+Production build and TypeScript passed. Integration checks passed for existing
+authentication, signed uploads and complete reports; new checks passed for
+administrator score access, supervisor cross-team grant/revocation, installer
+isolation, protected/linked account deletion and credential removal, failed
+upload cleanup, browser transfer errors, and private storage setup/repair.
+Storage tests use a simulated Supabase service; live credentials, end-to-end
+browser visual review and live file uploads have not been verified here.

@@ -13,10 +13,10 @@ function fresh(jobId:string):Draft{
  return {id:crypto.randomUUID(),jobId,visitedOn:`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`,checks:Object.fromEntries(visitQuestions.map(([key])=>[key,{answer:'',notes:''}])),notes:'',photos:[]};
 }
 const photoUrl=(key:string)=>'/api/attachments?key='+encodeURIComponent(key);
-export function JobVisits({jobId,onBusy,onEditing}:{jobId:string;onBusy:(busy:boolean)=>void;onEditing:(editing:boolean)=>void}){
+export function JobVisits({jobId,onBusy,onEditing,autoStart=false,onSaved}:{jobId:string;onBusy:(busy:boolean)=>void;onEditing:(editing:boolean)=>void;autoStart?:boolean;onSaved?:()=>void}){
  const [visits,setVisits]=useState<JobVisit[]>([]),[canCreate,setCanCreate]=useState(false),[loading,setLoading]=useState(true),[error,setError]=useState(''),[success,setSuccess]=useState(''),[draft,setDraft]=useState<Draft|null>(null),[busy,setBusy]=useState(false),[uploading,setUploading]=useState(false);
  const locked=busy||uploading;
- useEffect(()=>{let active=true;fetch('/api/job-visits?jobId='+encodeURIComponent(jobId),{cache:'no-store'}).then(async r=>{const data=await r.json();if(!r.ok)throw Error(data.error);if(active){setVisits(data.visits);setCanCreate(data.canCreate)}}).catch(e=>{if(active)setError(e.message)}).finally(()=>{if(active)setLoading(false)});return()=>{active=false}},[jobId]);
+ useEffect(()=>{let active=true;fetch('/api/job-visits?jobId='+encodeURIComponent(jobId),{cache:'no-store'}).then(async r=>{const data=await r.json();if(!r.ok)throw Error(data.error);if(active){setVisits(data.visits);setCanCreate(data.canCreate);if(autoStart&&data.canCreate)setDraft(fresh(jobId))}}).catch(e=>{if(active)setError(e.message)}).finally(()=>{if(active)setLoading(false)});return()=>{active=false}},[jobId,autoStart]);
  useEffect(()=>{onBusy(locked);return()=>onBusy(false)},[locked,onBusy]);
  useEffect(()=>{onEditing(!!draft);return()=>onEditing(false)},[!!draft,onEditing]);
  async function upload(files:FileList|null){
@@ -33,7 +33,7 @@ export function JobVisits({jobId,onBusy,onEditing}:{jobId:string;onBusy:(busy:bo
   e.preventDefault();if(!draft||locked)return;setError('');
   if(!visitSchema.safeParse(draft).success){setError('Choose a valid visit date and an answer for all nine checks.');return;}
   setBusy(true);
-  try{const r=await fetch('/api/job-visits',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(draft)});const data=await r.json();if(!r.ok)throw Error(data.error);setVisits(current=>[data.visit,...current.filter(v=>v.id!==data.visit.id)]);setDraft(null);setSuccess('Job visit saved.');}catch(e){setError((e as Error).message)}finally{setBusy(false)}
+  try{const r=await fetch('/api/job-visits',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(draft)});const data=await r.json();if(!r.ok)throw Error(data.error);setVisits(current=>[data.visit,...current.filter(v=>v.id!==data.visit.id)]);setDraft(null);setSuccess('Job visit saved.');onSaved?.();}catch(e){setError((e as Error).message)}finally{setBusy(false)}
  }
  return <section className="job-visits" aria-label="Job visits">
   <div className="visit-heading"><div><h3>Job visits</h3><p>Field supervisor checks, notes, and photos</p></div>{canCreate&&!draft&&<Button type="button" onClick={()=>{setDraft(fresh(jobId));setSuccess('');setError('')}}>New job visit</Button>}</div>
@@ -58,7 +58,7 @@ export function JobVisits({jobId,onBusy,onEditing}:{jobId:string;onBusy:(busy:bo
   <div className="form-actions"><Button type="button" variant="outline" disabled={locked} onClick={()=>{setDraft(null);setError('')}}>Cancel visit</Button><Button type="submit" disabled={locked}>{busy?'Saving visit…':'Save job visit'}</Button></div></form>}
   {!loading&&!draft&&visits.length===0&&!error&&<p className="visit-help">No job visits recorded yet.</p>}
   {!draft&&visits.map(visit=><details className="saved-visit" key={visit.id}><summary><strong>{new Date(visit.visitedOn+'T12:00:00').toLocaleDateString()}</strong> · {visit.supervisorName}</summary>
-   <dl>{visitQuestions.map(([key,question])=><div key={key}><dt>{question}</dt><dd><strong>{visitAnswers[visit.checks[key].answer]}</strong>{visit.checks[key].notes&&<p className="preserve-lines">{visit.checks[key].notes}</p>}</dd></div>)}</dl>
+   <dl>{visitQuestions.map(([key,question])=><div key={key} className={(key==='damage'||key==='reorder'?visit.checks[key].answer==='yes':key!=='headerFlashing'&&visit.checks[key].answer==='no')?'visit-issue':''}><dt>{(key==='damage'||key==='reorder'?visit.checks[key].answer==='yes':key!=='headerFlashing'&&visit.checks[key].answer==='no')&&<span aria-label="Issue">❗ </span>}{question}</dt><dd><strong>{visitAnswers[visit.checks[key].answer]}</strong>{visit.checks[key].notes&&<p className="preserve-lines">{visit.checks[key].notes}</p>}</dd></div>)}</dl>
    {visit.notes&&<p className="preserve-lines"><strong>Additional notes / follow-up: </strong>{visit.notes}</p>}
    <div className="visit-photos">{visit.photos.map(photo=><a key={photo.key} href={photoUrl(photo.key)} target="_blank" rel="noreferrer"><img loading="lazy" src={photoUrl(photo.key)} alt={photo.name}/><span>{photo.name}</span></a>)}</div>
    <p className="visit-help">Recorded {new Date(visit.submittedAt).toLocaleString()}</p>

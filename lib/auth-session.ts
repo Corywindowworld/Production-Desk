@@ -14,3 +14,8 @@ export async function ensureOwner(){const email=(env as any).OWNER_LOGIN_EMAIL?.
 export async function takeLoginAttempt(email:string,request:Request){const now=Date.now(),expires=now+15*60000,db=database();const ip=request.headers.get('x-vercel-forwarded-for')?.split(',')[0]?.trim()||'unknown';await db.prepare('DELETE FROM login_limits WHERE key IN (SELECT key FROM login_limits WHERE expires<? LIMIT 100)').bind(now).run();for(const entry of [{key:'ip:'+await digest(ip),max:40},{key:'email:'+await digest(email),max:6}]){await db.prepare('INSERT INTO login_limits (key,count,expires) VALUES (?,1,?) ON CONFLICT(key) DO UPDATE SET count=CASE WHEN login_limits.expires<? THEN 1 ELSE login_limits.count+1 END,expires=CASE WHEN login_limits.expires<? THEN excluded.expires ELSE login_limits.expires END').bind(entry.key,expires,now,now).run();const row:any=await db.prepare('SELECT count FROM login_limits WHERE key=?').bind(entry.key).first();if(row.count>entry.max)return false;}return true}
 export async function limitedJson(request:Request){const text=await request.text();if(text.length>5000)throw new Error('Invalid input');return JSON.parse(text)}
 export function safeNext(value:string|null|undefined){if(!value||!value.startsWith('/')||value.startsWith('//')||value.includes('\\'))return '/';const u=new URL(value,'https://app.local');return u.origin==='https://app.local'&&!['/login','/change-password'].includes(u.pathname)?u.pathname+u.search:'/'}
+
+// Temporary credentials remain short-lived even on a remembered device.
+export function sessionDuration(rememberMe: unknown, restricted = false) {
+  return restricted ? 1200 : rememberMe === true ? 30 * 86400 : 43200;
+}

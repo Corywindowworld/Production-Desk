@@ -1,0 +1,22 @@
+Production Desk customer tracking update
+
+1. Run supabase/migrations/013_customer_tracking.sql in Supabase SQL Editor.
+   If the previous Guild Quality update SQL has not been run, run 012_survey_customer_id.sql first.
+2. Extract this ZIP. In GitHub select live-operations, then upload the folders
+   and root configuration files into the repository root, preserving folder paths.
+   Do not place these inside another project folder.
+3. Keep Vercel install command npm ci and build command npm run build.
+   public/report-reader is intentionally excluded; prebuild generates it.
+
+Installer: Settings -> My profile -> Installer picture -> Save installer profile.
+Job: On My Way -> estimated travel time in minutes -> create link -> Copy message & link.
+The copied greeting uses the installer first name for installer accounts and
+the signed-in sender name for Field Supervisor / Admin accounts.
+
+ETA is a manually entered estimate displayed as a time window, not a traffic-routing prediction.
+The stop displayed is the customer's scheduled stop number, not stops remaining.
+Last known positions remain visible and are labeled stale when updates pause.
+Ended, revoked or expired customer links cannot display the position.
+Location enablement is remembered per installer and browser/device after a successful reading.
+The browser may still ask for permission again. Background updates cannot be guaranteed
+when a web app is closed or a phone is locked. Signing out stops sharing.

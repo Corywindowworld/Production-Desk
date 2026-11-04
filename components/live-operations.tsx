@@ -4,6 +4,8 @@ import {ClearableSearch} from "@/components/clearable-search";
 import './operations-palette.css';
 import {Dialog, DialogContent, DialogHeader, DialogTitle} from './ui/dialog';
 import {LaborImport,LaborSheet} from './labor-paperwork';
+import {ApprovalPrintButtons} from './approval-print-buttons';
+import {approvedLaborToClear,laborMatchesReport} from '@/lib/approval-paperwork';
 import {ApprovedLaborSheets} from './approved-labor-sheets';
 import {CompletionBatches} from './completion-batches';
 import Warehouse from './warehouse';
@@ -426,6 +428,7 @@ export default function LiveOperations() {
   ];
   const approvals = jobs.filter(
     (j: any) =>
+      approvedLaborToClear(j).length>0 ||
       j.operations?.pendingSchedule ||
       j.operations?.report?.pending ||
       (j.operations?.report?.approved && !j.operations?.report?.approvalDismissed) ||
@@ -790,6 +793,7 @@ export default function LiveOperations() {
           {tab === "Approvals" && (
             <Approvals
               jobs={approvals}
+              reload={load}
               me={me}
               review={review}
               saving={saving}
@@ -1541,8 +1545,10 @@ function SalesRepresentative({ options = [], initial }: any) {
     </fieldset>
   );
 }
-function Approvals({ jobs, me, review, saving, change, onOpen }: any) {
+function Approvals({ jobs, me, review, saving, change, onOpen, reload }: any) {
   const [error, setError] = useState("");
+  const [clearing,setClearing]=useState(false);
+  const clearLabor=async(j:any,sheet:any)=>{setError('');setClearing(true);try{const r=await fetch('/api/labor',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'dismiss',jobId:j.id,version:j.version,sheetId:sheet.id})}),d=await r.json();if(!r.ok)throw Error(d.error||'Labor could not clear.');await reload();}catch(e){setError((e as Error).message);}finally{setClearing(false);}};
   const act = async (j: any, action: string, data: any) => {
     setError("");
     try {
@@ -1568,7 +1574,8 @@ function Approvals({ jobs, me, review, saving, change, onOpen }: any) {
           <button className="live-button" onClick={() => onOpen(j.id)}>
             View job
           </button>
-          {j.operations.report?.approved && !j.operations.report?.approvalDismissed && <div className="op-schedule-actions" style={{display:"flex",alignItems:"center",gap:12,padding:10}}><strong>Approved · {j.operations.report.status}</strong>{j.operations.report.certificate && <button className="live-button" onClick={()=>printJobCertificate(j.operations.report.certificate)}>Print Certificate</button>}{review && <button className="live-button" disabled={saving} onClick={()=>act(j,"dismissApproval",{})}>Clear from list</button>}</div>}
+          {j.operations.report?.approved && !j.operations.report?.approvalDismissed && <div className="op-schedule-actions" style={{display:"flex",alignItems:"center",gap:12,padding:10}}><strong>Approved · {j.operations.report.status}</strong>{j.operations.report.certificate && <button className="live-button" onClick={()=>printJobCertificate(j.operations.report.certificate)}>Print Certificate</button>}<ApprovalPrintButtons j={j} report={j.operations.report} onError={setError}/>{review && <button className="live-button" disabled={saving||clearing} onClick={()=>act(j,"dismissApproval",{})}>Clear from list</button>}</div>}
+          {approvedLaborToClear(j).map((sheet:any)=><div className="op-schedule-actions" key={sheet.id}><strong>Approved labor · {sheet.visitType||'Installation'}</strong>{(!j.operations.report?.approved||j.operations.report?.approvalDismissed||!laborMatchesReport(sheet,j.operations.report))&&<>{sheet.packetJob?.operations?.report?.certificate&&<button type="button" className="live-button" onClick={()=>{try{printJobCertificate(sheet.packetJob.operations.report.certificate);}catch(e){setError((e as Error).message);}}}>Print Certificate</button>}<ApprovalPrintButtons j={j} report={sheet.packetJob?.operations?.report} sheet={sheet} onError={setError}/></>}{review&&<button type="button" className="live-button" disabled={saving||clearing} onClick={()=>void clearLabor(j,sheet)}>Clear labor from list</button>}</div>)}
           {j.operations.pendingSchedule && (
             <section>
               <h4>Schedule request</h4>

@@ -4455,11 +4455,11 @@ test('document customer names use last-first without changing stored or organiza
  assert.equal(customerDisplayName(record.customerName,record.customerFirstName,record.customerLastName),'de la Cruz, John');
 });
 
-test('certificate header pairs customer and ID, email and installer, date and contractor ID',async()=>{
+test('certificate header pairs customer and date, email and installer, ID and contractor ID',async()=>{
  const {jobCertificatePrintHtml}=await vite.ssrLoadModule('/lib/print-job-certificate.ts');
  const html=jobCertificatePrintHtml({...certificate('Complete'),id:'header-qa',customerName:'John Smith',customerId:'123456',installerName:'Test Crew',contractorId:'C123',signedAt:'2026-10-26T16:00:00Z'});
  const header=html.slice(html.indexOf('<div class="top">'),html.indexOf('<table class="questions">'));
- const labels=['Customer:</b>','Customer ID:</b>','Email:</b>','Installer:</b>','Date:</b>','Contractor ID:</b>'];
+ const labels=['Customer:</b>','Date:</b>','Email:</b>','Installer:</b>','Customer ID:</b>','Contractor ID:</b>'];
  for(let i=1;i<labels.length;i++)assert.ok(header.indexOf(labels[i])>header.indexOf(labels[i-1]));
 });
 
@@ -4707,4 +4707,28 @@ test('batch cover groups COMP before INC, keeps packet order, and places payment
  for(const [page,cid] of [[2,'100002'],[3,'100003'],[4,'100001']]){const text=(await (await doc.getPage(page)).getTextContent()).items.map(i=>i.str||'').join(' ');assert.match(text,new RegExp(cid));}
  const {writeFileSync,mkdirSync}=await import('node:fs');mkdirSync('/tmp/production-desk-pdf-qa',{recursive:true});writeFileSync('/tmp/production-desk-pdf-qa/batch-columns.pdf',bytes);
  }finally{await doc.destroy();}assert.equal(items[0].job.number,'100001');
+});
+
+test('clearing approved labor retains signed paperwork, batch eligibility, and pending requests',async()=>{
+ const {laborAction}=await vite.ssrLoadModule('/lib/labor-store.ts'),{approvedLaborToClear}=await vite.ssrLoadModule('/lib/approval-paperwork.ts'),{batchData}=await vite.ssrLoadModule('/lib/completion-batches.ts');
+ const id=crypto.randomUUID(),sheetId=crypto.randomUUID(),pendingId=crypto.randomUUID(),report={approved:true,status:'Complete',certificate:{id:'clear-cert'}},lead={signatureDataUrl:signature},packetJob={id,number:'CLEAR-TEST',customer:'Clear test',operations:{report,leadRenovation:lead}};
+ const approved={id:sheetId,status:'Approved',reportKey:'clear-cert',approvedTotal:42,approvedLines:[{description:'Work',actual:1,rate:42}],installerSignature:signature,reviewerSignature:signature,approvedAt:new Date().toISOString(),packetJob};
+ const job={id,number:'CLEAR-TEST',customer:'Clear test',installerId:installer.id,operations:{report,laborSheets:[approved,{id:pendingId,status:'Submitted',lines:[]}],requests:[{id:'pending',status:'Pending'}]},history:[]};
+ await pg.query('INSERT INTO production.jobs(id,payload,version,updated) VALUES($1,$2,1,$3)',[id,JSON.stringify(job),new Date().toISOString()]);
+ const current=async()=>{const row=(await pg.query('SELECT payload,version FROM production.jobs WHERE id=$1',[id])).rows[0];return {...JSON.parse(row.payload),version:row.version};};
+ const input={action:'dismiss',jobId:id,version:1,sheetId};
+ await assert.rejects(()=>laborAction(installer,input),/FS\/Admin/);await assert.rejects(()=>laborAction(pa,input),/FS\/Admin/);await assert.rejects(()=>laborAction(fs,{...input,sheetId:pendingId}),/Approve the labor/);
+ await laborAction(fs,input);let saved=await current();assert.equal(saved.version,2);assert.deepEqual(approvedLaborToClear(saved),[]);const retained=saved.operations.laborSheets[0];assert.equal(retained.status,'Approved');assert.equal(retained.approvedTotal,42);assert.deepEqual(retained.packetJob,packetJob);assert.equal(retained.installerSignature,signature);assert.equal(retained.reviewerSignature,signature);assert.equal(saved.operations.laborSheets[1].status,'Submitted');assert.equal(saved.operations.requests[0].status,'Pending');assert.ok((await batchData(pa)).jobs.some(j=>j.laborId===sheetId));
+ await assert.rejects(()=>laborAction(fs,input),/Refresh/);
+ // Clearing the result also clears its corresponding labor, without clearing a different visit.
+ saved.operations.laborSheets[0].approvalDismissed=false;saved.operations.laborSheets.push({...approved,id:crypto.randomUUID(),reportKey:'older-cert'});await pg.query('UPDATE production.jobs SET payload=$1 WHERE id=$2',[JSON.stringify(saved),id]);
+ await operation(fs,{action:'dismissApproval',jobId:id,version:saved.version,data:{}});saved=await current();assert.equal(saved.operations.report.approvalDismissed,true);assert.equal(saved.operations.laborSheets[0].approvalDismissed,true);assert.equal(saved.operations.laborSheets[2].approvalDismissed,undefined);assert.equal(approvedLaborToClear(saved).length,1);
+});
+
+test('approval print shortcuts use the matching labor visit and show lead only when signed',async()=>{
+ const React=await import('react'),{renderToStaticMarkup}=await import('react-dom/server');globalThis.React=React;
+ try{const {ApprovalPrintButtons}=await vite.ssrLoadModule('/components/approval-print-buttons.tsx');const report={certificate:{id:'new-cert'}},sheet={id:'right-sheet',status:'Approved',reportKey:'new-cert',packetJob:{operations:{leadRenovation:{signatureDataUrl:signature}}}},j={id:'print-job',operations:{report,laborSheets:[sheet,{id:'wrong-sheet',status:'Approved',reportKey:'old-cert'}]}};
+ const html=renderToStaticMarkup(React.createElement(ApprovalPrintButtons,{j,report,onError:()=>{}}));assert.match(html,/Print Labor Sheet/);assert.match(html,/sheetId=right-sheet/);assert.doesNotMatch(html,/wrong-sheet|Print Lead Sheet/);
+ const withLead=renderToStaticMarkup(React.createElement(ApprovalPrintButtons,{j,report,sheet,onError:()=>{}}));assert.match(withLead,/Print Lead Sheet/);assert.match(withLead,/sheetId=right-sheet/);
+ }finally{delete globalThis.React;}
 });

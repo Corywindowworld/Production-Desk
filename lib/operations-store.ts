@@ -1,3 +1,4 @@
+import {laborMatchesReport} from './approval-paperwork';
 import {bonusClosingDay} from './bonus-closing';
 import {currentSurveysSQL} from './survey-records';
 import {resetJobSchedule} from "./schedule-reset";
@@ -2170,7 +2171,8 @@ export async function operation(m: Member, input: any) {
       assert(reviewer(m), "Supervisor or administrator access required.");
       assert(o.report?.approved, "Approve the result first.", 409);
       o.report.approvalDismissed = true;
-      history = "Approved result cleared from approvals; certificate retained in Digital Documents";
+      for(const sheet of o.laborSheets||[])if(sheet.status==='Approved'&&laborMatchesReport(sheet,o.report)){sheet.approvalDismissed=true;sheet.approvalDismissedAt=at;sheet.approvalDismissedBy=m.name;}
+      history = "Approved result and matching labor cleared from approvals; paperwork retained in Digital Documents";
     } else if (action === "confirmStatus") {
       assert(reviewer(m), "Supervisor or administrator access required.");
       assert(

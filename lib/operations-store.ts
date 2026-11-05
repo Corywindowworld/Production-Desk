@@ -1,3 +1,4 @@
+import {queueCertificateSentConfirmation} from './certificate-notifications';
 import {laborMatchesReport} from './approval-paperwork';
 import {bonusClosingDay} from './bonus-closing';
 import {currentSurveysSQL} from './survey-records';
@@ -2404,13 +2405,15 @@ export async function deliverOperationEmail(id: string, sourceId = id) {
       .bind(id)
       .first();
   if (!r) return "Email queue entry not found";
-  if (r.status === "accepted") return "accepted";
+  const sendConfirmations=async()=>{try{const ids=await queueCertificateSentConfirmation(r);await Promise.all(ids.map(id=>deliverOperationEmail(id)));}catch{console.error('Certificate sent confirmation could not be queued',{emailId:id});}};
+  if (r.status === "accepted") {await sendConfirmations();return "accepted";}
   let status = "Not configured: " + [!env.RESEND_API_KEY && "RESEND_API_KEY", !env.ACCOUNT_EMAIL_FROM && "ACCOUNT_EMAIL_FROM"].filter(Boolean).join(", ");
   if (env.RESEND_API_KEY && env.ACCOUNT_EMAIL_FROM) {
     try {
-      let certificatePackage: any = null;
+      let certificatePackage: any = null,invitePackage:any=null;
       try {
         const parsed = typeof r.body === "object" ? r.body : JSON.parse(String(r.body));
+        if(parsed?.kind==='certificate-invite'&&parsed.html)invitePackage=parsed;
         if (
           parsed?.kind === "job-certificate" &&
           parsed.html &&
@@ -2462,7 +2465,9 @@ export async function deliverOperationEmail(id: string, sourceId = id) {
                   },
                 ],
               }
-            : html
+            : invitePackage
+              ? {html:invitePackage.html,text:invitePackage.text}
+              : html
               ? {
                   html: r.body,
                   text: "Your signed Window World job certificate is included in this email. Production Desk retains the signed electronic record.",
@@ -2483,6 +2488,7 @@ export async function deliverOperationEmail(id: string, sourceId = id) {
     )
     .bind(status, new Date().toISOString(), id)
     .run();
+  if(status==='accepted')await sendConfirmations();
   return status;
 }
 

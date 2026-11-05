@@ -4732,3 +4732,28 @@ test('approval print shortcuts use the matching labor visit and show lead only w
  const withLead=renderToStaticMarkup(React.createElement(ApprovalPrintButtons,{j,report,sheet,onError:()=>{}}));assert.match(withLead,/Print Lead Sheet/);assert.match(withLead,/sheetId=right-sheet/);
  }finally{delete globalThis.React;}
 });
+
+test('certificate emails confirm accepted sends once and notify staff with signed PDFs even if customer copy fails',async()=>{
+ const {inviteCertificate,signCertificate}=await vite.ssrLoadModule('/lib/certificate-links.ts'),{deliverOperationEmail}=await vite.ssrLoadModule('/lib/operations-store.ts'),{env}=await vite.ssrLoadModule('/lib/server-env.ts');
+ const id=crypto.randomUUID(),at=new Date().toISOString(),customer='certificate-notice-customer@example.com',job={id,number:'CERT-NOTICE',customer:'Notification Test',address:'1 Test Street',amount:100,stage:'Production',supervisorId:fs.id,installerId:installer.id,operations:{},history:[]};
+ await pg.query('INSERT INTO production.jobs(id,payload,version,updated) VALUES($1,$2,1,$3)',[id,JSON.stringify(job),at]);
+ const staff=(await pg.query('SELECT email FROM production.members WHERE id IN ($1,$2)',[admin.id,fs.id])).rows.map(r=>r.email),originalFetch=globalThis.fetch,oldKey=env.RESEND_API_KEY,oldFrom=env.ACCOUNT_EMAIL_FROM,calls=[];let failInvite=true;
+ env.RESEND_API_KEY='fake-test-key';env.ACCOUNT_EMAIL_FROM='test@example.com';globalThis.fetch=async(url,options)=>{assert.equal(url,'https://api.resend.com/emails');const body=JSON.parse(options.body);calls.push(body);if((failInvite&&body.to[0]===customer)||(body.to[0]===customer&&body.subject.endsWith('Signed certificate')))return Response.json({message:'Test rejection'},{status:503});return Response.json({id:crypto.randomUUID()});};
+ try{
+ const result=await inviteCertificate(admin,{jobId:id,type:'Complete',email:customer,installerSignatureDataUrl:signature},'https://example.com');assert.equal(result.ok,false);assert.equal(calls.length,1);
+ const invite=(await pg.query('SELECT * FROM production.operations_email WHERE recipient=$1',[customer])).rows[0],token=invite.body.match(/certificate\/([a-f0-9]{64})/)[1];
+ assert.equal((await pg.query("SELECT id FROM production.operations_email WHERE id LIKE $1",['certificate-notice:'+invite.id+':%'])).rows.length,0);
+ failInvite=false;assert.equal(await deliverOperationEmail(invite.id),'accepted');const notices=calls.filter(c=>c.subject.endsWith('Certificate signing request sent'));assert.deepEqual(notices.map(c=>c.to[0]).sort(),staff.sort());assert.ok(notices.every(c=>!c.html.includes(token)&&!c.attachments));assert.ok(calls.find(c=>c.to[0]===customer).html.includes(token));
+ const before=calls.length;await deliverOperationEmail(invite.id);assert.equal(calls.length,before);
+ const signed=await signCertificate(token,{...certificate('Complete'),homeownerName:'Notification Test'});assert.equal(signed.ok,true);assert.match(signed.emailStatus,/Failed/);
+ const signedNotices=calls.filter(c=>c.subject.endsWith('Customer signed certificate'));assert.deepEqual(signedNotices.map(c=>c.to[0]).sort(),staff);for(const notice of signedNotices){assert.equal(notice.attachments.length,1);assert.equal(Buffer.from(notice.attachments[0].content,'base64').subarray(0,4).toString(),'%PDF');assert.match(notice.html,/Management review is still pending/);assert.doesNotMatch(notice.html,new RegExp(token));}
+ const sent=calls.length;await assert.rejects(()=>signCertificate(token,certificate('Complete')),/already been signed/);assert.equal(calls.length,sent);
+ const saved=JSON.parse((await pg.query('SELECT payload FROM production.jobs WHERE id=$1',[id])).rows[0].payload);assert.equal(saved.stage,'Production');assert.equal(saved.amount,100);assert.equal(saved.operations.remoteCertificates.length,1);
+ }finally{globalThis.fetch=originalFetch;if(oldKey===undefined)delete env.RESEND_API_KEY;else env.RESEND_API_KEY=oldKey;if(oldFrom===undefined)delete env.ACCOUNT_EMAIL_FROM;else env.ACCOUNT_EMAIL_FROM=oldFrom;}
+});
+
+test('certificate notifications resolve active FS/Admin roles, deduplicate addresses and exclude unrelated staff',async()=>{
+ const {certificateStaffRecipients}=await vite.ssrLoadModule('/lib/certificate-notifications.ts'),{database}=await vite.ssrLoadModule('/db/raw.ts'),a=crypto.randomUUID(),b=crypto.randomUUID();
+ await pg.query("INSERT INTO production.members(id,name,email,role,active) VALUES($1,'Notice supervisor','same-notice@example.com','supervisor',1),($2,'Notice admin','SAME-NOTICE@example.com','admin',1)",[a,b]);
+ assert.equal((await certificateStaffRecipients(database(),a,b)).length,1);await pg.query('UPDATE production.members SET active=0 WHERE id=$1',[a]);const recipients=await certificateStaffRecipients(database(),a,b);assert.deepEqual(recipients.map(r=>r.id),[b]);assert.equal((await certificateStaffRecipients(database(),installer.id,b))[0].id,b);
+});

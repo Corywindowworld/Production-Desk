@@ -173,6 +173,8 @@ test("credit card On File is accepted without last four and retained in certific
 test("live approvals, persistence, scopes and money", async () => {
   await act(pa, "create", {
     number: "LEGACY-1",
+    salesRep: "Measurement Test Rep",
+    salesRepEmail: "measurement-test@example.com",
     customer: "Test Customer",
     address: "123 Test Street",
     amount: 1000,
@@ -255,6 +257,7 @@ test("live approvals, persistence, scopes and money", async () => {
       [a.key, j.id, a.kind, installer.id, a.name],
     );
   await act(installer, "report", {
+    measurementSurvey: {stars:5,notes:"Fits <1/8 inch"},
     id: crypto.randomUUID(),
     status: "Complete",
     reason: "",
@@ -265,6 +268,9 @@ test("live approvals, persistence, scopes and money", async () => {
   });
   assert.equal(j.stage, "Production");
   assert.equal(j.operations.report.pending, true);
+  const salesEmail=(await pg.query("SELECT body FROM production.operations_email WHERE subject LIKE '%Completion results%' AND subject LIKE $1",['%Customer ID '+j.number])).rows[0];
+  assert.match(salesEmail.body,/5 out of 5 stars/);
+  assert.match(salesEmail.body,/Fits &lt;1\/8 inch/);
   const certificateEmail = (
     await pg.query("SELECT body FROM production.operations_email WHERE id=$1", [
       j.operations.report.certificateEmailId,
@@ -427,6 +433,7 @@ test("supervisor status controls and administrator deletion", async () => {
       [a.key, j.id, a.kind, installer.id, a.name],
     );
   await act(installer, "report", {
+    measurementSurvey: {stars:5},
     id: crypto.randomUUID(),
     status: "Incomplete",
     reason: "Damaged sash",
@@ -1637,6 +1644,7 @@ test("completion reports work in every assigned status and after a previous appr
       installed: today,
       attachments,
       certificate: certificate(stage === "SVC" ? "Service" : status),
+      ...(stage !== "SVC" ? {measurementSurvey:{stars:5}} : {}),
     };
     await assert.rejects(
       () => act({ ...installer, id: "not-assigned" }, "report", report),
@@ -1768,11 +1776,16 @@ test("signed certificates and partial photos persist as a resumable completion d
     installed: today,
     attachments: [front, ...otherKinds],
     certificate: restored.certificate,
+    measurementSurvey: {stars:4, notes:"Measurements matched"},
   };
+  await assert.rejects(()=>operation(installer,{action:"report",jobId:j.id,version:versionBeforeDraft,data:{...submission,measurementSurvey:undefined}}),/Rate the sales rep/);
+  await assert.rejects(()=>operation(installer,{action:"report",jobId:j.id,version:versionBeforeDraft,data:{...submission,measurementSurvey:{stars:6}}}),/5/);
   await operation(installer, {action:"report",jobId:j.id,version:versionBeforeDraft,data:submission});
   await reload();
   assert.equal(j.operations.report.pending, true);
   assert.equal(j.operations.reportDraft, null);
+  assert.equal(j.operations.report.measurementSurvey.stars,4);
+  assert.equal(j.operations.report.measurementSurvey.notes,"Measurements matched");
   await assert.rejects(
     () => operation(installer, {action:"report",jobId:j.id,version:versionBeforeDraft,data:{...submission,id:crypto.randomUUID()}}),
     /already awaiting Field Supervisor approval/,
@@ -4470,7 +4483,7 @@ test('backordered INC certificates stay ORD, skip reorders and require full rece
   const attachments=['front','rear','left','right','issue'].map(kind=>({key:'jobs/'+id+'/'+kind+'/'+crypto.randomUUID(),kind,name:kind+'.jpg'}));
   for(const a of attachments)await pg.query("INSERT INTO production.attachment_uploads(key,staging_key,job_id,kind,member_id,name,expires,status,sha256) VALUES($1,$1,$2,$3,$4,$5,0,'ready',$1)",[a.key,id,a.kind,installer.id,a.name]);
   const current=async()=>{const row=(await pg.query('SELECT payload,version FROM production.jobs WHERE id=$1',[id])).rows[0];return {...JSON.parse(row.payload),version:row.version}};
-  const result={id:crypto.randomUUID(),status:'Incomplete',reason:'One product is backordered',notes:'Installed available products',installed:today,attachments,certificate:certificate('Incomplete'),backordered:true};
+  const result={measurementSurvey:{stars:4},id:crypto.randomUUID(),status:'Incomplete',reason:'One product is backordered',notes:'Installed available products',installed:today,attachments,certificate:certificate('Incomplete'),backordered:true};
   return {id,current,result};
  }
  const f=await fixture();
@@ -4756,4 +4769,43 @@ test('certificate notifications resolve active FS/Admin roles, deduplicate addre
  const {certificateStaffRecipients}=await vite.ssrLoadModule('/lib/certificate-notifications.ts'),{database}=await vite.ssrLoadModule('/db/raw.ts'),a=crypto.randomUUID(),b=crypto.randomUUID();
  await pg.query("INSERT INTO production.members(id,name,email,role,active) VALUES($1,'Notice supervisor','same-notice@example.com','supervisor',1),($2,'Notice admin','SAME-NOTICE@example.com','admin',1)",[a,b]);
  assert.equal((await certificateStaffRecipients(database(),a,b)).length,1);await pg.query('UPDATE production.members SET active=0 WHERE id=$1',[a]);const recipients=await certificateStaffRecipients(database(),a,b);assert.deepEqual(recipients.map(r=>r.id),[b]);assert.equal((await certificateStaffRecipients(database(),installer.id,b))[0].id,b);
+});
+
+test('bulk clearing reviewed items across jobs preserves records and rolls back on stale or pending selections', async () => {
+  const report = {approved:true, certificate:{id:'bulk-cert'}};
+  const laborId = crypto.randomUUID(), reorderId = crypto.randomUUID();
+  const pendingId = crypto.randomUUID();
+  const [first, second] = [crypto.randomUUID(), crypto.randomUUID()].sort();
+  for (const [id, operations] of [
+    [first, {report, laborSheets:[{id:laborId,status:'Approved',reportKey:'bulk-cert',approvedTotal:82},{id:pendingId,status:'Submitted'}]}],
+    [second, {reorders:[{id:reorderId,status:'Approved',reason:'Replacement sash'},{id:pendingId,status:'Submitted'}]}],
+  ]) {
+    await pg.query('INSERT INTO production.jobs(id,payload,version,updated) VALUES($1,$2,1,$3)', [id, JSON.stringify({id,operations,history:[]}), new Date().toISOString()]);
+  }
+  const current = async id => {
+    const row = (await pg.query('SELECT payload,version FROM production.jobs WHERE id=$1',[id])).rows[0];
+    return {...JSON.parse(row.payload),version:row.version};
+  };
+  const selected = [
+    {jobId:first,version:1,kind:'report'},
+    {jobId:first,version:1,kind:'labor',recordId:laborId},
+    {jobId:second,version:1,kind:'reorder',recordId:reorderId},
+  ];
+  const clear = (member, items) => operation(member,{action:'bulkClearApprovals',data:{selected:items}});
+  await assert.rejects(()=>clear(pa,selected),/Supervisor or administrator/);
+  await assert.rejects(()=>clear(fs,[...selected.slice(0,2),{...selected[2],version:2}]),/changed/);
+  await assert.rejects(()=>clear(fs,[...selected.slice(0,2),{...selected[2],recordId:pendingId}]),/Review the reorder/);
+  assert.equal((await current(first)).operations.report.approvalDismissed,undefined);
+  await clear(fs,selected);
+  const a = await current(first), b = await current(second);
+  assert.equal(a.version,2);
+  assert.equal(b.version,2);
+  assert.equal(a.operations.report.approvalDismissed,true);
+  assert.deepEqual(a.operations.report.certificate,report.certificate);
+  assert.equal(a.operations.laborSheets[0].approvalDismissed,true);
+  assert.equal(a.operations.laborSheets[0].approvedTotal,82);
+  assert.equal(a.operations.laborSheets[1].approvalDismissed,undefined);
+  assert.equal(b.operations.reorders[0].approvalDismissed,true);
+  assert.equal(b.operations.reorders[0].status,'Approved');
+  assert.equal(b.operations.reorders[1].approvalDismissed,undefined);
 });

@@ -768,31 +768,11 @@ export default function LiveOperations() {
               />
             </>
           )}
-          {tab === "Approvals" &&
-            review &&
-            jobs
-              .filter((j: any) =>
-                j.operations?.reorders?.some(
-                  (r: any) => !r.approvalDismissed,
-                ),
-              )
-              .map((j: any) => (
-                <section className="op-panel" key={"reorder-" + j.id}>
-                  <h3>
-                    Reorder approval · {j.customer} · #{j.number}
-                  </h3>
-                  <ReorderRequests
-                    approvalsOnly
-                    j={j}
-                    me={me}
-                    save={(a: string, v: any) => change(a, v, j)}
-                  />
-                </section>
-              ))}
           {tab === "Approvals" && review && <>{jobs.filter((j:any)=>j.operations?.laborSheets?.some((s:any)=>s.status==="Submitted")).map((j:any)=><section className="op-panel" key={j.id}><h3>{j.customer} · #{j.number}</h3><LaborSheet j={j} me={me} profile={data.leadProfile} reload={load}/></section>)}</>}
           {tab === "Approvals" && (
             <Approvals
               jobs={approvals}
+              reorderJobs={jobs}
               reload={load}
               me={me}
               review={review}
@@ -1545,9 +1525,37 @@ function SalesRepresentative({ options = [], initial }: any) {
     </fieldset>
   );
 }
-function Approvals({ jobs, me, review, saving, change, onOpen, reload }: any) {
+type ApprovalSelection = {jobId:string; version:number; kind:'report'|'labor'|'reorder'; recordId?:string};
+function Approvals({ jobs, reorderJobs, me, review, saving, change, onOpen, reload }: any) {
   const [error, setError] = useState("");
   const [clearing,setClearing]=useState(false);
+  const [selected,setSelected] = useState<Record<string,ApprovalSelection>>({});
+  const [clearMessage,setClearMessage] = useState("");
+  const selectionKey = (item:ApprovalSelection) => `${item.jobId}:${item.kind}:${item.recordId || ''}`;
+  const select = (job:any,kind:ApprovalSelection['kind'],label:string,recordId?:string) => {
+    const item = {jobId:job.id,version:job.version,kind,recordId};
+    const key = selectionKey(item);
+    return <input type="checkbox" aria-label={`Select ${label} for ${job.customer} #${job.number}`} style={{width:24,height:24,flexShrink:0}} checked={!!selected[key]} onClick={event=>event.stopPropagation()} disabled={saving||clearing} onChange={event=>{
+      const checked = event.target.checked;
+      setClearMessage("");
+      setSelected(current=>{
+        const next = {...current};
+        if (checked) next[key] = item;
+        else delete next[key];
+        return next;
+      });
+    }}/>;
+  };
+  const clearSelected = async () => {
+    setError("");setClearMessage("");setClearing(true);
+    try {
+      await change("bulkClearApprovals", {selected:Object.values(selected)});
+      setSelected({});setClearMessage("Selected approvals cleared.");
+    } catch (e) {setError((e as Error).message);}
+    finally {setClearing(false);}
+  };
+  const selectionCount = Object.keys(selected).length;
+  const reorderApprovalJobs = review ? reorderJobs.filter((j:any)=>j.operations?.reorders?.some((r:any)=>!r.approvalDismissed)) : [];
   const clearLabor=async(j:any,sheet:any)=>{setError('');setClearing(true);try{const r=await fetch('/api/labor',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'dismiss',jobId:j.id,version:j.version,sheetId:sheet.id})}),d=await r.json();if(!r.ok)throw Error(d.error||'Labor could not clear.');await reload();}catch(e){setError((e as Error).message);}finally{setClearing(false);}};
   const act = async (j: any, action: string, data: any) => {
     setError("");
@@ -1559,13 +1567,23 @@ function Approvals({ jobs, me, review, saving, change, onOpen, reload }: any) {
   };
   return (
     <section className="op-panel">
-      <h2>Awaiting review</h2>
+      <h2>Approvals</h2>
+      {review && <div className="op-schedule-actions">
+        <button type="button" className="live-button" disabled={!selectionCount||selectionCount>100||saving||clearing} onClick={()=>void clearSelected()}>Clear selected{selectionCount ? ` (${selectionCount})` : ''}</button>
+        {selectionCount>0 && <button type="button" className="live-button" disabled={saving||clearing} onClick={()=>setSelected({})}>Deselect all</button>}
+        {selectionCount>100 && <span>Select up to 100 items at a time.</span>}
+        {clearMessage && <span role="status">{clearMessage}</span>}
+      </div>}
       {error && (
         <p role="alert" className="op-red">
           {error}
         </p>
       )}
-      {!jobs.length && <p>No pending requests.</p>}
+      {reorderApprovalJobs.map((j:any)=><section key={"reorder-"+j.id}>
+        <h3>Reorder approval · {j.customer} · #{j.number}</h3>
+        <ReorderRequests approvalsOnly j={j} me={me} save={(action:string,values:any)=>change(action,values,j)} renderClearSelection={(r:any)=>select(j,'reorder','reorder',r.id)}/>
+      </section>)}
+      {!jobs.length && !reorderApprovalJobs.length && <p>No pending requests.</p>}
       {jobs.map((j: any) => (
         <article className="live-approval-card" key={j.id} style={j.operations.report?.approved && !j.operations.pendingSchedule && !j.operations.requests?.some((r:any)=>r.status==="Pending") ? {display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",padding:12} : undefined}>
           <h3>
@@ -1574,8 +1592,9 @@ function Approvals({ jobs, me, review, saving, change, onOpen, reload }: any) {
           <button className="live-button" onClick={() => onOpen(j.id)}>
             View job
           </button>
-          {j.operations.report?.approved && !j.operations.report?.approvalDismissed && <div className="op-schedule-actions" style={{display:"flex",alignItems:"center",gap:12,padding:10}}><strong>Approved · {j.operations.report.status}</strong>{j.operations.report.certificate && <button className="live-button" onClick={()=>printJobCertificate(j.operations.report.certificate)}>Print Certificate</button>}<ApprovalPrintButtons j={j} report={j.operations.report} onError={setError}/>{review && <button className="live-button" disabled={saving||clearing} onClick={()=>act(j,"dismissApproval",{})}>Clear from list</button>}</div>}
-          {approvedLaborToClear(j).map((sheet:any)=><div className="op-schedule-actions" key={sheet.id}><strong>Approved labor · {sheet.visitType||'Installation'}</strong>{(!j.operations.report?.approved||j.operations.report?.approvalDismissed||!laborMatchesReport(sheet,j.operations.report))&&<>{sheet.packetJob?.operations?.report?.certificate&&<button type="button" className="live-button" onClick={()=>{try{printJobCertificate(sheet.packetJob.operations.report.certificate);}catch(e){setError((e as Error).message);}}}>Print Certificate</button>}<ApprovalPrintButtons j={j} report={sheet.packetJob?.operations?.report} sheet={sheet} onError={setError}/></>}{review&&<button type="button" className="live-button" disabled={saving||clearing} onClick={()=>void clearLabor(j,sheet)}>Clear labor from list</button>}</div>)}
+          {j.operations.report?.approved && !j.operations.report?.approvalDismissed && <div className="op-schedule-actions" style={{display:"flex",alignItems:"center",gap:12,padding:10}}>{review && select(j,"report","approved result")}<strong>Approved · {j.operations.report.status}</strong>{j.operations.report.certificate && <button className="live-button" onClick={()=>printJobCertificate(j.operations.report.certificate)}>Print Certificate</button>}<ApprovalPrintButtons j={j} report={j.operations.report} onError={setError}/>{review && <button className="live-button" disabled={saving||clearing} onClick={()=>act(j,"dismissApproval",{})}>Clear from list</button>}</div>}
+          {approvedLaborToClear(j).map((sheet:any)=><div className="op-schedule-actions" key={sheet.id}>{review && select(j,"labor","approved labor sheet",sheet.id)}<strong>Approved labor · {sheet.visitType||'Installation'}</strong>{(!j.operations.report?.approved||j.operations.report?.approvalDismissed||!laborMatchesReport(sheet,j.operations.report))&&<>{sheet.packetJob?.operations?.report?.certificate&&<button type="button" className="live-button" onClick={()=>{try{printJobCertificate(sheet.packetJob.operations.report.certificate);}catch(e){setError((e as Error).message);}}}>Print Certificate</button>}<ApprovalPrintButtons j={j} report={sheet.packetJob?.operations?.report} sheet={sheet} onError={setError}/></>}{review&&<button type="button" className="live-button" disabled={saving||clearing} onClick={()=>void clearLabor(j,sheet)}>Clear labor from list</button>}</div>)}
+          {j.operations.report?.measurementSurvey && <p><strong>Sales rep measurements</strong> · {j.operations.report.measurementSurvey.stars} out of 5 stars{j.operations.report.measurementSurvey.notes && <><br/>{j.operations.report.measurementSurvey.notes}</>}</p>}
           {j.operations.pendingSchedule && (
             <section>
               <h4>Schedule request</h4>
@@ -2547,6 +2566,7 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
                   )}
                   <InstallerReport
                     key={o.report?.id || "new"}
+                    requireMeasurement={isInstaller}
                     j={j}
                     save={save}
                     reload={reload}
@@ -3952,7 +3972,7 @@ function Gallery({ attachments }: any) {
     <p className="op-muted">No files yet.</p>
   );
 }
-function InstallerReport({ j, save, reload }: any) {
+function InstallerReport({ j, save, reload, requireMeasurement }: any) {
   const storedDraft = j.operations?.reportDraft,
     usableDraft = storedDraft && ["Complete", "Incomplete"].includes(storedDraft.status) ? storedDraft : null;
   const [status, setStatus] = useState(usableDraft?.status || "Complete"),
@@ -3963,17 +3983,24 @@ function InstallerReport({ j, save, reload }: any) {
     [notes, setNotes] = useState(usableDraft?.notes || ""),
     [omitLabor, setOmitLabor] = useState(usableDraft?.omitLabor || false),
     [backordered,setBackordered]=useState(usableDraft?.backordered||j.backordered||false),
+    [measurementSurvey,setMeasurementSurvey] = useState<{stars:number;notes:string}|undefined>(usableDraft?.measurementSurvey),
     [uploadCount, setUploadCount] = useState(0),
     [draftSaving, setDraftSaving] = useState(false),
     [draftMessage, setDraftMessage] = useState(usableDraft ? "Draft restored." : ""),
     [error, setError] = useState("");
-  const stateRef = useRef({status,attachments,certificate,installed,reason,notes,omitLabor,backordered}),
+  const stateRef = useRef({status,attachments,certificate,installed,reason,notes,omitLabor,backordered,measurementSurvey}),
     draftQueue = useRef<Promise<any>>(Promise.resolve()),
     draftSaveCount = useRef(0),
     acceptedCertificate = useRef(usableDraft?.certificate || null);
-  stateRef.current = {status,attachments,certificate,installed,reason,notes,omitLabor,backordered};
+  stateRef.current = {status,attachments,certificate,installed,reason,notes,omitLabor,backordered,measurementSurvey};
   const busy = uploadCount > 0;
   const requirements = requiredReportKinds(status);
+  const needsRating = requireMeasurement && j.stage !== "SVC";
+  const photosReady = !busy && requirements.every(kind=>attachments.some(photo=>photo.kind===kind));
+  const updateMeasurementSurvey = (rating:{stars:number;notes:string}) => {
+    setMeasurementSurvey(rating);
+    stateRef.current.measurementSurvey = rating;
+  };
   const persistDraft = async (changes: Record<string, any> = {}, refresh = true) => {
     Object.assign(stateRef.current, changes);
     draftSaveCount.current += 1;
@@ -4027,7 +4054,8 @@ function InstallerReport({ j, save, reload }: any) {
       {draftMessage && <p role="status">{draftMessage}</p>}
       <Form submitLabel="Submit"
         onSave={async (f) => {
-          if (busy || draftSaving) throw Error("Wait for the draft and uploads to finish saving.");
+          if (busy) throw Error("Wait for the uploads to finish saving.");
+          await draftQueue.current;
           const missing = requirements.find(
             (kind) => !attachments.some((a) => a.kind === kind),
           );
@@ -4043,7 +4071,9 @@ function InstallerReport({ j, save, reload }: any) {
             throw Error(
               "Complete the digital certificate and both signatures before submitting.",
             );
+          if (needsRating && !measurementSurvey?.stars) throw Error("Rate the sales rep’s measurements before submitting.");
           await save("report", {
+            measurementSurvey: needsRating ? measurementSurvey : undefined,
             id: crypto.randomUUID(),
             omitLabor,
             backordered: status === "Incomplete" && (backordered||j.backordered),
@@ -4150,6 +4180,20 @@ function InstallerReport({ j, save, reload }: any) {
           </small>
         </label>
         {status === "Incomplete" && j.stage !== "SVC" && <label style={{display:"flex",alignItems:"center",gap:12}}><input type="checkbox" style={{width:26,height:26}} checked={backordered||j.backordered} disabled={draftSaving||busy||!!j.backordered} onChange={e=>{const checked=e.target.checked;setBackordered(checked);void persistDraft({backordered:checked}).catch(e=>setError((e as Error).message));}}/>Is the product backordered? No reorder form is required. This job stays ORD until all products are received.</label>}
+        {needsRating && photosReady && <fieldset className="op-callout">
+          <legend>Rate the sales rep’s measurements (required)</legend>
+          <p>How accurate were the measurements for this installation? Your rating and notes go to the sales rep in the completion email.</p>
+          <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
+            {[1,2,3,4,5].map(stars=><label key={stars} style={{display:"inline-flex",alignItems:"center",gap:4}}>
+              <input type="radio" name="measurement-stars" value={stars} required checked={measurementSurvey?.stars===stars} onChange={()=>{
+                const rating={stars,notes:measurementSurvey?.notes || ""};
+                updateMeasurementSurvey(rating);
+                void persistDraft({measurementSurvey:rating},false).catch(e=>setError((e as Error).message));
+              }}/><span aria-hidden="true" style={{color:stars<=(measurementSurvey?.stars||0)?"#986600":"inherit"}}>{stars<=(measurementSurvey?.stars||0)?"★":"☆"}</span><span>{stars} {stars===1?"star":"stars"}</span>
+            </label>)}
+          </div>
+          <label>Measurement notes (optional)<textarea maxLength={2000} disabled={!measurementSurvey?.stars} value={measurementSurvey?.notes||""} onBlur={()=>{if(measurementSurvey)void persistDraft({measurementSurvey},false).catch(e=>setError((e as Error).message));}} onChange={e=>{if(measurementSurvey)updateMeasurementSurvey({...measurementSurvey,notes:e.target.value});}}/></label>
+        </fieldset>}
         <PhotoUploadProgress jobId={j.id}/>{busy && <p role="status">{uploadCount} photo(s) uploading or queued. You can select more photos while these finish.</p>}
         {draftSaving && <p role="status">Saving completion draft…</p>}
         {error && <p className="op-red">{error}</p>}

@@ -1,3 +1,4 @@
+import {dismissApprovedLabor} from './approval-paperwork';
 import {serviceLaborOmitted} from './labor';
 import {completeLaborRows,standardLaborSheet} from './labor-standard';
 import {laborPaymentSummary,staffInitials} from './labor-approval';
@@ -46,7 +47,7 @@ export async function laborAction(m:Member,input:any){
    if(base.action==='dismiss'){
     fail(['admin','supervisor'].includes(m.role),'FS/Admin approval access required.',403);
     fail(sheet.status==='Approved','Approve the labor sheet before clearing it.',409);
-    sheet.approvalDismissed=true;sheet.approvalDismissedAt=at;sheet.approvalDismissedBy=m.name;message='Approved labor cleared from approvals; paperwork retained in Digital Documents and completion batches';
+    dismissApprovedLabor(sheet,m.name,at);message='Approved labor cleared from approvals; paperwork retained in Digital Documents and completion batches';
    }else if(base.action==='edit'){
     fail(['admin','supervisor'].includes(m.role),'FS/Admin edit access required.',403);
     fail(sheet.status!=='Replaced','This sheet has been replaced.',409);

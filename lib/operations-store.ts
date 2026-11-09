@@ -1,5 +1,6 @@
 import {queueCertificateSentConfirmation} from './certificate-notifications';
-import {laborMatchesReport} from './approval-paperwork';
+import {dismissApprovedReport} from './approval-paperwork';
+import {bulkClearApprovals} from './bulk-clear-approvals';
 import {bonusClosingDay} from './bonus-closing';
 import {currentSurveysSQL} from './survey-records';
 import {resetJobSchedule} from "./schedule-reset";
@@ -535,6 +536,7 @@ export async function operation(m: Member, input: any) {
     push: string[] = [],
     emails: string[] = [];
   const action = String(input.action || "");
+  if (action === "bulkClearApprovals") return bulkClearApprovals(m, input.data?.selected, at);
   if (action === "linkAccount" || action === "unlinkAccount") {
     assert(hasJobEditPermission(m), "Job editing permission required.");
     const source = parse(z.string().uuid(), input.jobId),
@@ -1159,8 +1161,8 @@ export async function operation(m: Member, input: any) {
         .run();
       push.push(id);
     };
-    const notifyReport = async (message: string, certificate?:any) => {
-      const branded = certificate ? salesResultEmail(j,certificate,env.APP_URL || "https://productiondesk.app") : null;
+    const notifyReport = async (message: string, certificate?:any, measurementSurvey?: {stars:number;notes?:string}) => {
+      const branded = certificate ? salesResultEmail(j,certificate,env.APP_URL || "https://productiondesk.app", measurementSurvey) : null;
       await alert(j.supervisorId, message);
       if (j.salesRepEmail) {
         const id = crypto.randomUUID();
@@ -2003,6 +2005,10 @@ export async function operation(m: Member, input: any) {
         400,
       );
       assert(!reportError(r), reportError(r), 400);
+      const measurementSurvey = m.role === "installer" && expectedCertificateType !== "Service" ? r.measurementSurvey : undefined;
+      if (m.role === "installer" && expectedCertificateType !== "Service") {
+        assert(measurementSurvey, "Rate the sales rep’s measurements before submitting.", 400);
+      }
       const hashes = new Set();
       for (const a of r.attachments) {
         const file = await tx
@@ -2063,6 +2069,7 @@ export async function operation(m: Member, input: any) {
       });
       const report = {
         ...r,
+        measurementSurvey: measurementSurvey && {...measurementSurvey, salesRep:j.salesRep || ""},
         certificate,
         certificateEmailId,
         installerId: m.role === "installer" ? m.id : j.installerId || m.id,
@@ -2108,6 +2115,7 @@ export async function operation(m: Member, input: any) {
       await notifyReport(
         `Job #${j.number}: ${r.status} submitted by ${m.name}. Field supervisor review required.`,
         certificate,
+        measurementSurvey,
       );
     } else if (action === "reviewReport") {
       assert(reviewer(m), "Supervisor approval required.");
@@ -2171,8 +2179,7 @@ export async function operation(m: Member, input: any) {
     } else if (action === "dismissApproval") {
       assert(reviewer(m), "Supervisor or administrator access required.");
       assert(o.report?.approved, "Approve the result first.", 409);
-      o.report.approvalDismissed = true;
-      for(const sheet of o.laborSheets||[])if(sheet.status==='Approved'&&laborMatchesReport(sheet,o.report)){sheet.approvalDismissed=true;sheet.approvalDismissedAt=at;sheet.approvalDismissedBy=m.name;}
+      dismissApprovedReport(o, m.name, at);
       history = "Approved result and matching labor cleared from approvals; paperwork retained in Digital Documents";
     } else if (action === "confirmStatus") {
       assert(reviewer(m), "Supervisor or administrator access required.");

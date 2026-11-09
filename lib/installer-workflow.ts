@@ -29,7 +29,9 @@ export const reportAttachment = z.object({
     "reorder",
   ]),
 });
+const measurementSurvey = z.object({stars:z.number().int().min(1).max(5), notes:z.string().trim().max(2000).default("")});
 export const reportSchema = z.object({
+  measurementSurvey: measurementSurvey.optional(),
   omitLabor: z.boolean().default(false),
   backordered: z.boolean().default(false),
   id: z.string().uuid(),
@@ -43,6 +45,7 @@ export const reportSchema = z.object({
   certificate: certificateInputSchema,
 });
 export const reportDraftSchema = z.object({
+  measurementSurvey: measurementSurvey.optional(),
   omitLabor: z.boolean().default(false),
   backordered: z.boolean().default(false),
   status: z.enum(["Complete", "Incomplete"]),

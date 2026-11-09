@@ -2585,7 +2585,7 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
                   )}
                   <InstallerReport
                     key={o.report?.id || "new"}
-                    requireMeasurement={isInstaller}
+                    isInstaller={isInstaller}
                     j={j}
                     save={save}
                     reload={reload}
@@ -3952,7 +3952,7 @@ function JobNotesHistory({j,save}:any){
   const [addingNote,setAddingNote]=useState(false),[addingPhoto,setAddingPhoto]=useState(false),[visits,setVisits]=useState<any[]>([]),[visitError,setVisitError]=useState('');
   useEffect(()=>{let active=true;fetch('/api/job-visits?jobId='+encodeURIComponent(j.id),{cache:'no-store'}).then(async r=>{const d=await r.json();if(!r.ok)throw Error(d.error||'Visit photos could not load.');if(active)setVisits(d.visits||[])}).catch(e=>{if(active)setVisitError(e.message)});return ()=>{active=false}},[j.id,j.version]);
   const o=j.operations||{},files=[...(j.attachments||[]),...(o.report?.attachments||[]),...(o.reportDraft?.attachments||[]),...(o.previousReports||[]).flatMap((r:any)=>r.attachments||[]),...(o.reorders||[]).flatMap((r:any)=>r.attachments||r.photos||[]),...visits.flatMap((v:any)=>v.photos||[])];
-  const pictures=[...new Map(files.filter((a:any)=>a.key&&/\.(jpe?g|png|webp|gif|heic|heif)$/i.test(a.name||'')).map((a:any)=>[a.key,a])).values()];
+  const pictures=[...new Map(files.filter((a:any)=>a.key&&a.kind!=="check"&&/\.(jpe?g|png|webp|gif|heic|heif)$/i.test(a.name||'')).map((a:any)=>[a.key,a])).values()];
   return <section>
     <h3>Notes & History</h3>
     <div style={{display:'flex',gap:12,flexWrap:'wrap',marginBottom:16}}>
@@ -3972,9 +3972,10 @@ function JobNotesHistory({j,save}:any){
   </section>;
 }
 function Gallery({ attachments }: any) {
-  return attachments.length ? (
+  const visible = attachments.filter((a:any)=>a.kind!=="check");
+  return visible.length ? (
     <div className="op-gallery">
-      {attachments.map((a: any) => (
+      {visible.map((a: any) => (
         <a
           key={a.key}
           href={"/api/attachments?key=" + encodeURIComponent(a.key)}
@@ -3991,7 +3992,7 @@ function Gallery({ attachments }: any) {
     <p className="op-muted">No files yet.</p>
   );
 }
-function InstallerReport({ j, save, reload, requireMeasurement }: any) {
+function InstallerReport({ j, save, reload, isInstaller }: any) {
   const storedDraft = j.operations?.reportDraft,
     usableDraft = storedDraft && ["Complete", "Incomplete"].includes(storedDraft.status) ? storedDraft : null;
   const [status, setStatus] = useState(usableDraft?.status || "Complete"),
@@ -4014,7 +4015,9 @@ function InstallerReport({ j, save, reload, requireMeasurement }: any) {
   stateRef.current = {status,attachments,certificate,installed,reason,notes,omitLabor,backordered,measurementSurvey};
   const busy = uploadCount > 0;
   const requirements = requiredReportKinds(status);
-  const needsRating = requireMeasurement && j.stage !== "SVC";
+  const needsRating = isInstaller && j.stage !== "SVC";
+  const paidByCheck = certificate?.paymentMethod === "Check";
+  const checkPhoto = attachments.find(a=>a.kind === "check");
   const photosReady = !busy && requirements.every(kind=>attachments.some(photo=>photo.kind===kind));
   const updateMeasurementSurvey = (rating:{stars:number;notes:string}) => {
     setMeasurementSurvey(rating);
@@ -4067,6 +4070,7 @@ function InstallerReport({ j, save, reload, requireMeasurement }: any) {
         <span>Back photo</span>
         <span>Left-side photo</span>
         <span>Right-side photo</span>
+        {isInstaller && paidByCheck && <span>Check photo</span>}
         {status === "Incomplete" && <span>One or more issue photos</span>}
       </div>
       {usableDraft && <p className="op-callout">A saved completion draft was restored. The customer signature and previously uploaded photos are retained until this report is submitted.</p>}
@@ -4090,6 +4094,7 @@ function InstallerReport({ j, save, reload, requireMeasurement }: any) {
             throw Error(
               "Complete the digital certificate and both signatures before submitting.",
             );
+          if (isInstaller && paidByCheck && !checkPhoto) throw Error("Upload a photo of the check before submitting.");
           if (needsRating && !measurementSurvey?.stars) throw Error("Rate the sales rep’s measurements before submitting.");
           await save("report", {
             measurementSurvey: needsRating ? measurementSurvey : undefined,
@@ -4100,7 +4105,7 @@ function InstallerReport({ j, save, reload, requireMeasurement }: any) {
             reason,
             notes,
             installed,
-            attachments,
+            attachments: paidByCheck ? attachments : attachments.filter(a=>a.kind !== "check"),
             certificate,
           });
         }}
@@ -4166,6 +4171,15 @@ function InstallerReport({ j, save, reload, requireMeasurement }: any) {
         </label>}
         <label>Installer notes<textarea name="notes" value={notes} onChange={e=>{setNotes(e.target.value);stateRef.current.notes=e.target.value}} /></label>
 
+        {paidByCheck && <label>
+          Check photo {isInstaller ? "(required)" : "(optional)"}
+          <input type="file" accept="image/*" disabled={busy} onChange={event=>{
+            const files = Array.from(event.target.files || []);
+            event.target.value = "";
+            void upload("check", files);
+          }}/>
+          <small>{checkPhoto ? "Check photo saved. Select another image to replace it." : "Take a clear picture of the check for the private job file."}</small>
+        </label>}
         {requirements.map((kind) => (
           <label key={kind}>
             {reportLabels[kind]}

@@ -8,7 +8,12 @@ export const runtime='nodejs';
 export const maxDuration=60;
 const beginSchema=z.object({action:z.literal('begin'),jobId:z.string().uuid(),kind:z.enum(uploadKinds),name:z.string().min(1).max(255),size:z.number().int().positive().max(MAX_UPLOAD_BYTES)});
 const finishSchema=z.object({action:z.literal('finish'),key:z.string().max(250)});
+function requireCheckPhotoRole(member:Member){
+ if(!['admin','supervisor','office','production_assistant','installer'].includes(member.role))throw new ApiError(403,'Job payment photo access required.');
+}
 async function uploadAccess(member:Member,jobId:string,kind:string){
+ if(kind==='check')requireCheckPhotoRole(member);
+
  if(['service_tech','service_manager'].includes(member.role)){if(kind!=='photos')throw new ApiError(403,'Service accounts can upload service photos only.');await jobFor(member,jobId);return;}
  if(kind==='warehouse'&&member.role==='warehouse'){const item=await database().prepare('SELECT id FROM jobs WHERE id=?').bind(jobId).first();if(!item)throw new ApiError(404,'Job not found.');return;}
  if(kind==='visit'&&member.role!=='supervisor'&&member.role!=='admin')throw new ApiError(403,'Only supervisors and administrators can upload visit photos.');
@@ -40,7 +45,7 @@ export async function POST(request:Request){try{
  if(Number(row.expires)<Date.now())throw new ApiError(410,'Upload expired. Select the file again.');
  const {data,error}=await storage().download(row.staging_key);if(error||!data)throw new ApiError(400,'The uploaded file could not be read from storage. Retry the file; if this repeats, check Photo storage in Account management.');
  if(!data.size||data.size>MAX_UPLOAD_BYTES)throw new ApiError(400,'Choose a nonempty file up to 15 MB.');
- const bytes=new Uint8Array(await data.arrayBuffer()),type=fileType(bytes,row.kind);if(!type)throw new ApiError(400,'Upload a JPG, PNG, WebP, GIF, or HEIC image. Paperwork may also be a PDF.');
+ const bytes=new Uint8Array(await data.arrayBuffer()),type=fileType(bytes,row.kind);if(!type)throw new ApiError(400,row.kind==='check'?'Upload a JPG, PNG, WebP, GIF, or HEIC check photo.':'Upload a JPG, PNG, WebP, GIF, or HEIC image. Paperwork may also be a PDF.');
  const sha=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes))).map(n=>n.toString(16).padStart(2,'0')).join('');
  // Publish verified bytes at an immutable path that no upload token can overwrite.
  const uploaded=await storage().upload(row.key,bytes,{contentType:type,upsert:false,cacheControl:'0'});
@@ -56,8 +61,12 @@ export async function POST(request:Request){try{
 }catch(e){return apiError(e)}}
 export async function GET(request:Request){try{
  const member=await actor(request),key=new URL(request.url).searchParams.get('key')||'';
- if(!/^jobs\/[0-9a-f-]+\/(labor|completion|incomplete|reorder|photos|front|rear|left|right|issue|visit|warehouse)\/[0-9a-f-]+$/.test(key))throw new ApiError(404,'File not found.');
- if(key.split('/')[2]==='warehouse')await uploadAccess(member,key.split('/')[1],'warehouse');else if(key.split('/')[2]==='visit')await visitJobFor(member,key.split('/')[1]);else await jobFor(member,key.split('/')[1]);
+ if(!/^jobs\/[0-9a-f-]+\/(labor|completion|incomplete|reorder|photos|front|rear|left|right|issue|visit|warehouse|check)\/[0-9a-f-]+$/.test(key))throw new ApiError(404,'File not found.');
+ const [,jobId,kind]=key.split('/');
+ if(kind==='check')requireCheckPhotoRole(member);
+ if(kind==='warehouse')await uploadAccess(member,jobId,'warehouse');
+ else if(kind==='visit')await visitJobFor(member,jobId);
+ else await jobFor(member,jobId);
  if(!await bucket.head(key))throw new ApiError(404,'File not found.');
  const {data,error}=await storage().createSignedUrl(key,60);if(error||!data)throw new ApiError(404,'File not found.');
  return new Response(null,{status:302,headers:{Location:data.signedUrl,'Cache-Control':'private, no-store','Referrer-Policy':'no-referrer'}});

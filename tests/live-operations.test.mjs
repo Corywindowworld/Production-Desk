@@ -4875,3 +4875,36 @@ test('FS can approve, batch, and clear labor without recording a customer certif
   assert.equal(reviewed.operations.report.certificate.id,'prior-visit');
 
 });
+
+test('installer check payments require a verified job photo and keep it out of certificate emails', async () => {
+  const {fileType}=await vite.ssrLoadModule('/lib/upload-validation.ts');
+  const {uploadedDocumentsForJob}=await vite.ssrLoadModule('/lib/digital-documents.ts');
+  const id=crypto.randomUUID(), at=new Date().toISOString();
+  const job={id,number:'CHECK-PHOTO',customer:'Check Photo Test',stage:'Production',amount:100,
+    installerId:installer.id,supervisorId:fs.id,history:[],operations:{}};
+  await pg.query('INSERT INTO production.jobs(id,payload,version,updated) VALUES($1,$2,1,$3)',[id,JSON.stringify(job),at]);
+  const attachments=['front','rear','left','right'].map(kind=>({kind,key:`jobs/${id}/${kind}/${crypto.randomUUID()}`,name:`${kind}.jpg`}));
+  const check={kind:'check',key:`jobs/${id}/check/${crypto.randomUUID()}`,name:'payment.jpg'};
+  for(const photo of [...attachments,check])await pg.query(
+    "INSERT INTO production.attachment_uploads(key,staging_key,job_id,kind,member_id,name,expires,status,sha256,content_type) VALUES($1,$1,$2,$3,$4,$5,0,'ready',$1,$6)",
+    [photo.key,id,photo.kind,installer.id,photo.name,photo.kind==='check'?'application/pdf':'image/jpeg'],
+  );
+  const report={id:crypto.randomUUID(),status:'Complete',reason:'',notes:'',installed:today,attachments,
+    measurementSurvey:{stars:5},certificate:{...certificate('Complete'),paymentMethod:'Check',paymentAmount:100,paymentReference:'001234'}};
+  const submit=data=>operation(installer,{action:'report',jobId:id,version:1,data});
+  assert.equal(fileType(Buffer.from('%PDF-test'),'check'),null);
+  await assert.rejects(()=>submit(report),/Upload a photo of the check/);
+  const withPhoto={...report,attachments:[...attachments,check]};
+  await assert.rejects(()=>submit(withPhoto),/Upload the check as a photo/);
+  await pg.query("UPDATE production.attachment_uploads SET content_type='image/jpeg',member_id=$2 WHERE key=$1",[check.key,fs.id]);
+  await assert.rejects(()=>submit(withPhoto),/uploaded attachment is missing/);
+  await pg.query('UPDATE production.attachment_uploads SET member_id=$2 WHERE key=$1',[check.key,installer.id]);
+  await saveReportDraft(installer,{jobId:id,data:withPhoto});
+  await submit(withPhoto);
+  const saved=JSON.parse((await pg.query('SELECT payload FROM production.jobs WHERE id=$1',[id])).rows[0].payload);
+  assert.equal(saved.operations.report.pending,true);
+  assert.ok(uploadedDocumentsForJob(saved).some(photo=>photo.key===check.key));
+  const mail=(await pg.query('SELECT body FROM production.operations_email WHERE id=$1',[saved.operations.report.certificateEmailId])).rows[0];
+  assert.equal(JSON.parse(mail.body).certificate.paymentReference,'001234');
+  assert.ok(!mail.body.includes(check.key));
+});

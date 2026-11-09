@@ -2004,6 +2004,11 @@ export async function operation(m: Member, input: any) {
         "Payment acknowledged cannot exceed the current balance.",
         400,
       );
+      const paidByCheck = r.certificate.paymentMethod === "Check";
+      if (!paidByCheck) r.attachments = r.attachments.filter(a=>a.kind !== "check");
+      if (m.role === "installer" && paidByCheck) {
+        assert(r.attachments.some(a=>a.kind === "check"), "Upload a photo of the check before submitting.", 400);
+      }
       assert(!reportError(r), reportError(r), 400);
       const measurementSurvey = m.role === "installer" && expectedCertificateType !== "Service" ? r.measurementSurvey : undefined;
       if (m.role === "installer" && expectedCertificateType !== "Service") {
@@ -2025,6 +2030,9 @@ export async function operation(m: Member, input: any) {
           "An uploaded attachment is missing.",
           400,
         );
+        if (a.kind === "check") {
+          assert(file.content_type?.startsWith("image/"), "Upload the check as a photo.", 400);
+        }
         if (["front", "rear", "left", "right"].includes(a.kind)) {
           const hash = file?.sha256;
           assert(

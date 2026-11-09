@@ -122,8 +122,8 @@ export function DigitalDocuments({ j }: any) {
           {uploads.map((a: any) => (
             <div className="digital-document-row" key={a.key}>
               <div>
-                <strong>{a.name}</strong>
-                <small>{a.kind || "Job document"}</small>
+                <strong>{a.kind === "check" ? "Check photo" : a.name}</strong>
+                <small>{a.kind === "check" ? "Payment record" : a.kind || "Job document"}</small>
               </div>
               <InAppDocumentLink
                 className="live-button"
@@ -131,7 +131,7 @@ export function DigitalDocuments({ j }: any) {
 
 
               >
-                Open document
+                {a.kind === "check" ? "View check photo" : "Open document"}
               </InAppDocumentLink>
             </div>
           ))}

@@ -7,7 +7,7 @@ import {matchingLaborJobs,laborImportDisposition} from './labor-import';
 import {database} from '@/db/raw';
 import {ApiError,canSeeJob,type Member} from './access';
 import {drawnSignature,readProfileDetails} from './account-profile';
-import {laborLines,laborTotal,laborCertificateReady,reportKey,laborVisitType,laborCustomerId} from './labor';
+import {laborLines,laborTotal,laborCertificateReady,laborCertificateUsed,reportKey,laborVisitType,laborCustomerId} from './labor';
 import {z} from 'zod';
 import {blankLaborTemplate,templateDetailsValid} from './labor-template';
 const formFields=z.object({authorization:z.enum(['complete','other']).optional(),chargebackTo:z.array(z.enum(['Sales Rep','Contractor','Factory','Warranty'])).max(4).optional(),stop:z.string().max(20).optional(),stopOf:z.string().max(20).optional(),differences:z.string().max(1500).optional(),miscLabor:z.string().max(1500).optional(),receivedBy:z.string().max(150).optional(),truckInitials:z.string().trim().max(20).optional(),truckEmployeeNumber:z.string().trim().max(40).optional(),checklistExplanation:z.string().max(1500).optional(),answer0:z.enum(['Yes','No']).optional(),answer1:z.enum(['Yes','No']).optional(),answer2:z.enum(['Yes','No']).optional(),truck:z.array(z.enum(['Yard Signs','Drop Cloth','Trim & Caulk','Parts','Vacuum','Spray Foam'])).max(6).optional()});
@@ -58,7 +58,7 @@ export async function laborAction(m:Member,input:any){
     if(needsReview)fail(lines.every(l=>l.actual!==null&&l.rate!==null),'Enter actual units and pay for every submitted labor line.');
     sheet.lines=lines;sheet.originalLines=structuredClone(lines);delete sheet.templateVersion;
     if(input.formFields!==undefined)saveFormFields(m,sheet,input.formFields);
-    if(needsReview){delete sheet.approvalDismissed;delete sheet.approvalDismissedAt;delete sheet.approvalDismissedBy;sheet.status='Submitted';sheet.requestedTotal=laborTotal(lines);for(const key of ['approvedLines','approvedTotal','approvedAt','approvedBy','reportKey','packetJob','reviewerSignature','approvalSummary'])delete sheet[key];}
+    if(needsReview){delete sheet.approvalDismissed;delete sheet.approvalDismissedAt;delete sheet.approvalDismissedBy;sheet.status='Submitted';sheet.requestedTotal=laborTotal(lines);for(const key of ['approvedLines','approvedTotal','approvedAt','approvedBy','reportKey','packetJob','reviewerSignature','approvalSummary','approvedWithoutCertificate'])delete sheet[key];}
     message='Labor sheet edited by FS/Admin'+(needsReview?' — pending management review':'');
    }else if(base.action==='draft'){
     fail(office(m)||m.role==='installer'&&canSeeJob(m,j),'Assigned installer or office access required.',403);
@@ -78,11 +78,18 @@ export async function laborAction(m:Member,input:any){
     Object.assign(sheet,{installerName:crew?.name||j.crew||m.name,contractorId:crewProfile.contractorNumber||crew?.installer_code||'',originalLines:original,lines:v.lines,status:'Submitted',submittedAt:at,submittedBy:m.name,installerSignature:v.signature,requestedTotal:laborTotal(v.lines)});message='Installer labor submitted for FS/Admin review';
    }else{
     fail(['admin','supervisor'].includes(m.role),'FS/Admin approval required.',403);fail(sheet.status==='Submitted','No labor submission is pending.',409);
-    const v=z.object({approve:z.boolean(),truckInspected:z.boolean().optional(),note:z.string().trim().max(2000),approvedUnits:z.array(z.number().finite().int('Enter whole numbers for labor units.').min(0).max(10000)).max(100).optional(),chargeback:z.number().finite().min(0).max(100000).default(0),chargebackReason:z.string().trim().max(2000).default(''),chargebackTo:z.array(z.enum(['Sales Rep','Contractor','Factory','Warranty'])).max(4).default([]),authorization:z.enum(['complete','other']).optional(),truck:z.array(z.enum(['Yard Signs','Drop Cloth','Trim & Caulk','Parts','Vacuum','Spray Foam'])).max(6).optional(),receivedBy:z.string().trim().max(150).optional()}).parse(input);
+    const v=z.object({approve:z.boolean(),approveWithoutCertificate:z.boolean().default(false),truckInspected:z.boolean().optional(),note:z.string().trim().max(2000),approvedUnits:z.array(z.number().finite().int('Enter whole numbers for labor units.').min(0).max(10000)).max(100).optional(),chargeback:z.number().finite().min(0).max(100000).default(0),chargebackReason:z.string().trim().max(2000).default(''),chargebackTo:z.array(z.enum(['Sales Rep','Contractor','Factory','Warranty'])).max(4).default([]),authorization:z.enum(['complete','other']).optional(),truck:z.array(z.enum(['Yard Signs','Drop Cloth','Trim & Caulk','Parts','Vacuum','Spray Foam'])).max(6).optional(),receivedBy:z.string().trim().max(150).optional()}).parse(input);
     if(!v.approve){fail(v.note,'Explain the correction needed.');Object.assign(sheet,{status:'Returned',reviewNote:v.note});message='Labor returned for correction';}
     else{
-     fail(laborCertificateReady(j),'Approve the completion, incompletion or service certificate first.');
-     fail(!sheets.some((s:any)=>s.status==='Approved'&&s.reportKey===reportKey(j.operations.report)),'Labor is already approved for this certificate. Use a new visit certificate for additional labor.',409);
+     const certificateApproved = laborCertificateReady(j);
+     const certificateUsed = laborCertificateUsed(j);
+     const certificateReady = certificateApproved && !certificateUsed;
+     fail(!certificateUsed || (certificateApproved && v.approveWithoutCertificate),
+       'Labor is already approved for this certificate. Use a new visit certificate or approve a separate visit without a certificate.',409);
+     fail(certificateReady || v.approveWithoutCertificate, 'Approve the certificate first or select Approve without certificate.');
+     const approvedWithoutCertificate = !certificateReady;
+     const visitKey = (!certificateUsed && reportKey(j.operations.report)) || `labor-only:${sheet.id}`;
+     const approvedReport = approvedWithoutCertificate ? null : j.operations.report;
      fail(typeof v.truckInspected==='boolean','Answer Yes or No: Did you inspect the installers truck?');
      fail(v.approvedUnits?.length===sheet.lines.length,'Review every requested labor line.');
      const lines=sheet.lines.map((l:any,i:number)=>({...l,actual:v.approvedUnits![i]}));
@@ -95,7 +102,7 @@ export async function laborAction(m:Member,input:any){
      fail(profile.savedDrawnSignature,'Save your drawn signature in My Profile before approving labor.');
      if(input.formFields!==undefined)saveFormFields(m,sheet,input.formFields);
      sheet.formFields={...(sheet.formFields||{}),...(v.truck!==undefined?{truck:v.truck}:{}),...(v.receivedBy!==undefined?{receivedBy:v.receivedBy}:{})};
-     Object.assign(sheet,{truckInspected:v.truckInspected,approvalSummary:laborPaymentSummary(j),approverInitials:staffInitials(m.name),approverEmployeeNumber:profile.employeeNumber||'',status:'Approved',approvedLines:lines,approvedTotal:Math.round((gross-v.chargeback)*100)/100,chargeback:v.chargeback,chargebackReason:v.chargebackReason,chargebackTo:input.chargebackTo!==undefined?v.chargebackTo:(sheet.formFields?.chargebackTo||sheet.chargebackTo||[]),authorization:v.authorization??sheet.formFields?.authorization??sheet.authorization,reviewNote:v.note,approvedAt:at,approvedBy:m.name,reviewerSignature:profile.savedDrawnSignature,reportKey:reportKey(j.operations.report),packetJob:{id:j.id,number:j.number,customer:j.customer,firstName:j.firstName,lastName:j.lastName,address:j.address,city:j.city,state:j.state,zip:j.zip,phone:j.phone,phone2:j.phone2,phone3:j.phone3,crew:j.crew,salesRep:j.salesRep,region:j.region,instructions:j.instructions,scheduleInstructions:j.scheduleInstructions,amount:j.amount,stage:j.stage,paymentMethod:j.paymentMethod,leadRenovationJob:!!j.leadRenovationJob,operations:{report:structuredClone(j.operations.report),leadRenovation:structuredClone(j.operations.leadRenovation||null),laborSheets:sheets.filter((s:any)=>s.status==='Approved').map((s:any)=>({id:s.id,status:s.status,approvedTotal:s.approvedTotal,approvedAt:s.approvedAt}))}}});message='Labor approved: $'+sheet.approvedTotal.toFixed(2);
+     Object.assign(sheet,{truckInspected:v.truckInspected,approvalSummary:laborPaymentSummary({...j,operations:{...j.operations,report:approvedReport}}),approverInitials:staffInitials(m.name),approverEmployeeNumber:profile.employeeNumber||'',status:'Approved',approvedLines:lines,approvedTotal:Math.round((gross-v.chargeback)*100)/100,chargeback:v.chargeback,chargebackReason:v.chargebackReason,chargebackTo:input.chargebackTo!==undefined?v.chargebackTo:(sheet.formFields?.chargebackTo||sheet.chargebackTo||[]),authorization:v.authorization??sheet.formFields?.authorization??sheet.authorization,reviewNote:v.note,approvedAt:at,approvedBy:m.name,reviewerSignature:profile.savedDrawnSignature,reportKey:visitKey,approvedWithoutCertificate,packetJob:{id:j.id,number:j.number,customer:j.customer,firstName:j.firstName,lastName:j.lastName,address:j.address,city:j.city,state:j.state,zip:j.zip,phone:j.phone,phone2:j.phone2,phone3:j.phone3,crew:j.crew,salesRep:j.salesRep,region:j.region,instructions:j.instructions,scheduleInstructions:j.scheduleInstructions,amount:j.amount,stage:j.stage,paymentMethod:j.paymentMethod,leadRenovationJob:!!j.leadRenovationJob,operations:{report:structuredClone(approvedReport),leadRenovation:structuredClone(j.operations.leadRenovation||null),laborSheets:sheets.filter((s:any)=>s.status==='Approved').map((s:any)=>({id:s.id,status:s.status,approvedTotal:s.approvedTotal,approvedAt:s.approvedAt}))}}});message=(approvedWithoutCertificate?'Labor approved without certificate: $':'Labor approved: $')+sheet.approvedTotal.toFixed(2);
     }
    }
   }

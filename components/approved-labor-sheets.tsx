@@ -15,7 +15,7 @@ export function ApprovedLaborSheets({ j }: { j: any }) {
             <div>
               <strong>{sheet.visitType || "Installation"} · {new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(sheet.approvedTotal || 0)}</strong>
               <small style={{ display: "block" }}>
-                {sheet.approvedAt ? new Date(sheet.approvedAt).toLocaleDateString("en-US", { timeZone: "America/New_York" }) : "Approved"} · Approved by {sheet.approvedBy || "management"}
+                {sheet.approvedAt ? new Date(sheet.approvedAt).toLocaleDateString("en-US", { timeZone: "America/New_York" }) : "Approved"} · Approved by {sheet.approvedBy || "management"}{sheet.approvedWithoutCertificate && " · Without certificate"}
               </small>
             </div>
             <InAppDocumentLink className="labor-action-button"

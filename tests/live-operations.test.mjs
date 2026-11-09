@@ -4809,3 +4809,69 @@ test('bulk clearing reviewed items across jobs preserves records and rolls back 
   assert.equal(b.operations.reorders[0].status,'Approved');
   assert.equal(b.operations.reorders[1].approvalDismissed,undefined);
 });
+
+test('FS can approve, batch, and clear labor without recording a customer certificate', async () => {
+  const {laborAction}=await vite.ssrLoadModule('/lib/labor-store.ts');
+  const {batchAction,batchData}=await vite.ssrLoadModule('/lib/completion-batches.ts');
+  const {PDFDocument}=await import('pdf-lib');
+  const pdfjs=await import('pdfjs-dist/legacy/build/pdf.mjs');
+  const id=crypto.randomUUID(), sheetId=crypto.randomUUID(), at=new Date().toISOString();
+  const job={id,number:'LABOR-ONLY',customer:'Labor Only Test',stage:'Production',amount:125,installerId:installer.id,leadRenovationJob:true,history:[],operations:{laborSheets:[{
+    id:sheetId,status:'Submitted',visitType:'Installation',submittedAt:at,installerSignature:signature,
+    lines:[{description:'Installation',contract:2,actual:2,rate:10}],
+  }]}};
+  await pg.query('INSERT INTO production.jobs(id,payload,version,updated) VALUES($1,$2,1,$3)',[id,JSON.stringify(job),at]);
+  const request={action:'review',jobId:id,sheetId,version:1,approve:true,approvedUnits:[2],truckInspected:false,note:'Customer unavailable'};
+  await assert.rejects(()=>laborAction(fs,request),/Approve without certificate/);
+  const exception={...request,approveWithoutCertificate:true};
+  await assert.rejects(()=>laborAction(installer,exception),/FS\/Admin/);
+  await assert.rejects(()=>laborAction(fs,{...exception,truckInspected:undefined}),/inspect/);
+  await assert.rejects(()=>laborAction(fs,exception),/Lead Renovation/);
+  job.leadRenovationJob=false;
+  await pg.query('UPDATE production.jobs SET payload=$1 WHERE id=$2',[JSON.stringify(job),id]);
+  await pg.query('UPDATE production.members SET profile_details=$1::jsonb WHERE id=$2',[JSON.stringify({savedDrawnSignature:signature}),fs.id]);
+  const current=async()=>{const row=(await pg.query('SELECT payload,version FROM production.jobs WHERE id=$1',[id])).rows[0];return {...JSON.parse(row.payload),version:row.version};};
+  await laborAction(fs,exception);
+  let saved=await current(), sheet=saved.operations.laborSheets[0];
+  assert.equal(sheet.approvedWithoutCertificate,true);
+  assert.equal(sheet.approvedTotal,20);
+  assert.equal(sheet.reviewerSignature,signature);
+  assert.equal(sheet.packetJob.operations.report,null);
+  assert.equal(saved.operations.report,undefined);
+  assert.equal(saved.stage,'Production');
+  assert.equal(saved.amount,125);
+  const entry=(await batchData(pa)).jobs.find(item=>item.laborId===sheetId);
+  assert.equal(entry.status,'Labor only');assert.deepEqual(entry.missing,[]);
+  const batch=await batchAction(pa,{items:[{jobId:id,laborId:sheetId}]});
+  const bytes=Buffer.from((await batchData(pa,batch.id,true)).pdf_base64,'base64');
+  assert.equal((await PDFDocument.load(bytes)).getPageCount(),2);
+  const pdf=await pdfjs.getDocument({data:new Uint8Array(bytes),isEvalSupported:false}).promise;
+  try {
+    const cover=(await (await pdf.getPage(1)).getTextContent()).items.map(i=>i.str||'').join(' ');
+    const labor=(await (await pdf.getPage(2)).getTextContent()).items.map(i=>i.str||'').join(' ');
+    assert.match(cover,/Labor only/);
+    assert.match(labor,/Labor approved without certificate/);
+  } finally {await pdf.destroy();}
+  await operation(fs,{action:'bulkClearApprovals',data:{selected:[{jobId:id,version:saved.version,kind:'labor',recordId:sheetId}]}});
+  saved=await current();sheet=saved.operations.laborSheets[0];
+  assert.equal(sheet.approvalDismissed,true);
+  assert.equal(sheet.status,'Approved');
+  assert.equal(sheet.approvedWithoutCertificate,true);
+  assert.equal((await batchData(pa)).jobs.find(item=>item.laborId===sheetId).batched,true);
+  // A separate visit must not use a certificate that already has approved labor.
+  const followupId=crypto.randomUUID();
+  saved.operations.report={approved:true,status:'Incomplete',certificate:{id:'prior-visit'}};
+  saved.operations.laborSheets.push(
+    {id:crypto.randomUUID(),status:'Approved',reportKey:'prior-visit',approvedAt:at},
+    {...job.operations.laborSheets[0],id:followupId,visitType:'Completion'},
+  );
+  await pg.query('UPDATE production.jobs SET payload=$1 WHERE id=$2',[JSON.stringify(saved),id]);
+  const followup={...request,sheetId:followupId,version:saved.version};
+  await assert.rejects(()=>laborAction(fs,followup),/Labor is already approved/);
+  await laborAction(fs,{...followup,approveWithoutCertificate:true});
+  const reviewed=await current(), followupSheet=reviewed.operations.laborSheets.find(s=>s.id===followupId);
+  assert.equal(followupSheet.approvedWithoutCertificate,true);
+  assert.notEqual(followupSheet.reportKey,'prior-visit');
+  assert.equal(reviewed.operations.report.certificate.id,'prior-visit');
+
+});

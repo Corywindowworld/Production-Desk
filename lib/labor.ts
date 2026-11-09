@@ -32,3 +32,8 @@ export function reportKey(r:any){return r?.certificate?.id||r?.certificate?.sign
 export function laborVisitType(j:any):'Installation'|'Completion'|'Service'{return j.stage==='SVC'||j.operations?.report?.certificate?.type==='Service'?'Service':j.stage==='Incomplete'||j.incompleteSince||j.serviceCompletionJob||j.operations?.previousReports?.length?'Completion':'Installation';}
 
 export function laborCertificateReady(j:any){const r=j.operations?.report;return !!(r?.approved&&r?.certificate&&reportKey(r));}
+
+export function laborCertificateUsed(j:any) {
+ const key = reportKey(j.operations?.report);
+ return !!key && (j.operations?.laborSheets || []).some((sheet:any)=>sheet.status==='Approved' && sheet.reportKey===key);
+}

@@ -13,6 +13,7 @@ export async function laborFormPdf(job:any,sheet:any){
  const check=(label:string,yes:boolean,x:number,y:number)=>{box(x,y-1,7,7);if(yes){p.drawLine({start:{x:x+1,y:y+2},end:{x:x+3,y},thickness:1});p.drawLine({start:{x:x+3,y},end:{x:x+6,y:y+5},thickness:1});}text(label,x+10,y,7);};
  const money=(v:any)=>Number(v||0).toFixed(2),x=36,left=360,right=410,rw=166;
  p.drawText('Window World of Tampa Bay Job Labor Sheet',{x,y:754,size:17,font:serif});text(`Stop # ${f.stop||'_____'} of ${f.stopOf||'_____'}`,455,744,8);
+ if(sheet.approvedWithoutCertificate)text('Labor approved without certificate',36,744,8,true);
  box(36,712,260,28);box(304,712,92,28);box(410,712,166,28);
  box(36,691,360,19);box(36,671,260,18);box(304,671,92,18);box(410,671,166,38);box(36,635,360,34);
  wrap(customerDisplayName(job.customer,job.firstName,job.lastName),40,728,252,12,2,true);text(`ID#: ${job.number}`,308,725,11,true);wrap(`Crew: ${sheet.contractorId||''} ${sheet.installerName||job.crew||''}`,414,729,rw-8,10,2,true);

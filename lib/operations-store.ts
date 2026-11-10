@@ -12,7 +12,7 @@ import { certificateEmailHtml, certificateSnapshot } from "./job-certificate";
 import { jobCertificatePdfBase64 } from "./job-certificate-pdf";
 import { reorderOperation } from "@/lib/reorder-requests";
 import { canAddJobPhotos, jobPhotoKinds } from "./job-photo-access";
-import { linkedAccountValues } from "./linked-account";
+import { linkedAccountValues, linkedPermitFields, linkedPermitValues, preferredLinkedPermit } from "./linked-account";
 import { isPurchaseOrder, resolvedPaymentMethod } from "./payment-status";
 import {
   remainingWorkdays,
@@ -21,6 +21,7 @@ import {
 } from "./install-calendar";
 import { storedObject } from "./stored-data";
 import { database } from "@/db/raw";
+import type {Database} from "@/db/adapter";
 import {
   ApiError,
   Member,
@@ -98,6 +99,22 @@ function withCustomerRecord(j: any, r: any) {
     privateProvider: j.privateProvider ?? record.privateProvider ?? false,
   };
 }
+// Read the linked group while link changes are serialized, then lock rows in ID order.
+async function lockLinkedPermitAccounts(tx:Database, jobId:string) {
+  const ids = new Set([jobId]);
+  for (const id of ids) {
+    const row = await tx.prepare("SELECT payload FROM jobs WHERE id=?").bind(id).first();
+    const links = row ? storedObject(row.payload).linkedAccountIds : null;
+    if (Array.isArray(links)) for (const linkedId of links) if (typeof linkedId === "string") ids.add(linkedId);
+  }
+  const accounts:any[] = [];
+  for (const id of [...ids].sort()) {
+    const row = await tx.prepare("SELECT payload FROM jobs WHERE id=? FOR UPDATE").bind(id).first();
+    if (row && id !== jobId) accounts.push(storedObject(row.payload));
+  }
+  return accounts;
+}
+
 const assert = (yes: unknown, message: string, status = 403) => {
   if (!yes) throw new ApiError(status, message);
 };
@@ -539,10 +556,21 @@ export async function operation(m: Member, input: any) {
   if (action === "bulkClearApprovals") return bulkClearApprovals(m, input.data?.selected, at);
   if (action === "linkAccount" || action === "unlinkAccount") {
     assert(hasJobEditPermission(m), "Job editing permission required.");
-    const source = parse(z.string().uuid(), input.jobId),
-      target = parse(z.string().uuid(), input.data?.targetId);
-    assert(source !== target, "Choose a different account.", 400);
+    const source = parse(z.string().uuid(), input.jobId);
+    const byCustomerId = action === "linkAccount" && input.data?.targetCustomerId !== undefined;
     await db.transaction(async (tx) => {
+      await tx.prepare('SELECT pg_advisory_xact_lock(820261029)').first();
+      let target: string;
+      if (byCustomerId) {
+        const customerId = parse(z.string().trim().min(1).max(80), input.data.targetCustomerId);
+        const matches = (await tx.prepare("SELECT id FROM jobs WHERE payload::jsonb->>'number'=? LIMIT 2").bind(customerId).all()).results;
+        assert(matches.length > 0, "Customer ID not found. Check the number and try again.", 404);
+        assert(matches.length === 1, "More than one account has that Customer ID. Resolve the duplicate before linking.", 409);
+        target = matches[0].id;
+      } else {
+        target = parse(z.string().uuid(), input.data?.targetId);
+      }
+      assert(source !== target, "Choose a different account.", 400);
       // Lock both rows in a stable order to prevent cross-link deadlocks.
       const ids = [source, target].sort(),
         rows: any[] = [];
@@ -563,47 +591,36 @@ export async function operation(m: Member, input: any) {
         "This job changed. Refresh and try again.",
         409,
       );
-      for (let i = 0; i < ids.length; i++) {
-        const job = storedObject(rows[i].payload),
-          other = ids[1 - i];
-        const links = new Set<string>(
-          Array.isArray(job.linkedAccountIds) ? job.linkedAccountIds : [],
-        );
-        if (action === "linkAccount") links.add(other);
-        else links.delete(other);
-        if (action === "linkAccount" && ids[i] === source) {
-          const sourceRecord = (
-            await tx
-              .prepare("SELECT payload FROM customer_records WHERE job_id=?")
-              .bind(target)
-              .first()
-          )?.payload;
-          const from = withCustomerRecord(
-            storedObject(rows[1 - i].payload),
-            sourceRecord,
-          );
-          const copied = linkedAccountValues(
-            from,
-            ["admin", "production_assistant"].includes(m.role),
-          );
-          // Validate only copied fields so legacy workflow status codes remain intact.
-          for (const [key, value] of Object.entries(copied)) {
-            const field = (fieldsSchema.shape as any)[key];
-            job[key] = parse(
-              field,
-              value === null && key !== "amount" && key !== "contractAmount"
-                ? undefined
-                : value,
-            );
-          }
+      let permit:Record<string,any> = {}, copied:Record<string,any> = {};
+      if (action === "linkAccount") {
+        const fromIndex = ids.indexOf(target), currentIndex = ids.indexOf(source);
+        const readAccount = async (index:number) => withCustomerRecord(storedObject(rows[index].payload),
+          (await tx.prepare("SELECT payload FROM customer_records WHERE job_id=?").bind(ids[index]).first())?.payload);
+        const from = await readAccount(fromIndex), current = await readAccount(currentIndex);
+        permit = preferredLinkedPermit(from, current);
+        if (!byCustomerId) {
+          copied = linkedAccountValues(from, ["admin", "production_assistant"].includes(m.role));
+          for (const key of linkedPermitFields) delete copied[key];
         }
+      }
+      for (let i = 0; i < ids.length; i++) {
+        const job = storedObject(rows[i].payload), other = ids[1 - i];
+        const links = new Set<string>(Array.isArray(job.linkedAccountIds) ? job.linkedAccountIds : []);
+        if (action === "linkAccount") {
+          links.add(other);
+          const values = ids[i] === source ? {...copied,...permit} : permit;
+          // Validate only copied fields so legacy workflow status codes remain intact.
+          for (const [key, value] of Object.entries(values)) {
+            job[key] = parse((fieldsSchema.shape as any)[key], value === null && key !== "amount" && key !== "contractAmount" ? undefined : value);
+          }
+        } else links.delete(other);
         job.linkedAccountIds = [...links];
         const otherJob = storedObject(rows[1 - i].payload);
         job.history = [
           {
             at,
             by: m.name,
-            text: `${action === "linkAccount" ? "Linked" : "Unlinked"} customer account #${otherJob.number}${action === "linkAccount" && ids[i] === source ? "; copied account information from this account (product and workflow unchanged)" : ""}`,
+            text: `${action === "linkAccount" ? "Linked" : "Unlinked"} customer account #${otherJob.number}${action === "linkAccount" ? (byCustomerId ? "; shared permit details" : ids[i] === source ? "; copied account information and permit details" : "") : ""}`,
           },
           ...(job.history || []),
         ];
@@ -942,7 +959,12 @@ export async function operation(m: Member, input: any) {
     }
   }
   await db.transaction(async (tx) => {
-    if(['create','edit'].includes(action))await tx.prepare('SELECT pg_advisory_xact_lock(820261029)').first();
+    if(['create','edit','permit'].includes(action))await tx.prepare('SELECT pg_advisory_xact_lock(820261029)').first();
+    let linkedPermitAccounts:any[] = [];
+    if (action === "permit") {
+      assert(hasJobEditPermission(m), "Job editing permission required.");
+      linkedPermitAccounts = await lockLinkedPermitAccounts(tx, String(input.jobId || ""));
+    }
     let j: any,
       version = 0;
     if (action === "create") {
@@ -1033,6 +1055,7 @@ export async function operation(m: Member, input: any) {
         );
         const target = matches[0],
           other = storedObject(target.payload);
+        Object.assign(other, preferredLinkedPermit(j, inherited));
         j.linkedAccountIds = [target.id];
         other.linkedAccountIds = [
           ...new Set([...(other.linkedAccountIds || []), j.id]),
@@ -1708,6 +1731,14 @@ export async function operation(m: Member, input: any) {
       j.buildingDepartment = p.buildingDepartment;
       j.permitReceived = p.received;
       j.permitNumber = p.number;
+      const permit = linkedPermitValues(j);
+      for (const account of linkedPermitAccounts) {
+        if (Object.entries(permit).every(([key, value]) => account[key] === value)) continue;
+        Object.assign(account, permit);
+        account.history = [{at,by:m.name,text:`Permit details copied from linked account #${j.number}`}, ...(account.history || [])];
+        await tx.prepare("UPDATE jobs SET payload=?,version=version+1,updated=? WHERE id=?")
+          .bind(JSON.stringify(account), at, account.id).run();
+      }
       history = p.noPermitRequired
         ? "No Permit Required"
         : p.received

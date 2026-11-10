@@ -4908,3 +4908,47 @@ test('installer check payments require a verified job photo and keep it out of c
   assert.equal(JSON.parse(mail.body).certificate.paymentReference,'001234');
   assert.ok(!mail.body.includes(check.key));
 });
+
+test('existing accounts link by exact Customer ID and share permit updates across the linked group', async () => {
+  const id = crypto.randomUUID().slice(0, 8);
+  const numbers = [`PERMIT-${id}-A`, `PERMIT-${id}-B`, `PERMIT-${id}-C`];
+  for (let i=0; i<numbers.length; i++) {
+    await operation(pa,{action:'create',data:{number:numbers[i],customer:'Linked Permit Test',address:'10 Test Ave',amount:100+i,inspectionComplete:i===0}});
+  }
+  const account = async (i) => {
+    const row=(await pg.query("SELECT payload,version FROM production.jobs WHERE payload::jsonb->>'number'=$1",[numbers[i]])).rows[0];
+    return {...JSON.parse(row.payload),version:row.version};
+  };
+  const edit = async (i,action,data) => {
+    const job=await account(i);
+    return operation(pa,{action,jobId:job.id,version:job.version,data});
+  };
+  const permit={received:true,number:'Permit-001',buildingDepartment:'Tampa',buildingDepartmentPhone:'813-555-0100',expiration:'2027-01-15',privateProvider:true,customerSuppliedPermit:true};
+  await edit(0,'permit',{...permit,inspectionComplete:true});
+  await assert.rejects(()=>edit(1,'linkAccount',{targetCustomerId:numbers[0].slice(0,-1)}),/Customer ID not found/);
+  await assert.rejects(()=>edit(1,'linkAccount',{targetCustomerId:numbers[1]}),/different account/);
+  await edit(1,'linkAccount',{targetCustomerId:` ${numbers[0]} `});
+  await edit(1,'linkAccount',{targetCustomerId:numbers[2]});
+  const [a,b,c]=await Promise.all([account(0),account(1),account(2)]);
+  assert.deepEqual(new Set(b.linkedAccountIds),new Set([a.id,c.id]));
+  assert.deepEqual(a.linkedAccountIds,[b.id]);
+  assert.deepEqual(c.linkedAccountIds,[b.id]);
+  for(const job of [b,c]) {
+    assert.equal(job.permitNumber,permit.number);
+    assert.equal(job.permitExpiration,permit.expiration);
+    assert.equal(job.buildingDepartmentPhone,permit.buildingDepartmentPhone);
+    assert.equal(job.customerSuppliedPermit,true);
+    assert.equal(job.inspectionComplete,false);
+  }
+  assert.equal(b.amount,101);
+  assert.equal(c.amount,102);
+  await edit(2,'permit',{...permit,number:'Permit-002',expiration:'2027-03-15'});
+  assert.equal((await account(0)).permitNumber,'Permit-002');
+  assert.equal((await account(0)).inspectionComplete,true);
+  assert.equal((await account(1)).permitExpiration,'2027-03-15');
+  await edit(2,'unlinkAccount',{targetId:b.id});
+  await edit(0,'permit',{received:false,noPermitRequired:true,number:'',inspectionComplete:true});
+  assert.equal((await account(1)).noPermitRequired,true);
+  assert.equal((await account(1)).permitNumber,'');
+  assert.equal((await account(2)).permitNumber,'Permit-002');
+});

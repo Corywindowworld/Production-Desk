@@ -2796,6 +2796,8 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
           />
         )}
       </details>
+      {!isInstaller && <LinkedAccounts key={j.id} j={j} jobs={data.jobs} canEdit={data.canEdit} save={save} onOpen={onOpen} />}
+
       {data.canEdit && (
         <details className="op-disclosure">
           <summary>3. Schedule Work {j.install ? "✓" : ""}</summary>
@@ -3295,15 +3297,6 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
               <PaymentForm j={j} save={save} />
             </details>
           )}
-          {!isInstaller && (
-            <LinkedAccounts
-              j={j}
-              jobs={data.jobs}
-              canEdit={data.canEdit}
-              save={save}
-              onOpen={onOpen}
-            />
-          )}{" "}
           <details className="op-disclosure">
             <summary>Guild Quality surveys · {jobSurveys.length}</summary>
             {jobSurveys.length ? (
@@ -4685,23 +4678,13 @@ function LinkedAccounts({ j, jobs, canEdit, save, onOpen }: any) {
   const linked = jobs.filter(
     (v: any) => v.id !== j.id && (j.linkedAccountIds || []).includes(v.id),
   );
-  const candidates = jobs.filter(
-    (v: any) =>
-      v.id !== j.id &&
-      !(j.linkedAccountIds || []).includes(v.id) &&
-      `${v.number} ${v.customer} ${v.address}`
-        .toLowerCase()
-        .includes(query.trim().toLowerCase()),
-  );
+  const customerId = query.trim();
+  const matches = customerId ? jobs.filter((v:any)=>String(v.number) === customerId) : [];
+  const match = matches.length === 1 ? matches[0] : null;
   return (
     <details className="op-disclosure">
       <summary>Linked customer accounts ({linked.length})</summary>
-      <p>
-        Link separate jobs for the same customer. Linking copies the selected
-        account’s customer details, permits, sales information and notes into
-        this job. Admin and PA also copy payment method and amounts. Review the
-        source before linking. Products, schedules and statuses stay separate.
-      </p>
+      <p>Link jobs for the same customer by entering the other Customer ID. Permit updates are shared across linked jobs.</p>
       {linked.map((v: any) => (
         <div key={v.id}>
           <button
@@ -4731,23 +4714,21 @@ function LinkedAccounts({ j, jobs, canEdit, save, onOpen }: any) {
       ))}
       {canEdit && (
         <Form
-          onSave={async (f: FormData) =>
-            save("linkAccount", { targetId: field(f, "targetId") })
-          }
-          submitLabel="Link & copy account information"
+          onSave={async () => {
+            await save("linkAccount", {targetCustomerId:customerId});
+            setQuery("");
+          }}
+          submitLabel="Link by Customer ID"
+          successMessage="Accounts linked and permit details copied."
         >
-          <label>
-            Find account by customer ID, name or address
-            <ClearableSearch onClear={() => setQuery("")} value={query} onChange={(e) => setQuery(e.target.value)} />
+          <label>Other Customer ID
+            <input value={query} onChange={event=>setQuery(event.target.value)} maxLength={80} required placeholder="Enter the exact Customer ID" />
           </label>
-          <Select
-            label="Account for the same customer"
-            name="targetId"
-            items={candidates.map((v: any) => ({
-              id: v.id,
-              name: `#${v.number} · ${v.customer} · ${v.product} · ${v.address}`,
-            }))}
-          />
+          {match && match.id !== j.id && <p>{match.customer} · {match.product} · {match.address}{match.permitNumber ? ` · Permit #${match.permitNumber}` : ""}</p>}
+          {match?.id === j.id && <p>Enter a different Customer ID.</p>}
+          {matches.length > 1 && <p>Multiple accounts have this Customer ID. Resolve the duplicate before linking.</p>}
+          {customerId && !matches.length && <p>No exact match in the job list.</p>}
+          <small>The selected account’s permit details are copied to this job. If only this job has a permit, its details are copied to the other account.</small>
         </Form>
       )}
     </details>

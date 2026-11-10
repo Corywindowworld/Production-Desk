@@ -268,7 +268,7 @@ test("live approvals, persistence, scopes and money", async () => {
   });
   assert.equal(j.stage, "Production");
   assert.equal(j.operations.report.pending, true);
-  const salesEmail=(await pg.query("SELECT body FROM production.operations_email WHERE subject LIKE '%Completion results%' AND subject LIKE $1",['%Customer ID '+j.number])).rows[0];
+  const salesEmail=(await pg.query("SELECT body FROM production.operations_email WHERE subject LIKE '%Completion Results%' AND subject LIKE $1",['%Customer ID '+j.number])).rows[0];
   assert.match(salesEmail.body,/5 out of 5 stars/);
   assert.match(salesEmail.body,/Fits &lt;1\/8 inch/);
   const certificateEmail = (
@@ -4036,7 +4036,7 @@ test("email failures identify missing configuration and provider rejection", asy
  finally {globalThis.fetch=original;delete env.RESEND_API_KEY;delete env.ACCOUNT_EMAIL_FROM;}
 });
 
- test("sales result emails include branded customer details and contractor number",async()=>{const {salesResultEmail}=await vite.ssrLoadModule('/lib/sales-result-email.ts');const email=salesResultEmail({customer:'Jane & John',number:'123456',address:'123 Main St',city:'Tampa',state:'FL',zip:'33601',phone:'813-555-0100'},{contractorId:'C123',installerName:'Test Crew',type:'Complete'},'https://productiondesk.app');assert.match(email.subject,/Jane & John/);assert.match(email.html,/Jane &amp; John/);assert.match(email.html,/123 Main St, Tampa, FL, 33601/);assert.match(email.html,/813-555-0100/);assert.match(email.html,/Completion results submitted by installer C123. Pending management review/);assert.match(email.html,/https:\/\/productiondesk.app\/window-world-tampa-bay.jpeg/);});
+ test("sales result emails include branded customer details and contractor number",async()=>{const {salesResultEmail}=await vite.ssrLoadModule('/lib/sales-result-email.ts');const email=salesResultEmail({customer:'Jane & John',number:'123456',address:'123 Main St',city:'Tampa',state:'FL',zip:'33601',phone:'813-555-0100'},{contractorId:'C123',installerName:'Test Crew',type:'Complete'},'https://productiondesk.app');assert.match(email.subject,/Jane & John/);assert.match(email.html,/Jane &amp; John/);assert.match(email.html,/123 Main St, Tampa, FL, 33601/);assert.match(email.html,/813-555-0100/);assert.match(email.html,/Completion Results submitted by installer C123. Pending management review/);assert.match(email.html,/https:\/\/productiondesk.app\/window-world-tampa-bay.jpeg/);});
 
 test("removed cities stay removed with punctuation and unusual whitespace",async()=>{const {cityDropdownChoices}=await vite.ssrLoadModule('/lib/dropdown-cleanup.ts');assert.deepEqual(cityDropdownChoices(['RUSKIN','Ruskin.',' ST. PETE ','PALM HARB,','BEVERLY\u00a0HI','Tampa','TAMPA','Palm Harbor']),['Palm Harbor','Tampa']);});
 

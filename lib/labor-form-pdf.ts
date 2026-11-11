@@ -11,7 +11,7 @@ export async function laborFormPdf(job:any,sheet:any){
  const box=(x:number,y:number,w:number,h:number)=>p.drawRectangle({x,y,width:w,height:h,borderWidth:.5,borderColor:rgb(0,0,0)});
  const wrap=(v:any,x:number,y:number,w:number,size=8,max=100,strong=false)=>{const face=strong?bold:font;let row='',n=0;for(const word of clean(v).split(/\s+/)){if(face.widthOfTextAtSize((row?row+' ':'')+word,size)>w&&row){if(n<max)text(row,x,y-n*(size+2),size,strong);n++;row='';}row+=(row?' ':'')+word;}if(row){if(n<max)text(row,x,y-n*(size+2),size,strong);n++;}if(n>max)extra.push(clean(v));return n;};
  const check=(label:string,yes:boolean,x:number,y:number)=>{box(x,y-1,7,7);if(yes){p.drawLine({start:{x:x+1,y:y+2},end:{x:x+3,y},thickness:1});p.drawLine({start:{x:x+3,y},end:{x:x+6,y:y+5},thickness:1});}text(label,x+10,y,7);};
- const money=(v:any)=>Number(v||0).toFixed(2),x=36,left=360,right=410,rw=166;
+ const money=(v:any)=>Number(v||0).toFixed(2).replace(/\.00$/, ''),x=36,left=360,right=410,rw=166;
  p.drawText('Window World of Tampa Bay Job Labor Sheet',{x,y:754,size:17,font:serif});text(`Stop # ${f.stop||'_____'} of ${f.stopOf||'_____'}`,455,744,8);
  if(sheet.approvedWithoutCertificate)text('Labor approved without certificate',36,744,8,true);
  box(36,712,260,28);box(304,712,92,28);box(410,712,166,28);

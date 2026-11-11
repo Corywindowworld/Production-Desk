@@ -13,7 +13,7 @@ export function ApprovedLaborSheets({ j }: { j: any }) {
         {sheets.map((sheet: any) => (
           <div className="digital-document-row" key={sheet.id} style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
             <div>
-              <strong>{sheet.visitType || "Installation"} · {new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(sheet.approvedTotal || 0)}</strong>
+              <strong>{sheet.visitType || "Installation"} · {new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(sheet.approvedTotal || 0).replace(/\.00$/, '')}</strong>
               <small style={{ display: "block" }}>
                 {sheet.approvedAt ? new Date(sheet.approvedAt).toLocaleDateString("en-US", { timeZone: "America/New_York" }) : "Approved"} · Approved by {sheet.approvedBy || "management"}{sheet.approvedWithoutCertificate && " · Without certificate"}
               </small>

@@ -1679,9 +1679,9 @@ export async function operation(m: Member, input: any) {
         j.received = r.received;
         j.stage = "Received";
       } else {
-        if (j.received !== r.received) {
+        if (j.received && j.received !== r.received) {
           const reason = parse(
-            z.string().trim().min(1).max(500),
+            z.string().trim().min(1, "Enter a source or reason when correcting the received date.").max(500).default(""),
             input.data.reference,
           );
           j.history = [

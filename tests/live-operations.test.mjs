@@ -1955,7 +1955,7 @@ test("customer fields, permit flag, received corrections and bulk aging persist"
   await act(pa, "receive", { received: today, materials });
   await assert.rejects(
     () => act(pa, "receive", { received: addDays(today, -2), materials }),
-    /input|invalid|check|required/i,
+    /source or reason/i,
   );
   await act(pa, "receive", {
     received: addDays(today, -2),
@@ -4951,4 +4951,21 @@ test('existing accounts link by exact Customer ID and share permit updates acros
   assert.equal((await account(1)).noPermitRequired,true);
   assert.equal((await account(1)).permitNumber,'');
   assert.equal((await account(2)).permitNumber,'Permit-002');
+});
+
+test('PA can record the first materials receipt on an already scheduled production job', async () => {
+  const id = crypto.randomUUID(), at = new Date().toISOString();
+  const job = { id, number: 'FIRST-RCVD', customer: 'Receipt test', stage: 'Production', product: 'Windows', received: '', operations: {}, history: [] };
+  await pg.query('INSERT INTO production.jobs(id,payload,version,updated) VALUES($1,$2,1,$3)', [id, JSON.stringify(job), at]);
+  const data = { received: today, materials: [{ materialType: 'Window', brand: 'Wincore', bay: 'B29' }], reference: '' };
+  await operation(pa, { action: 'receive', jobId: id, version: 1, data });
+  const { payload, version } = (await pg.query('SELECT payload,version FROM production.jobs WHERE id=$1', [id])).rows[0];
+  const saved = JSON.parse(payload);
+  assert.equal(saved.stage, 'Production');
+  assert.equal(saved.received, today);
+  assert.equal(saved.bay, 'B29');
+  await assert.rejects(
+    () => operation(pa, { action: 'receive', jobId: id, version, data: { ...data, received: addDays(today, -1) } }),
+    /source or reason/,
+  );
 });

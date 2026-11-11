@@ -3733,7 +3733,7 @@ function ReceiveForm({ j, save }: any) {
         value={j.received || localDay()}
         required
       />
-      {j.stage !== "Ordered" && (
+      {j.stage !== "Ordered" && j.received && (
         <Input
           name="reference"
           label="Source / reason if correcting received date"

@@ -9,7 +9,6 @@ import {approvedLaborToClear,laborMatchesReport} from '@/lib/approval-paperwork'
 import {ApprovedLaborSheets} from './approved-labor-sheets';
 import {CompletionBatches} from './completion-batches';
 import Warehouse from './warehouse';
-import {isPipelineJob} from "@/lib/production-pipeline";
 import { printJobCertificate } from "@/lib/print-job-certificate";
 import {CustomerAddress} from "./address-input";
 import {RoutePlanner} from "./routing/route-planner";
@@ -282,7 +281,6 @@ function QualityValue({ score }: any) {
 export default function LiveOperations() {
   const [refreshing, setRefreshing] = useState(false);
   const [refreshNotice, setRefreshNotice] = useState("");
-  const [pipelineStatus, setPipelineStatus] = useState("ALL");
   const [settingsSection, setSettingsSection] = useState("Accounts"),
     [bonusOpen, setBonusOpen] = useState(false);
   const [savedNotice, setSavedNotice] = useState(""),
@@ -702,17 +700,6 @@ export default function LiveOperations() {
                       </button>
                     </div>
                   )}
-                  <JobList
-                    allJobs={jobs}
-                    jobs={filtered}
-                    today={today}
-                    query={query}
-                    setQuery={setQuery}
-                    onOpen={setSelected}
-                    pipeline
-                    statusFilter={pipelineStatus}
-                    setStatusFilter={setPipelineStatus}
-                  />
                   <Calendar
                     daysOff={data.daysOff}
                     jobs={jobs}
@@ -1000,7 +987,6 @@ function JobList({
   query,
   setQuery,
   onOpen,
-  pipeline = false,
   statusFilter = "ALL",
   setStatusFilter,
 }: any) {
@@ -1019,9 +1005,7 @@ function JobList({
   const agedView = statusFilter.startsWith("AGED");
   const rows = jobs
     .filter(
-      (j: any) =>
-        (!pipeline || isPipelineJob(j)) &&
-        matchesJobFilter(j, today, statusFilter, statuses),
+      (j: any) => matchesJobFilter(j, today, statusFilter, statuses),
     )
     .sort(
       (a: any, b: any) =>
@@ -1031,7 +1015,7 @@ function JobList({
   return (
     <section className="op-panel">
       <div className="op-section-head">
-        <h2>{pipeline ? "Production Pipeline" : "Jobs"}</h2>
+        <h2>Jobs</h2>
         <span>{rows.length} jobs</span>
       </div>
       {agedView && (
@@ -1075,7 +1059,6 @@ function JobList({
             <option value="AGED_INC">Aged INC</option>
             <option value="AGED_PROD">Aged PROD</option>
             {Object.keys(statuses)
-              .filter((s) => !pipeline || s !== "COMP")
               .map((s) => (
                 <option key={s}>{s}</option>
               ))}
@@ -1088,7 +1071,7 @@ function JobList({
           return (
             <button
               className={
-                "op-job live-job " + (!pipeline && a.aged ? "live-aged" : "")
+                "op-job live-job " + (a.aged ? "live-aged" : "")
               }
               key={j.id}
               onClick={() => onOpen(j.id)}

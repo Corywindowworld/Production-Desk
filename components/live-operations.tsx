@@ -2780,6 +2780,256 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
         {(data.canEdit || review) && <CertificateInvite key={j.id} j={j} />}
         <DigitalDocuments j={j} />
       </section>
+      <section
+        aria-label="Job workspace"
+        style={{
+          marginTop: 20,
+          border: "1px solid #dce3ea",
+          borderRadius: 12,
+          padding: 12,
+        }}
+      >
+        <div
+          role="tablist"
+          aria-label="Job sections"
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            gap: 6,
+            marginBottom: 14,
+          }}
+        >
+          {[
+            { id: "completion", label: isInstaller ? "Job Completion" : "Job Visit & Completion" },
+            {
+              id: "reorders",
+              label:
+                "Reorders" +
+                (o.reorders?.length ? " (" + o.reorders.length + ")" : ""),
+            },
+            { id: "history", label: "Payments & Other" },
+          ].map((t) => (
+            <button
+              type="button"
+              role="tab"
+              key={t.id}
+              id={"job-tab-" + j.id + "-" + t.id}
+              aria-selected={workspaceTab === t.id}
+              aria-controls={"job-panel-" + j.id + "-" + t.id}
+              onClick={() => setWorkspaceTab(t.id)}
+              onKeyDown={(e) => {
+                if (
+                  ["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)
+                ) {
+                  e.preventDefault();
+                  const buttons = Array.from(
+                    e.currentTarget.parentElement!.querySelectorAll<HTMLButtonElement>(
+                      '[role="tab"]',
+                    ),
+                  );
+                  const index = buttons.indexOf(e.currentTarget);
+                  const next =
+                    e.key === "Home"
+                      ? 0
+                      : e.key === "End"
+                        ? buttons.length - 1
+                        : (index +
+                            (e.key === "ArrowRight" ? 1 : -1) +
+                            buttons.length) %
+                          buttons.length;
+                  buttons[next].click();
+                  buttons[next].focus();
+                }
+              }}
+              style={{
+                flex: "1 1 140px",
+                padding: "10px 12px",
+                border:
+                  "1px solid " +
+                  (workspaceTab === t.id ? "#174e7a" : "#cad6e3"),
+                borderRadius: 8,
+                background: workspaceTab === t.id ? "#174e7a" : "transparent",
+                color: workspaceTab === t.id ? "#fff" : "inherit",
+                fontWeight: 650,
+                cursor: "pointer",
+              }}
+            >
+              {t.label}
+              {t.id === "completion" && o.report?.pending ? " · Pending" : ""}
+            </button>
+          ))}
+        </div>
+        <section
+          role="tabpanel"
+          id={"job-panel-" + j.id + "-completion"}
+          aria-labelledby={"job-tab-" + j.id + "-completion"}
+          hidden={workspaceTab !== "completion"}
+          style={{ display: workspaceTab === "completion" ? "block" : "none" }}
+        >
+          {isInstaller && completionSection}
+          {!isInstaller && <section className="op-disclosure" aria-label="Job visits">
+            <h3>Job Visits</h3>
+            {review && <ScheduledVisits job={j} onSaved={()=>setVisitRevision(v=>v+1)} />}
+            <details style={{marginTop:12}}>
+              <summary>Previous Job Visits</summary>
+              <JobVisits key={visitRevision} jobId={j.id} onBusy={noOp} onEditing={noOp} />
+            </details>
+          </section>}
+          {!isInstaller && completionSection}
+          {me.role === "admin" && <AdminResultForm j={j} save={save} />}
+          <details className="op-disclosure">
+            <summary>Submitted Job Result</summary>
+            {o.report && (
+              <>
+                <p>
+                  ✓ {o.report.status} result sent ·{" "}
+                  {o.report.pending
+                    ? "Awaiting supervisor review"
+                    : o.report.approved
+                      ? "Approved and status updated"
+                      : "Returned for correction"}
+                </p>
+                <p>{o.report.reason}</p>
+                <p>{o.report.notes}</p>
+                {review && o.report.pending && (
+                  <div className="op-schedule-actions">
+                    <button
+                      disabled={saving}
+                      onClick={() => act("reviewReport", { approve: true })}
+                    >
+                      Approve and move to{" "}
+                      {o.report.status === "Complete" ? "COMP" : "INC"}
+                    </button>
+                    <button
+                      disabled={saving}
+                      onClick={() => act("reviewReport", { approve: false })}
+                    >
+                      Return for correction
+                    </button>
+                  </div>
+                )}
+              </>
+            )}
+          </details>
+        </section>
+        <section
+          role="tabpanel"
+          id={"job-panel-" + j.id + "-reorders"}
+          aria-labelledby={"job-tab-" + j.id + "-reorders"}
+          hidden={workspaceTab !== "reorders"}
+          style={{ display: workspaceTab === "reorders" ? "block" : "none" }}
+        >
+          {" "}
+          <ReorderRequests
+            j={j}
+            me={me}
+            save={save}
+            openRequest={reorderPrompt}
+          />
+          <details className="op-disclosure">
+            <summary>Reorder information</summary>
+            <p>Reorder date: {displayDate(j.reorderDate) || "Not recorded"}</p>
+            <p className="op-instructions">
+              {j.reorder || "No reorder notes recorded."}
+            </p>
+            {data.canEdit && (
+              <Form
+                onSave={async (f) =>
+                  save("edit", {
+                    reorder: field(f, "reorder"),
+                    reorderDate: field(f, "reorderDate"),
+                  })
+                }
+              >
+                <Input
+                  name="reorderDate"
+                  label="Reorder Date · starts INC aging"
+                  type="date"
+                  value={j.reorderDate}
+                  max={today}
+                />
+                <Text
+                  name="reorder"
+                  label="Reorder information"
+                  value={j.reorder}
+                />
+              </Form>
+            )}
+          </details>
+        </section>
+        <section
+          role="tabpanel"
+          id={"job-panel-" + j.id + "-history"}
+          aria-labelledby={"job-tab-" + j.id + "-history"}
+          hidden={workspaceTab !== "history"}
+          style={{ display: workspaceTab === "history" ? "block" : "none" }}
+        >
+          {!isInstaller && (
+            <button type="button" className="live-button" onClick={() => setLaborOpen(true)}>
+              Complete Labor Sheet
+            </button>
+          )}
+          <ApprovedLaborSheets j={j}/>
+          <LaborSheet j={j} me={me} profile={data.leadProfile} reload={reload}/>
+          {(j.leadRenovationJob || o.leadRenovation || review) && (
+            <LeadRenovation
+              j={j}
+              me={me}
+              profile={data.leadProfile}
+              installers={data.leadInstallers || []}
+              save={save}
+            />
+          )}
+          {me.role === "admin" && (
+            <details className="op-disclosure">
+              <summary>Payments</summary>
+              <PaymentForm j={j} save={save} />
+            </details>
+          )}
+          <details className="op-disclosure">
+            <summary>Guild Quality surveys · {jobSurveys.length}</summary>
+            {jobSurveys.length ? (
+              jobSurveys.map((s: any) => (
+                <article className="op-appointment" key={s.id || s.external_id}>
+                  <strong>
+                    {s.score == null ? "Not scored" : s.score.toFixed(2)}
+                  </strong>
+                  <span>
+                    {displayDate(s.completed_on)} ·{" "}
+                    {team.find((m: any) => m.id === s.installer_id)?.name ||
+                      j.crew ||
+                      "Installer not recorded"}
+                  </span>
+                  <small>
+                    {s.ratings
+                      .map((v: number | null) =>
+                        v == null ? "—" : v.toFixed(0),
+                      )
+                      .join(" · ")}{" "}
+                    (0–4)
+                  </small>
+                </article>
+              ))
+            ) : (
+              <p className="op-muted">
+                No Guild Quality survey is linked to Customer ID #{j.number}.
+              </p>
+            )}
+          </details>
+        </section>
+      </section>
+      <h3>Sales Notes</h3>
+      <p className="op-instructions">{j.notes || "No sales notes recorded."}</p>
+      {data.canEdit && (
+        <details className="op-disclosure">
+          <summary>Add or update Sales Notes</summary>
+          <Form
+            onSave={async (f) => save("edit", { notes: field(f, "notes") })}
+          >
+            <Text name="notes" label="Sales Notes" value={j.notes} />
+          </Form>
+        </details>
+      )}
       {data.canEdit && (
         <>
           <details className="op-disclosure">
@@ -2963,18 +3213,6 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
           {uploadError}
         </p>
       )}
-      <h3>Sales Notes</h3>
-      <p className="op-instructions">{j.notes || "No sales notes recorded."}</p>
-      {data.canEdit && (
-        <details className="op-disclosure">
-          <summary>Add or update Sales Notes</summary>
-          <Form
-            onSave={async (f) => save("edit", { notes: field(f, "notes") })}
-          >
-            <Text name="notes" label="Sales Notes" value={j.notes} />
-          </Form>
-        </details>
-      )}
       {!!o.issues?.length && (
         <section className="live-issues">
           <h3>! Reported issues</h3>
@@ -2988,240 +3226,6 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
           ))}
         </section>
       )}
-      <section
-        aria-label="Job workspace"
-        style={{
-          marginTop: 20,
-          border: "1px solid #dce3ea",
-          borderRadius: 12,
-          padding: 12,
-        }}
-      >
-        <div
-          role="tablist"
-          aria-label="Job sections"
-          style={{
-            display: "flex",
-            flexWrap: "wrap",
-            gap: 6,
-            marginBottom: 14,
-          }}
-        >
-          {[
-            { id: "completion", label: isInstaller ? "Job Completion" : "Job Visit & Completion" },
-            {
-              id: "reorders",
-              label:
-                "Reorders" +
-                (o.reorders?.length ? " (" + o.reorders.length + ")" : ""),
-            },
-            { id: "history", label: "Payments & Other" },
-            { id: "labor", label: "Complete Labor Sheet" },
-          ].filter(t => !isInstaller || t.id !== "labor").map((t) => (
-            <button
-              type="button"
-              role="tab"
-              key={t.id}
-              id={"job-tab-" + j.id + "-" + t.id}
-              aria-selected={workspaceTab === t.id}
-              aria-controls={"job-panel-" + j.id + "-" + t.id}
-              onClick={() => t.id === "labor" ? setLaborOpen(true) : setWorkspaceTab(t.id)}
-              onKeyDown={(e) => {
-                if (
-                  ["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)
-                ) {
-                  e.preventDefault();
-                  const buttons = Array.from(
-                    e.currentTarget.parentElement!.querySelectorAll<HTMLButtonElement>(
-                      '[role="tab"]',
-                    ),
-                  );
-                  const index = buttons.indexOf(e.currentTarget);
-                  const next =
-                    e.key === "Home"
-                      ? 0
-                      : e.key === "End"
-                        ? buttons.length - 1
-                        : (index +
-                            (e.key === "ArrowRight" ? 1 : -1) +
-                            buttons.length) %
-                          buttons.length;
-                  buttons[next].click();
-                  buttons[next].focus();
-                }
-              }}
-              style={{
-                flex: "1 1 140px",
-                padding: "10px 12px",
-                border:
-                  "1px solid " +
-                  (workspaceTab === t.id ? "#174e7a" : "#cad6e3"),
-                borderRadius: 8,
-                background: workspaceTab === t.id ? "#174e7a" : "transparent",
-                color: workspaceTab === t.id ? "#fff" : "inherit",
-                fontWeight: 650,
-                cursor: "pointer",
-              }}
-            >
-              {t.label}
-              {t.id === "completion" && o.report?.pending ? " · Pending" : ""}
-            </button>
-          ))}
-        </div>
-        <section
-          role="tabpanel"
-          id={"job-panel-" + j.id + "-completion"}
-          aria-labelledby={"job-tab-" + j.id + "-completion"}
-          hidden={workspaceTab !== "completion"}
-          style={{ display: workspaceTab === "completion" ? "block" : "none" }}
-        >
-          {isInstaller && completionSection}
-          {!isInstaller && <section className="op-disclosure" aria-label="Job visits">
-            <h3>Job Visits</h3>
-            {review && <ScheduledVisits job={j} onSaved={()=>setVisitRevision(v=>v+1)} />}
-            <details style={{marginTop:12}}>
-              <summary>Previous Job Visits</summary>
-              <JobVisits key={visitRevision} jobId={j.id} onBusy={noOp} onEditing={noOp} />
-            </details>
-          </section>}
-          <ApprovedLaborSheets j={j}/>
-          <LaborSheet j={j} me={me} profile={data.leadProfile} reload={reload}/>
-          {(j.leadRenovationJob || review) && (
-            <LeadRenovation
-              j={j}
-              me={me}
-              profile={data.leadProfile}
-              installers={data.leadInstallers || []}
-              save={save}
-            />
-          )}
-          {!isInstaller && completionSection}
-          {me.role === "admin" && <AdminResultForm j={j} save={save} />}
-          <details className="op-disclosure">
-            <summary>Submitted Job Result</summary>
-            {o.report && (
-              <>
-                <p>
-                  ✓ {o.report.status} result sent ·{" "}
-                  {o.report.pending
-                    ? "Awaiting supervisor review"
-                    : o.report.approved
-                      ? "Approved and status updated"
-                      : "Returned for correction"}
-                </p>
-                <p>{o.report.reason}</p>
-                <p>{o.report.notes}</p>
-                {review && o.report.pending && (
-                  <div className="op-schedule-actions">
-                    <button
-                      disabled={saving}
-                      onClick={() => act("reviewReport", { approve: true })}
-                    >
-                      Approve and move to{" "}
-                      {o.report.status === "Complete" ? "COMP" : "INC"}
-                    </button>
-                    <button
-                      disabled={saving}
-                      onClick={() => act("reviewReport", { approve: false })}
-                    >
-                      Return for correction
-                    </button>
-                  </div>
-                )}
-              </>
-            )}
-          </details>
-        </section>
-        <section
-          role="tabpanel"
-          id={"job-panel-" + j.id + "-reorders"}
-          aria-labelledby={"job-tab-" + j.id + "-reorders"}
-          hidden={workspaceTab !== "reorders"}
-          style={{ display: workspaceTab === "reorders" ? "block" : "none" }}
-        >
-          {" "}
-          <ReorderRequests
-            j={j}
-            me={me}
-            save={save}
-            openRequest={reorderPrompt}
-          />
-          <details className="op-disclosure">
-            <summary>Reorder information</summary>
-            <p>Reorder date: {displayDate(j.reorderDate) || "Not recorded"}</p>
-            <p className="op-instructions">
-              {j.reorder || "No reorder notes recorded."}
-            </p>
-            {data.canEdit && (
-              <Form
-                onSave={async (f) =>
-                  save("edit", {
-                    reorder: field(f, "reorder"),
-                    reorderDate: field(f, "reorderDate"),
-                  })
-                }
-              >
-                <Input
-                  name="reorderDate"
-                  label="Reorder Date · starts INC aging"
-                  type="date"
-                  value={j.reorderDate}
-                  max={today}
-                />
-                <Text
-                  name="reorder"
-                  label="Reorder information"
-                  value={j.reorder}
-                />
-              </Form>
-            )}
-          </details>
-        </section>
-        <section
-          role="tabpanel"
-          id={"job-panel-" + j.id + "-history"}
-          aria-labelledby={"job-tab-" + j.id + "-history"}
-          hidden={workspaceTab !== "history"}
-          style={{ display: workspaceTab === "history" ? "block" : "none" }}
-        >
-          {me.role === "admin" && (
-            <details className="op-disclosure">
-              <summary>Payments</summary>
-              <PaymentForm j={j} save={save} />
-            </details>
-          )}
-          <details className="op-disclosure">
-            <summary>Guild Quality surveys · {jobSurveys.length}</summary>
-            {jobSurveys.length ? (
-              jobSurveys.map((s: any) => (
-                <article className="op-appointment" key={s.id || s.external_id}>
-                  <strong>
-                    {s.score == null ? "Not scored" : s.score.toFixed(2)}
-                  </strong>
-                  <span>
-                    {displayDate(s.completed_on)} ·{" "}
-                    {team.find((m: any) => m.id === s.installer_id)?.name ||
-                      j.crew ||
-                      "Installer not recorded"}
-                  </span>
-                  <small>
-                    {s.ratings
-                      .map((v: number | null) =>
-                        v == null ? "—" : v.toFixed(0),
-                      )
-                      .join(" · ")}{" "}
-                    (0–4)
-                  </small>
-                </article>
-              ))
-            ) : (
-              <p className="op-muted">
-                No Guild Quality survey is linked to Customer ID #{j.number}.
-              </p>
-            )}
-          </details>
-        </section>
-      </section>
       {!isInstaller && (
         <details className="op-disclosure">
           <summary>Service & status requests</summary>

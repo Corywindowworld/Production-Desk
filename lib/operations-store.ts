@@ -2101,6 +2101,11 @@ export async function operation(m: Member, input: any) {
       const emailPackage = JSON.stringify({
         kind: "job-certificate",
         certificate,
+        customerHistory: {
+          jobId: j.id,
+          by: m.name,
+          text: `Signed ${certificateLabel.toLowerCase()} certificate emailed to ${certificate.customerEmail}`,
+        },
         html: certificateEmailHtml(certificate),
         text: `Your signed Window World ${certificateLabel} Certificate is attached as a PDF. Window World Tampa Bay retains the signed electronic record with the job.`,
         filename: `Window-World-${certificateLabel.replaceAll(" ", "-")}-Certificate-${safeCustomerId}.pdf`,
@@ -2453,12 +2458,15 @@ export async function deliverOperationEmail(id: string, sourceId = id) {
   if (!r) return "Email queue entry not found";
   const sendConfirmations=async()=>{try{const ids=await queueCertificateSentConfirmation(r);await Promise.all(ids.map(id=>deliverOperationEmail(id)));}catch{console.error('Certificate sent confirmation could not be queued',{emailId:id});}};
   if (r.status === "accepted") {await sendConfirmations();return "accepted";}
+  let customerHistory: {jobId: string; by: string; text: string} | undefined;
   let status = "Not configured: " + [!env.RESEND_API_KEY && "RESEND_API_KEY", !env.ACCOUNT_EMAIL_FROM && "ACCOUNT_EMAIL_FROM"].filter(Boolean).join(", ");
   if (env.RESEND_API_KEY && env.ACCOUNT_EMAIL_FROM) {
     try {
       let certificatePackage: any = null,invitePackage:any=null;
       try {
         const parsed = typeof r.body === "object" ? r.body : JSON.parse(String(r.body));
+        if (parsed?.kind === "certificate-invite" || parsed?.kind === "job-certificate")
+          customerHistory = parsed.customerHistory;
         if(parsed?.kind==='certificate-invite'&&parsed.html)invitePackage=parsed;
         if (
           parsed?.kind === "job-certificate" &&
@@ -2528,12 +2536,21 @@ export async function deliverOperationEmail(id: string, sourceId = id) {
       status = "Failed: delivery request did not complete. Check Vercel logs for email ID " + id;
     }
   }
-  await db
-    .prepare(
-      "UPDATE production.operations_email SET status=?,updated=? WHERE id=?",
-    )
-    .bind(status, new Date().toISOString(), id)
-    .run();
+  const at = new Date().toISOString();
+  await db.transaction(async tx => {
+    await tx.prepare("UPDATE production.operations_email SET status=?,updated=? WHERE id=? AND status<>'accepted'")
+      .bind(status, at, id).run();
+    if (status !== "accepted" || !customerHistory) return;
+    const row = await tx.prepare("SELECT payload FROM jobs WHERE id=? FOR UPDATE")
+      .bind(customerHistory.jobId).first();
+    if (!row) return;
+    const job = storedObject(row.payload);
+    const history = job.history || [];
+    if (history.some((event: any) => event.emailId === id)) return;
+    job.history = [{at, by: customerHistory.by, text: customerHistory.text, emailId: id}, ...history];
+    await tx.prepare("UPDATE jobs SET payload=?,version=version+1,updated=? WHERE id=?")
+      .bind(JSON.stringify(job), at, customerHistory.jobId).run();
+  });
   if(status==='accepted')await sendConfirmations();
   return status;
 }

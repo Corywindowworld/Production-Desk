@@ -850,7 +850,7 @@ export default function LiveOperations() {
         </Drawer>
       )}
       {current && (
-        <Drawer fullPage title={current.customer} onClose={() => setSelected(null)}>
+        <Drawer fullPage={["admin", "supervisor"].includes(me.role)} title={current.customer} onClose={() => setSelected(null)}>
           <JobFile
             key={current.id}
             reload={load}
@@ -2497,6 +2497,8 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
   const { me, team, today } = data,
     isInstaller = me.role === "installer",
     review = data.canReview,
+    staffLayout = ["admin", "supervisor"].includes(me.role),
+    schedulingLayout = me.role === "production_assistant",
     o = j.operations || {},
     [editing, setEditing] = useState(false),
     [uploadError, setUploadError] = useState(""),
@@ -2583,6 +2585,341 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
               )}
             </details>
           );
+  const customerRecord = !isInstaller && (
+    <details className="op-disclosure">
+      <summary>Customer record and contact notes</summary>
+      <ProjectRecord j={j} />
+    </details>
+  );
+  const documents = (
+    <section aria-label="Customer documents" style={{ marginBlock: 16 }}>
+      {(data.canEdit || review) && <CertificateInvite key={j.id} j={j} onSent={reload} />}
+      <DigitalDocuments j={j} />
+    </section>
+  );
+  const paperwork = (
+    <>
+      <ApprovedLaborSheets j={j} />
+      <LaborSheet j={j} me={me} profile={data.leadProfile} reload={reload} />
+      {(j.leadRenovationJob || o.leadRenovation || review) && (
+        <LeadRenovation
+          j={j}
+          me={me}
+          profile={data.leadProfile}
+          installers={data.leadInstallers || []}
+          save={save}
+        />
+      )}
+    </>
+  );
+  const salesNotes = (
+    <>
+      <h3>Sales Notes</h3>
+      <p className="op-instructions">{j.notes || "No sales notes recorded."}</p>
+      {data.canEdit && (
+        <details className="op-disclosure">
+          <summary>Add or update Sales Notes</summary>
+          <Form
+            onSave={async (f) => save("edit", { notes: field(f, "notes") })}
+          >
+            <Text name="notes" label="Sales Notes" value={j.notes} />
+          </Form>
+        </details>
+      )}
+    </>
+  );
+  const schedule = data.canEdit && (
+    <details className="op-disclosure" open={schedulingLayout || undefined}>
+      <summary>{schedulingLayout ? "Schedule Work" : "3. Schedule Work"} {j.install ? "✓" : ""}</summary>
+      {o.pendingSchedule && (
+        <div className="op-callout">
+          <p>
+            Pending: {o.pendingSchedule.date}
+            {o.pendingSchedule.endDate &&
+            o.pendingSchedule.endDate !== o.pendingSchedule.date
+              ? " – " + o.pendingSchedule.endDate
+              : ""}{" "}
+            {o.pendingSchedule.time
+              ? hourLabel(o.pendingSchedule.time)
+              : o.pendingSchedule.period}{" "}
+            · Requested by {o.pendingSchedule.requestedBy}
+          </p>
+          {review && (
+            <div className="op-schedule-actions">
+              <button
+                disabled={saving}
+                onClick={() => act("approveSchedule")}
+              >
+                Approve schedule
+              </button>
+              <button
+                disabled={saving}
+                onClick={() => act("rejectSchedule")}
+              >
+                Decline
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+      <ScheduleForm
+        allowUnassigned={["admin","supervisor","production_assistant"].includes(me.role)}
+        j={j}
+        team={team}
+        today={today}
+        save={save}
+      />
+      {['admin','supervisor','production_assistant'].includes(me.role) && (j.install || o.pendingSchedule || o.services?.length > 0) && <details className="op-disclosure"><summary>Remove from Schedule / Customer Reset</summary><p>Select the appointment to remove and enter the reason for the reset. The account and its documents remain available.</p><Form submitLabel="Remove from Schedule" successMessage="Appointment removed from the schedule. Reset reason saved to job history." onSave={async f=>save('resetSchedule',{target:field(f,'target'),reason:field(f,'reason')})}><label>Appointment<select name="target" required>{(j.install||o.pendingSchedule)&&<option value="installation">Installation · {j.install||o.pendingSchedule.date}</option>}{(o.services||[]).map((appointment:any)=><option key={appointment.id} value={appointment.id}>Service · {appointment.date} · {appointment.crew}</option>)}</select></label><label>Why is this job being reset?<textarea name="reason" required maxLength={2000} placeholder="Enter the customer reset or scheduling reason…" /></label></Form></details>}
+    </details>
+  );
+  const workspace = (
+    <section
+      aria-label="Job workspace"
+      style={{
+        marginTop: 20,
+        border: "1px solid #dce3ea",
+        borderRadius: 12,
+        padding: 12,
+      }}
+    >
+      <div
+        role="tablist"
+        aria-label="Job sections"
+        style={{
+          display: "flex",
+          flexWrap: "wrap",
+          gap: 6,
+          marginBottom: 14,
+        }}
+      >
+        {[
+          { id: "completion", label: isInstaller ? "Job Completion" : "Job Visit & Completion" },
+          {
+            id: "reorders",
+            label:
+              "Reorders" +
+              (o.reorders?.length ? " (" + o.reorders.length + ")" : ""),
+          },
+          ...(!staffLayout ? [
+            { id: "documents", label: "Digital Documents" },
+            { id: "notes", label: "Notes & History" },
+          ] : []),
+          { id: "history", label: "Payments & Other" },
+        ].map((t) => (
+          <button
+            type="button"
+            role="tab"
+            key={t.id}
+            id={"job-tab-" + j.id + "-" + t.id}
+            aria-selected={workspaceTab === t.id}
+            aria-controls={"job-panel-" + j.id + "-" + t.id}
+            onClick={() => setWorkspaceTab(t.id)}
+            onKeyDown={(e) => {
+              if (
+                ["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)
+              ) {
+                e.preventDefault();
+                const buttons = Array.from(
+                  e.currentTarget.parentElement!.querySelectorAll<HTMLButtonElement>(
+                    '[role="tab"]',
+                  ),
+                );
+                const index = buttons.indexOf(e.currentTarget);
+                const next =
+                  e.key === "Home"
+                    ? 0
+                    : e.key === "End"
+                      ? buttons.length - 1
+                      : (index +
+                          (e.key === "ArrowRight" ? 1 : -1) +
+                          buttons.length) %
+                        buttons.length;
+                buttons[next].click();
+                buttons[next].focus();
+              }
+            }}
+            style={{
+              flex: "1 1 140px",
+              padding: "10px 12px",
+              border:
+                "1px solid " +
+                (workspaceTab === t.id ? "#174e7a" : "#cad6e3"),
+              borderRadius: 8,
+              background: workspaceTab === t.id ? "#174e7a" : "transparent",
+              color: workspaceTab === t.id ? "#fff" : "inherit",
+              fontWeight: 650,
+              cursor: "pointer",
+            }}
+          >
+            {t.label}
+            {t.id === "completion" && o.report?.pending ? " · Pending" : ""}
+          </button>
+        ))}
+      </div>
+      <section
+        role="tabpanel"
+        id={"job-panel-" + j.id + "-completion"}
+        aria-labelledby={"job-tab-" + j.id + "-completion"}
+        hidden={workspaceTab !== "completion"}
+        style={{ display: workspaceTab === "completion" ? "block" : "none" }}
+      >
+        {isInstaller && completionSection}
+        {!isInstaller && <section className="op-disclosure" aria-label="Job visits">
+          <h3>Job Visits</h3>
+          {review && <ScheduledVisits job={j} onSaved={()=>setVisitRevision(v=>v+1)} />}
+          <details style={{marginTop:12}}>
+            <summary>Previous Job Visits</summary>
+            <JobVisits key={visitRevision} jobId={j.id} onBusy={noOp} onEditing={noOp} />
+          </details>
+        </section>}
+        {!staffLayout && paperwork}
+        {!isInstaller && completionSection}
+        {me.role === "admin" && <AdminResultForm j={j} save={save} />}
+        <details className="op-disclosure">
+          <summary>Submitted Job Result</summary>
+          {o.report && (
+            <>
+              <p>
+                ✓ {o.report.status} result sent ·{" "}
+                {o.report.pending
+                  ? "Awaiting supervisor review"
+                  : o.report.approved
+                    ? "Approved and status updated"
+                    : "Returned for correction"}
+              </p>
+              <p>{o.report.reason}</p>
+              <p>{o.report.notes}</p>
+              {review && o.report.pending && (
+                <div className="op-schedule-actions">
+                  <button
+                    disabled={saving}
+                    onClick={() => act("reviewReport", { approve: true })}
+                  >
+                    Approve and move to{" "}
+                    {o.report.status === "Complete" ? "COMP" : "INC"}
+                  </button>
+                  <button
+                    disabled={saving}
+                    onClick={() => act("reviewReport", { approve: false })}
+                  >
+                    Return for correction
+                  </button>
+                </div>
+              )}
+            </>
+          )}
+        </details>
+      </section>
+      <section
+        role="tabpanel"
+        id={"job-panel-" + j.id + "-reorders"}
+        aria-labelledby={"job-tab-" + j.id + "-reorders"}
+        hidden={workspaceTab !== "reorders"}
+        style={{ display: workspaceTab === "reorders" ? "block" : "none" }}
+      >
+        {" "}
+        <ReorderRequests
+          j={j}
+          me={me}
+          save={save}
+          openRequest={reorderPrompt}
+        />
+        <details className="op-disclosure">
+          <summary>Reorder information</summary>
+          <p>Reorder date: {displayDate(j.reorderDate) || "Not recorded"}</p>
+          <p className="op-instructions">
+            {j.reorder || "No reorder notes recorded."}
+          </p>
+          {data.canEdit && (
+            <Form
+              onSave={async (f) =>
+                save("edit", {
+                  reorder: field(f, "reorder"),
+                  reorderDate: field(f, "reorderDate"),
+                })
+              }
+            >
+              <Input
+                name="reorderDate"
+                label="Reorder Date · starts INC aging"
+                type="date"
+                value={j.reorderDate}
+                max={today}
+              />
+              <Text
+                name="reorder"
+                label="Reorder information"
+                value={j.reorder}
+              />
+            </Form>
+          )}
+        </details>
+      </section>
+      {!staffLayout && (
+        <>
+          <section role="tabpanel" id={"job-panel-" + j.id + "-documents"}
+            aria-labelledby={"job-tab-" + j.id + "-documents"} hidden={workspaceTab !== "documents"}>
+            {documents}
+          </section>
+          <section role="tabpanel" id={"job-panel-" + j.id + "-notes"}
+            aria-labelledby={"job-tab-" + j.id + "-notes"} hidden={workspaceTab !== "notes"}>
+            {workspaceTab === "notes" && <JobNotesHistory key={visitRevision} j={j} save={save} />}
+            {customerRecord}
+          </section>
+        </>
+      )}
+      <section
+        role="tabpanel"
+        id={"job-panel-" + j.id + "-history"}
+        aria-labelledby={"job-tab-" + j.id + "-history"}
+        hidden={workspaceTab !== "history"}
+        style={{ display: workspaceTab === "history" ? "block" : "none" }}
+      >
+        {!isInstaller && (
+          <button type="button" className="live-button" onClick={() => setLaborOpen(true)}>
+            Complete Labor Sheet
+          </button>
+        )}
+        {staffLayout && paperwork}
+        {me.role === "admin" && (
+          <details className="op-disclosure">
+            <summary>Payments</summary>
+            <PaymentForm j={j} save={save} />
+          </details>
+        )}
+        <details className="op-disclosure">
+          <summary>Guild Quality surveys · {jobSurveys.length}</summary>
+          {jobSurveys.length ? (
+            jobSurveys.map((s: any) => (
+              <article className="op-appointment" key={s.id || s.external_id}>
+                <strong>
+                  {s.score == null ? "Not scored" : s.score.toFixed(2)}
+                </strong>
+                <span>
+                  {displayDate(s.completed_on)} ·{" "}
+                  {team.find((m: any) => m.id === s.installer_id)?.name ||
+                    j.crew ||
+                    "Installer not recorded"}
+                </span>
+                <small>
+                  {s.ratings
+                    .map((v: number | null) =>
+                      v == null ? "—" : v.toFixed(0),
+                    )
+                    .join(" · ")}{" "}
+                  (0–4)
+                </small>
+              </article>
+            ))
+          ) : (
+            <p className="op-muted">
+              No Guild Quality survey is linked to Customer ID #{j.number}.
+            </p>
+          )}
+        </details>
+      </section>
+    </section>
+  );
   return (
     <>
       {(isInstaller || review) && <TripShare key={j.id} jobId={j.id} phone={j.phone} phone2={j.phone2} phone3={j.phone3} />}
@@ -2639,7 +2976,7 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
               </div>
             ),
         )}
-        {j.customerEmail && (
+        {staffLayout && j.customerEmail && (
           <div>
             <small>Customer email</small>
             <a href={"mailto:" + j.customerEmail}>{j.customerEmail}</a>
@@ -2652,7 +2989,7 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
           <a href={"tel:" + j.salesRepPhone}>
             {formatPhone(j.salesRepPhone || "")}
           </a>
-          {j.salesRepEmail && (
+          {staffLayout && j.salesRepEmail && (
             <>
               <br />
               <a href={"mailto:" + j.salesRepEmail}>{j.salesRepEmail}</a>
@@ -2710,6 +3047,7 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
           </div>
         )}
       </div>
+      {schedulingLayout && schedule}
       {j.importSource && (
         <p className="op-callout">
           Imported from {j.importSource.file}, page {j.importSource.page}. Names
@@ -2769,271 +3107,13 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
       {inactiveSalesRep && (
         <p className="live-inactive">Sales Rep · Inactive</p>
       )}
-      {!isInstaller && (
-        <details className="op-disclosure">
-          <summary>Customer record and contact notes</summary>
-          <ProjectRecord j={j} />
-        </details>
-      )}
+      {staffLayout && customerRecord}
       {!isInstaller && <LinkedAccounts key={j.id} j={j} jobs={data.jobs} canEdit={data.canEdit} save={save} onOpen={onOpen} />}
-      <section aria-label="Customer documents" style={{ marginBlock: 16 }}>
-        {(data.canEdit || review) && <CertificateInvite key={j.id} j={j} />}
-        <DigitalDocuments j={j} />
-      </section>
-      <section
-        aria-label="Job workspace"
-        style={{
-          marginTop: 20,
-          border: "1px solid #dce3ea",
-          borderRadius: 12,
-          padding: 12,
-        }}
-      >
-        <div
-          role="tablist"
-          aria-label="Job sections"
-          style={{
-            display: "flex",
-            flexWrap: "wrap",
-            gap: 6,
-            marginBottom: 14,
-          }}
-        >
-          {[
-            { id: "completion", label: isInstaller ? "Job Completion" : "Job Visit & Completion" },
-            {
-              id: "reorders",
-              label:
-                "Reorders" +
-                (o.reorders?.length ? " (" + o.reorders.length + ")" : ""),
-            },
-            { id: "history", label: "Payments & Other" },
-          ].map((t) => (
-            <button
-              type="button"
-              role="tab"
-              key={t.id}
-              id={"job-tab-" + j.id + "-" + t.id}
-              aria-selected={workspaceTab === t.id}
-              aria-controls={"job-panel-" + j.id + "-" + t.id}
-              onClick={() => setWorkspaceTab(t.id)}
-              onKeyDown={(e) => {
-                if (
-                  ["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)
-                ) {
-                  e.preventDefault();
-                  const buttons = Array.from(
-                    e.currentTarget.parentElement!.querySelectorAll<HTMLButtonElement>(
-                      '[role="tab"]',
-                    ),
-                  );
-                  const index = buttons.indexOf(e.currentTarget);
-                  const next =
-                    e.key === "Home"
-                      ? 0
-                      : e.key === "End"
-                        ? buttons.length - 1
-                        : (index +
-                            (e.key === "ArrowRight" ? 1 : -1) +
-                            buttons.length) %
-                          buttons.length;
-                  buttons[next].click();
-                  buttons[next].focus();
-                }
-              }}
-              style={{
-                flex: "1 1 140px",
-                padding: "10px 12px",
-                border:
-                  "1px solid " +
-                  (workspaceTab === t.id ? "#174e7a" : "#cad6e3"),
-                borderRadius: 8,
-                background: workspaceTab === t.id ? "#174e7a" : "transparent",
-                color: workspaceTab === t.id ? "#fff" : "inherit",
-                fontWeight: 650,
-                cursor: "pointer",
-              }}
-            >
-              {t.label}
-              {t.id === "completion" && o.report?.pending ? " · Pending" : ""}
-            </button>
-          ))}
-        </div>
-        <section
-          role="tabpanel"
-          id={"job-panel-" + j.id + "-completion"}
-          aria-labelledby={"job-tab-" + j.id + "-completion"}
-          hidden={workspaceTab !== "completion"}
-          style={{ display: workspaceTab === "completion" ? "block" : "none" }}
-        >
-          {isInstaller && completionSection}
-          {!isInstaller && <section className="op-disclosure" aria-label="Job visits">
-            <h3>Job Visits</h3>
-            {review && <ScheduledVisits job={j} onSaved={()=>setVisitRevision(v=>v+1)} />}
-            <details style={{marginTop:12}}>
-              <summary>Previous Job Visits</summary>
-              <JobVisits key={visitRevision} jobId={j.id} onBusy={noOp} onEditing={noOp} />
-            </details>
-          </section>}
-          {!isInstaller && completionSection}
-          {me.role === "admin" && <AdminResultForm j={j} save={save} />}
-          <details className="op-disclosure">
-            <summary>Submitted Job Result</summary>
-            {o.report && (
-              <>
-                <p>
-                  ✓ {o.report.status} result sent ·{" "}
-                  {o.report.pending
-                    ? "Awaiting supervisor review"
-                    : o.report.approved
-                      ? "Approved and status updated"
-                      : "Returned for correction"}
-                </p>
-                <p>{o.report.reason}</p>
-                <p>{o.report.notes}</p>
-                {review && o.report.pending && (
-                  <div className="op-schedule-actions">
-                    <button
-                      disabled={saving}
-                      onClick={() => act("reviewReport", { approve: true })}
-                    >
-                      Approve and move to{" "}
-                      {o.report.status === "Complete" ? "COMP" : "INC"}
-                    </button>
-                    <button
-                      disabled={saving}
-                      onClick={() => act("reviewReport", { approve: false })}
-                    >
-                      Return for correction
-                    </button>
-                  </div>
-                )}
-              </>
-            )}
-          </details>
-        </section>
-        <section
-          role="tabpanel"
-          id={"job-panel-" + j.id + "-reorders"}
-          aria-labelledby={"job-tab-" + j.id + "-reorders"}
-          hidden={workspaceTab !== "reorders"}
-          style={{ display: workspaceTab === "reorders" ? "block" : "none" }}
-        >
-          {" "}
-          <ReorderRequests
-            j={j}
-            me={me}
-            save={save}
-            openRequest={reorderPrompt}
-          />
-          <details className="op-disclosure">
-            <summary>Reorder information</summary>
-            <p>Reorder date: {displayDate(j.reorderDate) || "Not recorded"}</p>
-            <p className="op-instructions">
-              {j.reorder || "No reorder notes recorded."}
-            </p>
-            {data.canEdit && (
-              <Form
-                onSave={async (f) =>
-                  save("edit", {
-                    reorder: field(f, "reorder"),
-                    reorderDate: field(f, "reorderDate"),
-                  })
-                }
-              >
-                <Input
-                  name="reorderDate"
-                  label="Reorder Date · starts INC aging"
-                  type="date"
-                  value={j.reorderDate}
-                  max={today}
-                />
-                <Text
-                  name="reorder"
-                  label="Reorder information"
-                  value={j.reorder}
-                />
-              </Form>
-            )}
-          </details>
-        </section>
-        <section
-          role="tabpanel"
-          id={"job-panel-" + j.id + "-history"}
-          aria-labelledby={"job-tab-" + j.id + "-history"}
-          hidden={workspaceTab !== "history"}
-          style={{ display: workspaceTab === "history" ? "block" : "none" }}
-        >
-          {!isInstaller && (
-            <button type="button" className="live-button" onClick={() => setLaborOpen(true)}>
-              Complete Labor Sheet
-            </button>
-          )}
-          <ApprovedLaborSheets j={j}/>
-          <LaborSheet j={j} me={me} profile={data.leadProfile} reload={reload}/>
-          {(j.leadRenovationJob || o.leadRenovation || review) && (
-            <LeadRenovation
-              j={j}
-              me={me}
-              profile={data.leadProfile}
-              installers={data.leadInstallers || []}
-              save={save}
-            />
-          )}
-          {me.role === "admin" && (
-            <details className="op-disclosure">
-              <summary>Payments</summary>
-              <PaymentForm j={j} save={save} />
-            </details>
-          )}
-          <details className="op-disclosure">
-            <summary>Guild Quality surveys · {jobSurveys.length}</summary>
-            {jobSurveys.length ? (
-              jobSurveys.map((s: any) => (
-                <article className="op-appointment" key={s.id || s.external_id}>
-                  <strong>
-                    {s.score == null ? "Not scored" : s.score.toFixed(2)}
-                  </strong>
-                  <span>
-                    {displayDate(s.completed_on)} ·{" "}
-                    {team.find((m: any) => m.id === s.installer_id)?.name ||
-                      j.crew ||
-                      "Installer not recorded"}
-                  </span>
-                  <small>
-                    {s.ratings
-                      .map((v: number | null) =>
-                        v == null ? "—" : v.toFixed(0),
-                      )
-                      .join(" · ")}{" "}
-                    (0–4)
-                  </small>
-                </article>
-              ))
-            ) : (
-              <p className="op-muted">
-                No Guild Quality survey is linked to Customer ID #{j.number}.
-              </p>
-            )}
-          </details>
-        </section>
-      </section>
-      <h3>Sales Notes</h3>
-      <p className="op-instructions">{j.notes || "No sales notes recorded."}</p>
-      {data.canEdit && (
-        <details className="op-disclosure">
-          <summary>Add or update Sales Notes</summary>
-          <Form
-            onSave={async (f) => save("edit", { notes: field(f, "notes") })}
-          >
-            <Text name="notes" label="Sales Notes" value={j.notes} />
-          </Form>
-        </details>
-      )}
+      {staffLayout && <>{documents}{workspace}{salesNotes}</>}
       {data.canEdit && (
         <>
           <details className="op-disclosure">
-            <summary>1. Enter RCVD info {j.received ? "✓" : ""}</summary>
+            <summary>{schedulingLayout ? "Materials Received" : "1. Enter RCVD info"} {j.received ? "✓" : ""}</summary>
             <ReceiveForm j={j} save={save} />
             {me.role==='admin'&&j.stage==='Received'&&<details className="op-disclosure"><summary>Clear received date / Return to ORD</summary><p>Remove the materials received date and return this job to Ordered.</p><Form submitLabel="Clear received date and move to ORD" successMessage="Received date cleared. Job returned to ORD." onSave={async f=>save('clearReceived',{reason:field(f,'reason')})}><label>Reason (optional)<textarea name="reason" maxLength={1000}/></label></Form></details>}
           </details>
@@ -3041,7 +3121,7 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
       )}
       <details className="op-disclosure">
         <summary>
-          2. Permit {j.permitReceived || j.noPermitRequired ? "✓" : ""}
+          {schedulingLayout ? "Permit" : "2. Permit"} {j.permitReceived || j.noPermitRequired ? "✓" : ""}
         </summary>
         <PermitDetails j={j} />
         {data.canEdit && (
@@ -3054,50 +3134,7 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
         )}
       </details>
 
-      {data.canEdit && (
-        <details className="op-disclosure">
-          <summary>3. Schedule Work {j.install ? "✓" : ""}</summary>
-          {o.pendingSchedule && (
-            <div className="op-callout">
-              <p>
-                Pending: {o.pendingSchedule.date}
-                {o.pendingSchedule.endDate &&
-                o.pendingSchedule.endDate !== o.pendingSchedule.date
-                  ? " – " + o.pendingSchedule.endDate
-                  : ""}{" "}
-                {o.pendingSchedule.time
-                  ? hourLabel(o.pendingSchedule.time)
-                  : o.pendingSchedule.period}{" "}
-                · Requested by {o.pendingSchedule.requestedBy}
-              </p>
-              {review && (
-                <div className="op-schedule-actions">
-                  <button
-                    disabled={saving}
-                    onClick={() => act("approveSchedule")}
-                  >
-                    Approve schedule
-                  </button>
-                  <button
-                    disabled={saving}
-                    onClick={() => act("rejectSchedule")}
-                  >
-                    Decline
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-          <ScheduleForm
-            allowUnassigned={["admin","supervisor","production_assistant"].includes(me.role)}
-            j={j}
-            team={team}
-            today={today}
-            save={save}
-          />
-          {['admin','supervisor','production_assistant'].includes(me.role) && (j.install || o.pendingSchedule || o.services?.length > 0) && <details className="op-disclosure"><summary>Remove from Schedule / Customer Reset</summary><p>Select the appointment to remove and enter the reason for the reset. The account and its documents remain available.</p><Form submitLabel="Remove from Schedule" successMessage="Appointment removed from the schedule. Reset reason saved to job history." onSave={async f=>save('resetSchedule',{target:field(f,'target'),reason:field(f,'reason')})}><label>Appointment<select name="target" required>{(j.install||o.pendingSchedule)&&<option value="installation">Installation · {j.install||o.pendingSchedule.date}</option>}{(o.services||[]).map((appointment:any)=><option key={appointment.id} value={appointment.id}>Service · {appointment.date} · {appointment.crew}</option>)}</select></label><label>Why is this job being reset?<textarea name="reason" required maxLength={2000} placeholder="Enter the customer reset or scheduling reason…" /></label></Form></details>}
-        </details>
-      )}
+      {!schedulingLayout && schedule}
       {review && (
         <section className="live-status-control">
           <h3>Production status</h3>
@@ -3213,6 +3250,7 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
           {uploadError}
         </p>
       )}
+      {!staffLayout && salesNotes}
       {!!o.issues?.length && (
         <section className="live-issues">
           <h3>! Reported issues</h3>
@@ -3225,6 +3263,13 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
             </p>
           ))}
         </section>
+      )}
+      {isInstaller && workspace}
+      {!staffLayout && !isInstaller && (
+        <details className="op-disclosure">
+          <summary>Job documents & paperwork</summary>
+          {workspace}
+        </details>
       )}
       {!isInstaller && (
         <details className="op-disclosure">
@@ -3284,7 +3329,7 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
           </div>
         </details>
       )}
-      <JobNotesHistory key={visitRevision} j={j} save={save} />
+      {staffLayout && <JobNotesHistory key={visitRevision} j={j} save={save} />}
     </>
   );
 }

@@ -218,12 +218,51 @@ export function publicJob(m: Member, j: any) {
       previousReports: j.operations?.previousReports || [],
       routing: j.operations?.routing || {},
       remoteCertificates: j.operations?.remoteCertificates || [],
+      recoveredCertificates: j.operations?.recoveredCertificates || [],
       services: (j.operations?.services || []).filter(
         (s: any) => s.installerId === m.id,
       ),
     },
   };
 }
+// Older PROD transitions dropped the active report from the job payload.
+async function recoverProductionCertificates(db: ReturnType<typeof database>, jobs: any[]) {
+  const candidates = new Map<string, {job: any; submittedAt: string; review: any}>();
+  for (const job of jobs) {
+    const history = job.history || [];
+    if (!history.some((event: any) => event.text === "Job moved to PROD; production aging started")) continue;
+    const saved = new Set([job.operations?.report, ...(job.operations?.previousReports || [])]
+      .filter((report: any) => report?.certificate).map((report: any) => report.submittedAt || report.certificate.signedAt));
+    let movedToProduction = false, review: any = null;
+    for (const event of history) {
+      const text = String(event.text || "");
+      if (text === "Job moved to PROD; production aging started") movedToProduction = true;
+      if (text.startsWith("Installer report approved;") && movedToProduction) review = event;
+      if (!text.startsWith("Installer submitted ") || !text.includes("with signed digital certificate")) continue;
+      if (review && event.at && !saved.has(event.at))
+        candidates.set(job.id + ":" + event.at, {job, submittedAt: event.at, review});
+      movedToProduction = false;
+      review = null;
+    }
+  }
+  if (!candidates.size) return;
+  const lookup = Array.from(candidates.values(), ({job, submittedAt}) => ({job_id: job.id, created: submittedAt}));
+  const {results} = await db.prepare(
+    "SELECT ir.job_id,ir.created,ir.payload FROM installer_reports ir JOIN json_to_recordset(?::json) AS lost(job_id text,created text) ON ir.job_id=lost.job_id AND ir.created=lost.created",
+  ).bind(JSON.stringify(lookup)).all();
+  for (const row of results) {
+    const candidate = candidates.get(row.job_id + ":" + row.created);
+    const report = storedObject(row.payload);
+    if (!candidate || !report.certificate) continue;
+    const {job, review} = candidate;
+    job.operations ??= {};
+    job.operations.recoveredCertificates ??= [];
+    job.operations.recoveredCertificates.push({
+      ...report.certificate, reviewedAt: review.at, reviewedBy: review.by,
+    });
+  }
+}
+
 export async function operationsData(
   m: Member,
   onStep: (step: DashboardStep) => void = () => {},
@@ -253,9 +292,9 @@ export async function operationsData(
     if(typeof contact?.email==='string')job.salesRepEmail=contact.email;
   }
   onStep("installer-view");
-  const jobs = all
-    .filter((j: any) => m.role !== "installer" || installerVisible(m, j))
-    .map((j: any) => publicJob(m, j));
+  const visibleJobs = all.filter((j: any) => m.role !== "installer" || installerVisible(m, j));
+  await recoverProductionCertificates(db, visibleJobs);
+  const jobs = visibleJobs.map((j: any) => publicJob(m, j));
   onStep("team");
   const team =
     m.role === "installer"
@@ -1173,6 +1212,13 @@ export async function operation(m: Member, input: any) {
     const o = j.operations || {};
     j.operations = o;
     let history = action;
+    const startProduction = () => {
+      if (o.report) o.previousReports = [...(o.previousReports || []), o.report];
+      o.report = null;
+      j.stage = "Production";
+      j.installed = today;
+      history = "Job moved to PROD; production aging started";
+    };
     const alert = async (recipient: string, message: string) => {
       if (!recipient) return;
       const id = crypto.randomUUID();
@@ -1751,10 +1797,8 @@ export async function operation(m: Member, input: any) {
         "Schedule the RCVD job before moving it to PROD.",
         400,
       );
-      j.stage = "Production";
-      j.installed = today;
-      o.report = null;
-      history = "Job moved to PROD; production aging started";
+      assert(!o.report?.pending, "Review the installer submission before changing status.", 409);
+      startProduction();
     } else if (action === "adminResult") {
       assert(m.role === "admin", "Administrator access required.");
       const result = parse(
@@ -1873,10 +1917,7 @@ export async function operation(m: Member, input: any) {
           "Schedule the RCVD job before moving it to PROD.",
           400,
         );
-        j.stage = "Production";
-        j.installed = today;
-        o.report = null;
-        history = "Job moved to PROD; production aging started";
+        startProduction();
       } else {
         assert(
           !o.report?.pending,

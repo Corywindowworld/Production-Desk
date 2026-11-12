@@ -3,6 +3,7 @@ export function certificatesForJob(j: any) {
       j?.operations?.report,
       ...(j?.operations?.serviceVisitResults || []),
       ...(j?.operations?.previousReports || []),
+      ...(j?.operations?.recoveredCertificates || []).map((certificate: any) => ({certificate})),
       ...(j?.operations?.remoteCertificates || []).map((certificate:any)=>({certificate})),
     ].filter(Boolean),
     seen = new Set<string>();

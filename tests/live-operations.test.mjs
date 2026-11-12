@@ -4478,7 +4478,7 @@ test('certificate header pairs customer and date, email and installer, ID and co
 
 test('backordered INC certificates stay ORD, skip reorders and require full receipt confirmation',async()=>{
  async function fixture(){
-  const id=crypto.randomUUID(),at=new Date().toISOString(),job={id,number:'BO-'+id.slice(0,8),customer:'Backorder Test',address:'1 Main',stage:'Production',received:today,amount:0,product:'Windows',installerId:installer.id,supervisorId:fs.id,history:[],operations:{}};
+  const id=crypto.randomUUID(),at=new Date().toISOString(),job={id,number:'BO-'+id.slice(0,8),customer:'Backorder Test',address:'1 Main',noPermitRequired:true,stage:'Production',received:today,amount:0,product:'Windows',installerId:installer.id,supervisorId:fs.id,history:[],operations:{}};
   await pg.query('INSERT INTO production.jobs(id,payload,version,updated) VALUES($1,$2,1,$3)',[id,JSON.stringify(job),at]);
   const attachments=['front','rear','left','right','issue'].map(kind=>({key:'jobs/'+id+'/'+kind+'/'+crypto.randomUUID(),kind,name:kind+'.jpg'}));
   for(const a of attachments)await pg.query("INSERT INTO production.attachment_uploads(key,staging_key,job_id,kind,member_id,name,expires,status,sha256) VALUES($1,$1,$2,$3,$4,$5,0,'ready',$1)",[a.key,id,a.kind,installer.id,a.name]);
@@ -4497,6 +4497,20 @@ test('backordered INC certificates stay ORD, skip reorders and require full rece
  await assert.rejects(()=>operation(pa,{action:'receive',jobId:f.id,version:saved.version,data:receipt}),/all backordered products/);
  await operation(pa,{action:'receive',jobId:f.id,version:saved.version,data:{...receipt,allProductsReceived:true}});
  saved=await f.current();assert.equal(saved.stage,'Received');assert.equal(saved.backordered,false);assert.equal(saved.received,today);
+ await operation(pa,{action:'schedule',jobId:f.id,version:saved.version,data:{date:today,period:'AM',installerId:installer.id,stop:1}});
+ saved=await f.current();
+ const approvedCertificate=saved.operations.report.certificate;
+ await operation(fs,{action:'status',jobId:f.id,version:saved.version,data:{target:'Production'}});
+ saved=await f.current();assert.equal(saved.stage,'Production');assert.equal(saved.operations.report,null);
+ const {certificatesForJob}=await vite.ssrLoadModule('/lib/digital-documents.ts');
+ assert.deepEqual(certificatesForJob(saved),[approvedCertificate]);
+ assert.equal(saved.operations.previousReports[0].approved,true);
+ // Simulate the former PROD transition that cleared the report without an archive.
+ delete saved.operations.previousReports;
+ await pg.query('UPDATE production.jobs SET payload=$2 WHERE id=$1',[f.id,JSON.stringify(saved)]);
+ const recovered=(await operationsData(fs)).jobs.find(job=>job.id===f.id);
+ assert.deepEqual(certificatesForJob(recovered),[approvedCertificate]);
+ assert.equal(recovered.stage,'Production');
  const early=await fixture();await operation(installer,{action:'report',jobId:early.id,version:1,data:early.result});let e=await early.current();
  await operation(pa,{action:'receive',jobId:early.id,version:e.version,data:{...receipt,allProductsReceived:true}});e=await early.current();
  await operation(fs,{action:'reviewReport',jobId:early.id,version:e.version,data:{approve:true}});assert.equal((await early.current()).stage,'Received');

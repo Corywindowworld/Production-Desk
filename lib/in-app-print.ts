@@ -1,5 +1,5 @@
 // Keep document previews inside the current Production Desk window (including iPad/PWA).
-export function openInAppDocument(options:{html?:string;url?:string;title?:string}):Window {
+export function openInAppDocument(options:{html?:string;url?:string;title?:string;waitForImages?:boolean}):Window {
  const previous=document.activeElement as HTMLElement|null;
  const dialog=document.createElement('dialog');
  dialog.setAttribute('aria-label',options.title||'Print preview');
@@ -24,6 +24,29 @@ export function openInAppDocument(options:{html?:string;url?:string;title?:strin
  if(options.html!==undefined){
   const w=frame.contentWindow!;w.document.open();
   w.document.write(options.html.replace('</head>','<style>@media screen{.toolbar,.print-exit,body>button{display:none!important}}</style></head>'));w.document.close();
+  if(options.waitForImages && w.document.images.length){
+   print.disabled=true;
+   print.textContent='Preparing photos…';
+   const status=document.createElement('span');
+   status.setAttribute('role','status');
+   toolbar.insertBefore(status,print);
+   void Promise.all(Array.from(w.document.images,async photo=>{
+    try{
+     await photo.decode();
+     return true;
+    }catch{
+     const message=w.document.createElement('p');
+     message.textContent='Photo unavailable: '+photo.alt;
+     photo.replaceWith(message);
+     return false;
+    }
+   })).then(results=>{
+    const missing=results.filter(loaded=>!loaded).length;
+    if(missing)status.textContent=missing===1?'1 photo could not be loaded.':missing+' photos could not be loaded.';
+    print.textContent='Print / Save PDF';
+    print.disabled=false;
+   });
+  }
   w.document.addEventListener('keydown',e=>{if(e.key==='Escape'){e.preventDefault();e.stopPropagation();dialog.close();}});
  }else if(options.url){frame.src=options.url;}
  close.focus();

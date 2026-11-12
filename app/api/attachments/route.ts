@@ -4,6 +4,7 @@ import {database} from '@/db/raw';
 import {storage,bucket} from '@/lib/storage';
 import {uploadKinds,MAX_UPLOAD_BYTES,fileType} from '@/lib/upload-validation';
 import {z} from 'zod';
+import {reorderPhotoJpeg} from '@/lib/reorder-photo';
 export const runtime='nodejs';
 export const maxDuration=60;
 const beginSchema=z.object({action:z.literal('begin'),jobId:z.string().uuid(),kind:z.enum(uploadKinds),name:z.string().min(1).max(255),size:z.number().int().positive().max(MAX_UPLOAD_BYTES)});
@@ -60,7 +61,7 @@ export async function POST(request:Request){try{
  return Response.json({attachment:{key:row.key,kind:row.kind,name:row.name}},{headers:{'Cache-Control':'no-store'}});
 }catch(e){return apiError(e)}}
 export async function GET(request:Request){try{
- const member=await actor(request),key=new URL(request.url).searchParams.get('key')||'';
+ const member=await actor(request),params=new URL(request.url).searchParams,key=params.get('key')||'';
  if(!/^jobs\/[0-9a-f-]+\/(labor|completion|incomplete|reorder|photos|front|rear|left|right|issue|visit|warehouse|check)\/[0-9a-f-]+$/.test(key))throw new ApiError(404,'File not found.');
  const [,jobId,kind]=key.split('/');
  if(kind==='check')requireCheckPhotoRole(member);
@@ -68,6 +69,16 @@ export async function GET(request:Request){try{
  else if(kind==='visit')await visitJobFor(member,jobId);
  else await jobFor(member,jobId);
  if(!await bucket.head(key))throw new ApiError(404,'File not found.');
+ if(params.get('view')==='reorder-photo' && ['issue','reorder','photos'].includes(kind)){
+  const {data,error}=await storage().download(key);
+  if(error||!data)throw new ApiError(404,'Photo not found.');
+  try{
+   const jpeg=await reorderPhotoJpeg(new Uint8Array(await data.arrayBuffer()));
+   return new Response(new Uint8Array(jpeg),{headers:{'Content-Type':'image/jpeg','Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff'}});
+  }catch{
+   throw new ApiError(422,'This photo could not be prepared for preview or printing.');
+  }
+ }
  const {data,error}=await storage().createSignedUrl(key,60);if(error||!data)throw new ApiError(404,'File not found.');
  return new Response(null,{status:302,headers:{Location:data.signedUrl,'Cache-Control':'private, no-store','Referrer-Policy':'no-referrer'}});
 }catch(e){return apiError(e)}}

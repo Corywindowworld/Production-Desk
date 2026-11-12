@@ -3079,7 +3079,7 @@ test("digital reorder submissions, chargebacks, corrections, tracking and photo 
   const html = reorderPrintHtml(j, j.operations.reorders[0]);
   assert.ok(html.includes("Contractor Reorder Form"));
   assert.ok(html.includes("Wrong size shipped"));
-  assert.ok(html.includes(encodeURIComponent(photoKey)));
+  assert.ok(html.includes("view=reorder-photo&amp;key=" + encodeURIComponent(photoKey)));
 });
 
 test("FS reorders allow no photos; installer photos and Admin deletion are enforced", async () => {
@@ -4968,4 +4968,17 @@ test('PA can record the first materials receipt on an already scheduled producti
     () => operation(pa, { action: 'receive', jobId: id, version, data: { ...data, received: addDays(today, -1) } }),
     /source or reason/,
   );
+});
+
+test('reorder photos flatten transparency to white for printing', async () => {
+  const { default: sharp } = await import('sharp');
+  const { reorderPhotoJpeg } = await vite.ssrLoadModule('/lib/reorder-photo.ts');
+  const source = await sharp({
+    create: { width: 32, height: 24, channels: 4, background: '#00000000' },
+  }).png().toBuffer();
+  const jpeg = sharp(await reorderPhotoJpeg(source));
+  const { format, width, height } = await jpeg.metadata();
+  assert.deepEqual({ format, width, height }, { format: 'jpeg', width: 32, height: 24 });
+  const pixels = await jpeg.raw().toBuffer();
+  assert.ok(pixels.every(value => value === 255));
 });

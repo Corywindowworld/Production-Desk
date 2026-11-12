@@ -2,11 +2,25 @@
 import {useState,useEffect,useRef} from 'react';
 import {uploadAttachment} from '@/lib/upload-client';
 import {PhotoUploadProgress} from './upload-progress';
-import {printReorder} from '@/lib/print-reorder';
+import {InAppDocumentLink} from './in-app-document-link';
+import {printReorder,reorderPhotoUrl} from '@/lib/print-reorder';
 import {sillPieceLengths,formatSillInches} from '@/lib/marble-sill';
 const types=['Whole Window','Screen Frame','Sash','Frame','SPD','Entry Door','Marble Sill','Other Part'];
 const parties=['Factory','Installer','Sales Rep','Customer','Window World'];
 const empty=()=>({type:'Whole Window',window:'',quantity:1,sillLength:null,sillDepth:null,orderedSize:'',actualSize:'',reorderSize:'',serial:'',position:'',panelSide:'',panelOperation:'',sameSizeAsOrder:false,windowInstalled:false,specialShape:false,orderedLegHeight:'',actualLegHeight:'',reorderLegHeight:'',description:'',photos:[] as any[]});
+function ReorderPhotoPreview({photo}:{photo:{key:string;name:string}}){
+ const [failed,setFailed]=useState(false);
+ const url=reorderPhotoUrl(photo.key);
+ return <figure style={{margin:'8px 0',maxWidth:220,overflowWrap:'anywhere'}}>
+  {!failed && <InAppDocumentLink href={url} aria-label={'View photo: '+photo.name}>
+   <img src={url} alt={photo.name} loading="lazy" onError={()=>setFailed(true)}
+    style={{display:'block',width:220,maxWidth:'100%',height:165,objectFit:'contain'}} />
+  </InAppDocumentLink>}
+  <figcaption>{failed?'Preview unavailable · ':''}
+   <a href={'/api/attachments?key='+encodeURIComponent(photo.key)} target="_blank" rel="noreferrer">{photo.name} ↗</a>
+  </figcaption>
+ </figure>;
+}
 export function ReorderRequests({j,me,save,openRequest=0,approvalsOnly=false,renderClearSelection}:any){
  const section=useRef<HTMLDetailsElement>(null);
  const review=['admin','supervisor'].includes(me.role),canSubmit=review||me.role==='installer';
@@ -32,7 +46,7 @@ export function ReorderRequests({j,me,save,openRequest=0,approvalsOnly=false,ren
  {x.type==='SPD'&&<><label>Patio door panel side<select required value={x.panelSide||''} onChange={e=>editItem(i,'panelSide',e.target.value)}><option value="">Select…</option><option>Left</option><option>Right</option></select></label><label>Patio door panel operation<select required value={x.panelOperation||''} onChange={e=>editItem(i,'panelOperation',e.target.value)}><option value="">Select…</option><option>Inactive</option><option>Active</option></select></label></>}
  <label>Product / part description<textarea value={x.description} onChange={e=>editItem(i,'description',e.target.value)}/></label>
  <label>Photos ({review?'optional':'required'}): issue, product tag and measurements<input type="file" accept="image/*" multiple onChange={async e=>{const files=Array.from(e.target.files||[]);e.target.value='';setUploadCount(n=>n+files.length);setError('');await Promise.all(files.map(async file=>{try{const photo=await uploadAttachment(j.id,'issue',file);setDraft((d:any)=>({...d,items:d.items.map((item:any,n:number)=>n===i?{...item,photos:[...item.photos,photo]}:item)}));}catch(e){setError((old:string)=>old+' '+file.name+': '+(e as Error).message);}finally{setUploadCount(n=>n-1);}}));}}/></label>
- {x.photos.map((a:any)=><p key={a.key}>{a.name} <button type="button" onClick={()=>editItem(i,'photos',x.photos.filter((v:any)=>v.key!==a.key))}>Remove photo</button></p>)}
+ {x.photos.map((a:any)=><div key={a.key}><ReorderPhotoPreview photo={a}/><button type="button" onClick={()=>editItem(i,'photos',x.photos.filter((v:any)=>v.key!==a.key))}>Remove photo</button></div>)}
  <button type="button" disabled={uploadCount>0||draft.items.length===1} onClick={()=>setDraft({...draft,items:draft.items.filter((_:any,n:number)=>n!==i)})}>Remove item</button></details>)}
  <button type="button" className="live-button" onClick={()=>setDraft({...draft,items:[...draft.items,empty()]})}>Add Item</button>
  <p><strong>WINDOW TAG MUST BE RETURNED WITH WINDOW</strong></p>
@@ -42,7 +56,7 @@ export function ReorderRequests({j,me,save,openRequest=0,approvalsOnly=false,ren
  <PhotoUploadProgress jobId={j.id}/>{error&&<p role="alert" className="op-red">{error}</p>}<button className="op-primary" disabled={uploadCount>0}>{review?'Submit Reorder':'Submit for FS review'}</button><button type="button" disabled={uploadCount>0} onClick={()=>setDraft(null)}>Cancel</button></fieldset></form>}
  {(j.operations?.reorders||[]).filter((r:any)=>!approvalsOnly||!r.approvalDismissed).map((r:any)=><details className="op-disclosure" key={r.id} open={approvalsOnly&&r.status==='Submitted'||undefined}><summary className="reorder-approval-summary">{approvalsOnly&&review&&r.status!=='Submitted'&&renderClearSelection?.(r)}<span>{r.status} · {r.reason.slice(0,90)} · {r.submittedAt?.slice(0,10)}</span>{approvalsOnly&&review&&r.status!=='Submitted'&&<button type="button" className="live-button" disabled={busy} onClick={e=>{e.preventDefault();e.stopPropagation();void run({command:'clearApproval',id:r.id})}}>Clear from approvals</button>}</summary>
  <p>{r.reason}</p><p>Submitted by {r.submittedName} · {r.submittedAt}</p><p>Other work remaining: {r.remaining||'None'}</p>
- {r.items.map((i:any,n:number)=><div key={n}><strong>{i.type} · {i.window} · Qty {i.quantity}</strong><p>{[i.orderedSize&&'Ordered: '+i.orderedSize,i.windowInstalled?'Window Installed':i.actualSize&&'Actual: '+i.actualSize,i.reorderSize&&'Reorder: '+i.reorderSize,i.serial&&'Serial: '+i.serial,i.specialShape&&'Special Shape',i.specialShape&&'Leg heights (ordered / actual / reorder): '+[i.orderedLegHeight,i.actualLegHeight,i.reorderLegHeight].join(' / '),i.type==='Marble Sill'&&'Length: '+formatSillInches(i.sillLength)+' in',i.type==='Marble Sill'&&'Depth: '+formatSillInches(i.sillDepth)+' in',i.sillSplitCount&&'Piece '+i.sillSplitPart+' of '+i.sillSplitCount+' (original length '+formatSillInches(i.sillOriginalLength)+' in)',i.position,i.panelSide,i.panelOperation,i.description].filter(Boolean).join(' · ')}</p>{i.photos.map((a:any)=><a key={a.key} href={'/api/attachments?key='+encodeURIComponent(a.key)} target="_blank" rel="noreferrer">{a.name} ↗ </a>)}</div>)}
+ {r.items.map((i:any,n:number)=><div key={n}><strong>{i.type} · {i.window} · Qty {i.quantity}</strong><p>{[i.orderedSize&&'Ordered: '+i.orderedSize,i.windowInstalled?'Window Installed':i.actualSize&&'Actual: '+i.actualSize,i.reorderSize&&'Reorder: '+i.reorderSize,i.serial&&'Serial: '+i.serial,i.specialShape&&'Special Shape',i.specialShape&&'Leg heights (ordered / actual / reorder): '+[i.orderedLegHeight,i.actualLegHeight,i.reorderLegHeight].join(' / '),i.type==='Marble Sill'&&'Length: '+formatSillInches(i.sillLength)+' in',i.type==='Marble Sill'&&'Depth: '+formatSillInches(i.sillDepth)+' in',i.sillSplitCount&&'Piece '+i.sillSplitPart+' of '+i.sillSplitCount+' (original length '+formatSillInches(i.sillOriginalLength)+' in)',i.position,i.panelSide,i.panelOperation,i.description].filter(Boolean).join(' · ')}</p>{(i.photos||[]).map((a:any)=><ReorderPhotoPreview key={a.key} photo={a}/>)}</div>)}
  <p>Charge back to: {(r.chargebacks||[]).join(', ')||'Not assigned'} · {r.chargebackNote}</p><p>{r.comment}</p><p>Reorder date: {r.reorderDate||'Awaiting approval'}</p>
 
  {me.role==='admin'&&<button type="button" className="live-button" disabled={busy} onClick={async()=>{if(window.confirm('Are you sure you want to delete this reorder?'))await run({command:'delete',id:r.id})}}>Delete reorder</button>}

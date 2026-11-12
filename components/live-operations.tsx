@@ -850,7 +850,7 @@ export default function LiveOperations() {
         </Drawer>
       )}
       {current && (
-        <Drawer title={current.customer} onClose={() => setSelected(null)}>
+        <Drawer fullPage title={current.customer} onClose={() => setSelected(null)}>
           <JobFile
             key={current.id}
             reload={load}
@@ -931,7 +931,7 @@ export default function LiveOperations() {
     </div>
   );
 }
-function Drawer({ title, onClose, children }: any) {
+function Drawer({ title, onClose, children, fullPage = false }: any) {
   useEffect(() => {
     const before = document.body.style.overflow;
     document.body.style.overflow = "hidden";
@@ -950,6 +950,7 @@ function Drawer({ title, onClose, children }: any) {
     <div className="op-overlay">
       <section
         className="op-detail"
+        style={fullPage ? { width: "100%" } : undefined}
         role="dialog"
         aria-modal="true"
         aria-label={title}
@@ -2638,6 +2639,12 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
               </div>
             ),
         )}
+        {j.customerEmail && (
+          <div>
+            <small>Customer email</small>
+            <a href={"mailto:" + j.customerEmail}>{j.customerEmail}</a>
+          </div>
+        )}
         <div>
           <small>Sales Rep</small>
           <strong>{j.salesRep || "Not recorded"}</strong>
@@ -2645,6 +2652,12 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
           <a href={"tel:" + j.salesRepPhone}>
             {formatPhone(j.salesRepPhone || "")}
           </a>
+          {j.salesRepEmail && (
+            <>
+              <br />
+              <a href={"mailto:" + j.salesRepEmail}>{j.salesRepEmail}</a>
+            </>
+          )}
         </div>
         <div>
           <small>Products</small>
@@ -2756,6 +2769,17 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
       {inactiveSalesRep && (
         <p className="live-inactive">Sales Rep · Inactive</p>
       )}
+      {!isInstaller && (
+        <details className="op-disclosure">
+          <summary>Customer record and contact notes</summary>
+          <ProjectRecord j={j} />
+        </details>
+      )}
+      {!isInstaller && <LinkedAccounts key={j.id} j={j} jobs={data.jobs} canEdit={data.canEdit} save={save} onOpen={onOpen} />}
+      <section aria-label="Customer documents" style={{ marginBlock: 16 }}>
+        {(data.canEdit || review) && <CertificateInvite key={j.id} j={j} />}
+        <DigitalDocuments j={j} />
+      </section>
       {data.canEdit && (
         <>
           <details className="op-disclosure">
@@ -2779,7 +2803,6 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
           />
         )}
       </details>
-      {!isInstaller && <LinkedAccounts key={j.id} j={j} jobs={data.jobs} canEdit={data.canEdit} save={save} onOpen={onOpen} />}
 
       {data.canEdit && (
         <details className="op-disclosure">
@@ -2992,29 +3015,6 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
                 "Reorders" +
                 (o.reorders?.length ? " (" + o.reorders.length + ")" : ""),
             },
-            ...(!isInstaller
-              ? [{ id: "service", label: "Service & Status" }]
-              : []),
-            {
-              id: "documents",
-              label:
-                "Digital Documents" +
-                ((o.report?.certificate ? 1 : 0) +
-                (o.previousReports || []).filter((r: any) => r.certificate)
-                  .length +
-                (o.leadRenovation ? 1 : 0) +
-                (o.reorders?.length || 0)
-                  ? " (" +
-                    ((o.report?.certificate ? 1 : 0) +
-                      (o.previousReports || []).filter(
-                        (r: any) => r.certificate,
-                      ).length +
-                      (o.leadRenovation ? 1 : 0) +
-                      (o.reorders?.length || 0)) +
-                    ")"
-                  : ""),
-            },
-            { id: "notes", label: "Notes & History" },
             { id: "history", label: "Payments & Other" },
             { id: "labor", label: "Complete Labor Sheet" },
           ].filter(t => !isInstaller || t.id !== "labor").map((t) => (
@@ -3177,96 +3177,6 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
             )}
           </details>
         </section>
-        {!isInstaller && (
-          <section
-            role="tabpanel"
-            id={"job-panel-" + j.id + "-service"}
-            aria-labelledby={"job-tab-" + j.id + "-service"}
-            hidden={workspaceTab !== "service"}
-            style={{ display: workspaceTab === "service" ? "block" : "none" }}
-          >
-            {" "}
-            <details className="op-disclosure">
-              <summary>Service & status requests</summary>
-              {data.canEdit && (
-                <RequestForm
-                  stage={j.stage}
-                  team={team}
-                  save={save}
-                  admin={me.role === "admin"}
-                />
-              )}
-              <div className="op-request-list">
-                {(o.requests || []).map((r: any) => (
-                  <article key={r.id}>
-                    <strong>
-                      {r.type} · {r.status}
-                    </strong>
-                    <p>{r.details}</p>
-                    {r.type === "Service" && (
-                      <p>
-                        {displayDate(r.serviceDate)} · {r.period} ·{" "}
-                        {team.find((m: any) => m.id === r.installerId)?.name ||
-                          "Assigned installer"}{" "}
-                        ·{" "}
-                        {r.status === "Approved"
-                          ? "Added to calendar"
-                          : "Awaiting approval"}
-                      </p>
-                    )}
-                    {r.type === "ACCRF" && (
-                      <p>Revised contract price: {currency(r.amount)}</p>
-                    )}
-                    {me.role === "admin" && r.status === "Pending" && (
-                      <>
-                        <button
-                          disabled={saving}
-                          onClick={() =>
-                            act("reviewRequest", { id: r.id, approve: true })
-                          }
-                        >
-                          Approve and move to{" "}
-                          {r.type === "Service" ? "SVC" : r.type}
-                        </button>
-                        <button
-                          disabled={saving}
-                          onClick={() =>
-                            act("reviewRequest", { id: r.id, approve: false })
-                          }
-                        >
-                          Decline
-                        </button>
-                      </>
-                    )}
-                  </article>
-                ))}
-              </div>
-            </details>
-          </section>
-        )}
-        <section
-          role="tabpanel"
-          id={"job-panel-" + j.id + "-documents"}
-          aria-labelledby={"job-tab-" + j.id + "-documents"}
-          hidden={workspaceTab !== "documents"}
-          style={{ display: workspaceTab === "documents" ? "block" : "none" }}
-        >
-          {(data.canEdit || review) && <CertificateInvite key={j.id} j={j}/>}
-          <DigitalDocuments j={j} />
-        </section>
-        <section
-          role="tabpanel"
-          id={"job-panel-" + j.id + "-notes"}
-          aria-labelledby={"job-tab-" + j.id + "-notes"}
-          hidden={workspaceTab !== "notes"}
-          style={{ display: workspaceTab === "notes" ? "block" : "none" }}
-        >
-          {workspaceTab === "notes" && <JobNotesHistory key={visitRevision} j={j} save={save} />}
-          {!isInstaller && <details className="op-disclosure">
-            <summary>Customer record and contact notes</summary>
-            <ProjectRecord j={j} />
-          </details>}
-        </section>
         <section
           role="tabpanel"
           id={"job-panel-" + j.id + "-history"}
@@ -3312,6 +3222,65 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
           </details>
         </section>
       </section>
+      {!isInstaller && (
+        <details className="op-disclosure">
+          <summary>Service & status requests</summary>
+          {data.canEdit && (
+            <RequestForm
+              stage={j.stage}
+              team={team}
+              save={save}
+              admin={me.role === "admin"}
+            />
+          )}
+          <div className="op-request-list">
+            {(o.requests || []).map((r: any) => (
+              <article key={r.id}>
+                <strong>
+                  {r.type} · {r.status}
+                </strong>
+                <p>{r.details}</p>
+                {r.type === "Service" && (
+                  <p>
+                    {displayDate(r.serviceDate)} · {r.period} ·{" "}
+                    {team.find((m: any) => m.id === r.installerId)?.name ||
+                      "Assigned installer"}{" "}
+                    ·{" "}
+                    {r.status === "Approved"
+                      ? "Added to calendar"
+                      : "Awaiting approval"}
+                  </p>
+                )}
+                {r.type === "ACCRF" && (
+                  <p>Revised contract price: {currency(r.amount)}</p>
+                )}
+                {me.role === "admin" && r.status === "Pending" && (
+                  <>
+                    <button
+                      disabled={saving}
+                      onClick={() =>
+                        act("reviewRequest", { id: r.id, approve: true })
+                      }
+                    >
+                      Approve and move to{" "}
+                      {r.type === "Service" ? "SVC" : r.type}
+                    </button>
+                    <button
+                      disabled={saving}
+                      onClick={() =>
+                        act("reviewRequest", { id: r.id, approve: false })
+                      }
+                    >
+                      Decline
+                    </button>
+                  </>
+                )}
+              </article>
+            ))}
+          </div>
+        </details>
+      )}
+      <JobNotesHistory key={visitRevision} j={j} save={save} />
     </>
   );
 }

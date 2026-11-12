@@ -1097,7 +1097,8 @@ function JobList({
                   }
                 >
                   {a.aged
-                    ? `${labels[j.stage]} · ${a.days} days`
+                    ? `${labels[j.stage]} · ${a.days} days` +
+                      (j.stage === "Received" && j.install ? ` · Scheduled ${displayDate(j.install)}` : "")
                     : a.remaining != null
                       ? `${a.remaining} days to Aged`
                       : labels[displayedJobStatus(j)] || displayedJobStatus(j)}

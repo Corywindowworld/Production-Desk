@@ -229,13 +229,14 @@ export function publicJob(m: Member, j: any) {
 async function recoverProductionCertificates(db: ReturnType<typeof database>, jobs: any[]) {
   const candidates = new Map<string, {job: any; submittedAt: string; review: any}>();
   for (const job of jobs) {
-    const history = job.history || [];
-    if (!history.some((event: any) => event.text === "Job moved to PROD; production aging started")) continue;
-    const saved = new Set([job.operations?.report, ...(job.operations?.previousReports || [])]
+    const history = Array.isArray(job.history) ? job.history : [];
+    if (!history.some((event: any) => event?.text === "Job moved to PROD; production aging started")) continue;
+    const previous = job.operations?.previousReports;
+    const saved = new Set([job.operations?.report, ...(Array.isArray(previous) ? previous : [])]
       .filter((report: any) => report?.certificate).map((report: any) => report.submittedAt || report.certificate.signedAt));
     let movedToProduction = false, review: any = null;
     for (const event of history) {
-      const text = String(event.text || "");
+      const text = String(event?.text || "");
       if (text === "Job moved to PROD; production aging started") movedToProduction = true;
       if (text.startsWith("Installer report approved;") && movedToProduction) review = event;
       if (!text.startsWith("Installer submitted ") || !text.includes("with signed digital certificate")) continue;
@@ -247,8 +248,9 @@ async function recoverProductionCertificates(db: ReturnType<typeof database>, jo
   }
   if (!candidates.size) return;
   const lookup = Array.from(candidates.values(), ({job, submittedAt}) => ({job_id: job.id, created: submittedAt}));
+  // Pass pre-encoded JSON as text so postgres.js does not encode it again.
   const {results} = await db.prepare(
-    "SELECT ir.job_id,ir.created,ir.payload FROM installer_reports ir JOIN json_to_recordset(?::json) AS lost(job_id text,created text) ON ir.job_id=lost.job_id AND ir.created=lost.created",
+    "SELECT ir.job_id,ir.created,ir.payload FROM installer_reports ir JOIN json_to_recordset(?::text::json) AS lost(job_id text,created text) ON ir.job_id=lost.job_id AND ir.created=lost.created",
   ).bind(JSON.stringify(lookup)).all();
   for (const row of results) {
     const candidate = candidates.get(row.job_id + ":" + row.created);
@@ -293,7 +295,13 @@ export async function operationsData(
   }
   onStep("installer-view");
   const visibleJobs = all.filter((j: any) => m.role !== "installer" || installerVisible(m, j));
-  await recoverProductionCertificates(db, visibleJobs);
+  try {
+    await recoverProductionCertificates(db, visibleJobs);
+  } catch (error) {
+    console.error("Historical certificate lookup failed", {
+      code: error && typeof error === "object" && "code" in error ? error.code : undefined,
+    });
+  }
   const jobs = visibleJobs.map((j: any) => publicJob(m, j));
   onStep("team");
   const team =

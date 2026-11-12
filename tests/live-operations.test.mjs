@@ -4508,9 +4508,26 @@ test('backordered INC certificates stay ORD, skip reorders and require full rece
  // Simulate the former PROD transition that cleared the report without an archive.
  delete saved.operations.previousReports;
  await pg.query('UPDATE production.jobs SET payload=$2 WHERE id=$1',[f.id,JSON.stringify(saved)]);
- const recovered=(await operationsData(fs)).jobs.find(job=>job.id===f.id);
- assert.deepEqual(certificatesForJob(recovered),[approvedCertificate]);
- assert.equal(recovered.stage,'Production');
+ const originalDb=globalThis.__liveDb;
+ const driver=wrap(pg);
+ let failLookup=false;
+ globalThis.__liveDb=createDatabase({...driver,query(sql,args){
+  if(sql.includes('json_to_recordset')){
+   if(failLookup)throw Object.assign(Error('Simulated recovery query failure'),{code:'TEST'});
+   // postgres.js JSON-encodes parameters inferred as JSON, including strings.
+   if(sql.includes('json_to_recordset($1::json)'))args=[JSON.stringify(args[0])];
+  }
+  return driver.query(sql,args);
+ }});
+ try {
+  const recovered=(await operationsData(fs)).jobs.find(job=>job.id===f.id);
+  assert.deepEqual(certificatesForJob(recovered),[approvedCertificate]);
+  assert.equal(recovered.stage,'Production');
+  failLookup=true;
+  assert.equal((await operationsData(fs)).jobs.find(job=>job.id===f.id).stage,'Production');
+ } finally {
+  globalThis.__liveDb=originalDb;
+ }
  const early=await fixture();await operation(installer,{action:'report',jobId:early.id,version:1,data:early.result});let e=await early.current();
  await operation(pa,{action:'receive',jobId:early.id,version:e.version,data:{...receipt,allProductsReceived:true}});e=await early.current();
  await operation(fs,{action:'reviewReport',jobId:early.id,version:e.version,data:{approve:true}});assert.equal((await early.current()).stage,'Received');

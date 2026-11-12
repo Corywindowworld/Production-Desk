@@ -1,0 +1,24 @@
+Production Desk: dashboard navigation and account themes
+
+Apply this over the latest Guild Quality Scores/profile update.
+
+1. In Supabase SQL Editor, run the CONTENTS of
+   supabase/migrations/005_account_theme.sql (not the filename).
+   This adds the theme preference column and defaults existing users to Light.
+2. Extract this ZIP. Upload the app, components, public, supabase, tests and
+   docs folders into the root of your existing GitHub repository, preserving
+   their paths and replacing the matching files.
+3. Wait for the new Vercel deployment to finish. If it is a Preview deployment,
+   promote that new deployment to Production.
+4. Open the dashboard: Guild Quality Scores is in the top navigation.
+   Open Account management for Change password and Appearance.
+   Administrators use the Appearance tab. Other users see their own settings.
+
+Themes: Light (default), Dark (black/white/blue), Florida Gators (orange/blue
+and an original small gator badge). Preferences are stored per account and
+follow the user across devices. The badge is original artwork, not an
+official University of Florida logo.
+
+Validation: production build and PostgreSQL integration tests passed,
+including own-account theme persistence and rejection of cross-account edits.
+Live deployment and live browser appearance have not been verified.

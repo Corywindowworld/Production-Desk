@@ -1,0 +1,34 @@
+/* Shared sidebar/action colors for dashboard and warehouse accounts. */
+:is(.op,.wh-page){--op-page:#f3f6fa}
+:is(.op,.wh-page){--op-side:#102d48;--op-side-text:#edf4fc;--op-active:#2479d4;--op-accent:#1d5280}
+html[data-theme=dark] :is(.op,.wh-page){--op-side:#10151d;--op-accent:#183e68;--op-active:#0757db;--op-page:#1b2430}
+html[data-theme=gators] :is(.op,.wh-page){--op-side:#0021a5;--op-active:#b93605;--op-accent:#133880}
+html[data-theme=fsu] :is(.op,.wh-page){--op-side:#782f40;--op-active:#78354a;--op-accent:#9d7350}
+html[data-theme=mexico] :is(.op,.wh-page){--op-side:#fff;--op-side-text:#18513c;--op-active:#006847;--op-accent:#006847}
+html[data-theme=brazil] :is(.op,.wh-page){--op-side:#005d30;--op-active:#15429a;--op-accent:#174893}
+html[data-theme=cuba] :is(.op,.wh-page){--op-side:#002a8f;--op-active:#a92731;--op-accent:#144f99}
+html[data-theme=usa] :is(.op,.wh-page){--op-side:#173658;--op-active:#a92b3d;--op-accent:#285b88}
+html[data-theme="lightning"] :is(.op,.wh-page){--op-side: #00205b;--op-side-text: #ffffff;--op-active: #134a91;--op-accent: #365d87;--op-page: #f1f5fa}
+html[data-theme="buccaneers"] :is(.op,.wh-page){--op-side: #34302b;--op-side-text: #ffffff;--op-active: #b80929;--op-accent: #a71930;--op-page: #f6f3f1}
+html[data-theme="creamsicle"] :is(.op,.wh-page){--op-side: #fff2dc;--op-side-text: #65301a;--op-active: #a92c16;--op-accent: #c55000;--op-page: #fff8ee}
+html[data-theme="lightning"] {
+  --background: #f1f5fa;
+  --primary: #134a91;
+  --primary-foreground: #fff;
+  --ring: #365d87;
+}
+html[data-theme="buccaneers"] {
+  --background: #f6f3f1;
+  --primary: #b80929;
+  --primary-foreground: #fff;
+  --ring: #a71930;
+}
+html[data-theme="creamsicle"] {
+  --background: #fff8ee;
+  --primary: #a92c16;
+  --primary-foreground: #fff;
+  --ring: #c55000;
+}
+html[data-theme=lightning] .gators-theme-banner{background:#00205b;color:#fff;border-color:#365d87}
+html[data-theme=buccaneers] .gators-theme-banner{background:#34302b;color:#fff;border-color:#b80929}
+html[data-theme=creamsicle] .gators-theme-banner{background:#fff2dc;color:#65301a;border-color:#a92c16}

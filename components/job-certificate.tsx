@@ -142,7 +142,8 @@ export function JobCertificateForm({ j, type, profile, initialValue, onChange, o
     [installerSignature, setInstallerSignature] = useState(
       initial?.installerSignatureDataUrl || profile?.savedDrawnSignature || "",
     );
-  const [paymentInput, setPaymentAmount] = useState(initial?.paymentAmount ? String(initial.paymentAmount) : ""),
+  const defaultPayment = !service && balance !== null && balance >= 0 ? String(balance) : "";
+  const [paymentInput, setPaymentAmount] = useState(String(initial?.paymentAmount ?? defaultPayment)),
     [paymentMethod, setPaymentMethod] = useState(initial?.paymentMethod || ""),
     [email, setEmail] = useState(initial?.customerEmail || j.customerEmail || ""),
     [homeownerName, setHomeownerName] = useState(initial?.homeownerName || j.customer || "");
@@ -179,7 +180,7 @@ export function JobCertificateForm({ j, type, profile, initialValue, onChange, o
   useEffect(() => {
     const saved = initialValue?.type === type ? initialValue : null;
     setAnswers(saved?.answers?.length === questions.length ? saved.answers : Array(questions.length).fill(null));
-    setPaymentAmount(saved?.paymentAmount ? String(saved.paymentAmount) : "");
+    setPaymentAmount(String(saved?.paymentAmount ?? defaultPayment));
     setPaymentMethod(saved?.paymentMethod || "");
     setCompletedWindows(saved?.completedWindows || "");
     setExplanation(saved?.explanation || "");

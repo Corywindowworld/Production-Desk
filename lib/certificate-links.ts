@@ -33,17 +33,20 @@ export async function inviteCertificate(m:Member,input:unknown,base:string){
 }
 export async function publicCertificate(token:string){
  const row=await database().prepare('SELECT payload FROM production.operations_config WHERE id=?').bind(linkKey(token)).first(),link=row?decode(row.payload):null;assertUsable(link);
- const j=link.snapshot;return {type:link.type,customer:j.customer,customerId:String(j.number),address:[j.address,j.city,j.state,j.zip].filter(Boolean).join(', '),amount:j.amount,contractAmount:j.contractAmount,email:link.email,completedWindows:link.completedWindows,preparer:link.signer.name};
+ const jobRow=await database().prepare('SELECT payload FROM jobs WHERE id=?').bind(link.jobId).first();
+ if(!jobRow)throw new ApiError(410,'This job is no longer available.');
+ const j={...link.snapshot,amount:decode(jobRow.payload).amount};return {type:link.type,customer:j.customer,customerId:String(j.number),address:[j.address,j.city,j.state,j.zip].filter(Boolean).join(', '),amount:j.amount,contractAmount:j.contractAmount,email:link.email,completedWindows:link.completedWindows,preparer:link.signer.name};
 }
 export async function signCertificate(token:string,input:any){
  const id=linkKey(token),db=database(),at=new Date().toISOString(),emailId=crypto.randomUUID(),staffEmailIds:string[]=[];
  await db.transaction(async tx=>{
  const row=await tx.prepare('SELECT payload FROM production.operations_config WHERE id=? FOR UPDATE').bind(id).first(),link=row?decode(row.payload):null;assertUsable(link);
  const v=certificateInputSchema.parse({...input,type:link.type,customerEmail:link.email,completedWindows:link.completedWindows,installerSignatureDataUrl:link.installerSignatureDataUrl});
- if(link.snapshot.amount!=null&&v.paymentAmount>link.snapshot.amount)throw new ApiError(400,'Amount paid cannot exceed the balance shown.');
- const certificate={...certificateSnapshot(link.snapshot,link.signer,v,link.member,at),signedByStaff:true},pdfBase64=await jobCertificatePdfBase64(certificate);
  const jobRow=await tx.prepare('SELECT payload FROM jobs WHERE id=? FOR UPDATE').bind(link.jobId).first();if(!jobRow)throw new ApiError(410,'This job is no longer available.');
- const j=decode(jobRow.payload);j.operations??={};j.operations.remoteCertificates=[...(j.operations.remoteCertificates||[]),{...certificate,certificateEmailId:emailId}];
+ const j=decode(jobRow.payload),balance=j.amount;
+ if(balance!=null&&v.paymentAmount>balance)throw new ApiError(400,'Amount paid cannot exceed the current balance. Refresh to see the updated balance.');
+ const certificate={...certificateSnapshot({...link.snapshot,amount:balance},link.signer,v,link.member,at),signedByStaff:true},pdfBase64=await jobCertificatePdfBase64(certificate);
+ j.operations??={};j.operations.remoteCertificates=[...(j.operations.remoteCertificates||[]),{...certificate,certificateEmailId:emailId}];
  j.history=[{at,by:certificate.homeownerName,text:'Customer signed emailed '+link.type.toLowerCase()+' certificate; saved to Digital Documents. Management review pending.'},...(j.history||[])];
  await tx.prepare('UPDATE jobs SET payload=?,version=version+1,updated=? WHERE id=?').bind(JSON.stringify(j),at,link.jobId).run();
  link.usedAt=at;link.certificateId=certificate.id;

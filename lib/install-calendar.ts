@@ -7,6 +7,9 @@ export function remainingWorkdays(day:string,end:string){
  return total;
 }
 export function installAppointments(j:any,dates:string[]){
+ return [j,...(j.operations?.additionalInstallations||[]).map((visit:any)=>({...j,...visit}))].flatMap(visit=>installationDays(visit,dates));
+}
+function installationDays(j:any,dates:string[]){
  if(!j.install)return [];
  const end=j.installEnd||j.install,multi=end>j.install;
  return dates.filter(d=>d>=j.install&&d<=end&&(!multi||isWorkday(d))&&(!j.scheduleCompletedOn||d<=j.scheduleCompletedOn)).map(d=>({...j,date:d,period:j.installPeriod,time:j.installTime||'',stop:j.operations?.routing?.[d]?.installation?.stop||j.stopNumber,routeEta:j.operations?.routing?.[d]?.installation?.etaMinutes,multi,daysLeft:multi?remainingWorkdays(d,end):1}));

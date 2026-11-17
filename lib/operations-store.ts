@@ -216,6 +216,7 @@ export function publicJob(m: Member, j: any) {
       report: j.operations?.report,
       reportDraft: j.operations?.reportDraft,
       previousReports: j.operations?.previousReports || [],
+      additionalInstallations: j.installerId === m.id ? j.operations?.additionalInstallations || [] : [],
       routing: j.operations?.routing || {},
       remoteCertificates: j.operations?.remoteCertificates || [],
       recoveredCertificates: j.operations?.recoveredCertificates || [],
@@ -1321,6 +1322,26 @@ export async function operation(m: Member, input: any) {
       );
     };
     const confirmSchedule = async (s: any) => {
+      const additional = o.additionalInstallations || [];
+      const replaceIndex = s.replaceDate ? additional.findIndex((visit:any)=>visit.install===s.replaceDate) : -1;
+      const add = s.dateAction === "add";
+      const secondary = add || replaceIndex >= 0;
+      const end = s.endDate || s.date;
+      assert(!s.replaceDate || replaceIndex >= 0, "That appointment no longer exists. Refresh and try again.", 409);
+      if (secondary) {
+        assert(j.install && s.installerId === (j.installerId || ""), "Additional dates use the job’s assigned installer.", 400);
+      }
+      const otherVisits = [...(secondary && j.install ? [j] : []), ...additional.filter((_:any,index:number)=>index!==replaceIndex)];
+      assert(!otherVisits.some((visit:any)=>s.date<=(visit.installEnd||visit.install)&&end>=visit.install), "These dates overlap another appointment for this job.", 400);
+      if (secondary) {
+        if (s.installerId) await checkAvailability(s.installerId,s.date,end);
+        const visit = {install:s.date,installEnd:end,installTime:s.time||"",installPeriod:s.period,stopNumber:s.stop,scheduleInstructions:s.additionalInstructions||""};
+        o.additionalInstallations = add ? [...additional,visit] : additional.map((old:any,index:number)=>index===replaceIndex?visit:old);
+        o.pendingSchedule = null;
+        if (!add) o.routing = {};
+        if(s.installerId && end>=today) await alert(s.installerId,`Job #${j.number}: additional appointment scheduled for ${s.date}.`);
+        return;
+      }
       if (j.stage === "Closed") j.stage = "SVC";
       const i = s.installerId ? await installer(s.installerId) : null;
       if (i) {
@@ -1448,7 +1469,7 @@ export async function operation(m: Member, input: any) {
         o.salesKeys = [...new Set([...(o.salesKeys || []), a.key])];
       }
       await confirmSchedule(s);
-      history = `Scheduled ${s.date}${s.endDate && s.endDate !== s.date ? " through " + s.endDate : ""} ${s.time ? hourLabel(s.time) : s.period}, stop ${s.stop}${(dayDifference(j.received, s.date) ?? 0) > 30 ? "; beyond 30 days received" : ""}`;
+      history = `${s.dateAction === "add" ? "Added appointment for" : s.replaceDate ? "Rescheduled appointment for" : "Scheduled"} ${s.date}${s.endDate && s.endDate !== s.date ? " through " + s.endDate : ""} ${s.time ? hourLabel(s.time) : s.period}, stop ${s.stop}${(dayDifference(j.received, s.date) ?? 0) > 30 ? "; beyond 30 days received" : ""}`;
     };
     if (["create", "edit"].includes(action) && input.data.assignedInstallerId) {
       assert(hasJobEditPermission(m), "Job editing permission required.");
@@ -1906,6 +1927,7 @@ export async function operation(m: Member, input: any) {
         j.installed = "";
         j.install = "";
         j.installEnd = "";
+        o.additionalInstallations = [];
         j.installTime = "";
         j.installPeriod = "";
         j.scheduleCompletedOn = "";

@@ -1162,7 +1162,7 @@ function Calendar({
     ...installAppointments(j, dates).map((a: any) => ({
       ...a,
       service: j.stage === "SVC",
-      details: j.scheduleInstructions || j.instructions,
+      details: a.scheduleInstructions || j.instructions,
     })),
     ...(j.operations?.services || []).map((s: any) => ({
       ...j,
@@ -2670,7 +2670,7 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
         today={today}
         save={save}
       />
-      {['admin','supervisor','production_assistant'].includes(me.role) && (j.install || o.pendingSchedule || o.services?.length > 0) && <details className="op-disclosure"><summary>Remove from Schedule / Customer Reset</summary><p>Select the appointment to remove and enter the reason for the reset. The account and its documents remain available.</p><Form submitLabel="Remove from Schedule" successMessage="Appointment removed from the schedule. Reset reason saved to job history." onSave={async f=>save('resetSchedule',{target:field(f,'target'),reason:field(f,'reason')})}><label>Appointment<select name="target" required>{(j.install||o.pendingSchedule)&&<option value="installation">Installation · {j.install||o.pendingSchedule.date}</option>}{(o.services||[]).map((appointment:any)=><option key={appointment.id} value={appointment.id}>Service · {appointment.date} · {appointment.crew}</option>)}</select></label><label>Why is this job being reset?<textarea name="reason" required maxLength={2000} placeholder="Enter the customer reset or scheduling reason…" /></label></Form></details>}
+      {['admin','supervisor','production_assistant'].includes(me.role) && (j.install || o.pendingSchedule || o.services?.length > 0) && <details className="op-disclosure"><summary>Remove from Schedule / Customer Reset</summary><p>Select the appointment to remove and enter the reason for the reset. The account and its documents remain available.</p><Form submitLabel="Remove from Schedule" successMessage="Appointment removed from the schedule. Reset reason saved to job history." onSave={async f=>save('resetSchedule',{target:field(f,'target'),reason:field(f,'reason')})}><label>Appointment<select name="target" required>{(j.install||o.pendingSchedule)&&<option value="installation">Installation · {j.install||o.pendingSchedule.date}</option>}{(o.additionalInstallations||[]).map((visit:any)=><option key={visit.install} value={"installation:"+visit.install}>Installation · {displayDate(visit.install)}</option>)}{(o.services||[]).map((appointment:any)=><option key={appointment.id} value={appointment.id}>Service · {appointment.date} · {appointment.crew}</option>)}</select></label><label>Why is this job being reset?<textarea name="reason" required maxLength={2000} placeholder="Enter the customer reset or scheduling reason…" /></label></Form></details>}
     </details>
   );
   const workspace = (
@@ -3335,10 +3335,13 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
   );
 }
 function ScheduleForm({ j, team, today, save, allowUnassigned = false }: any) {
-  const [day, setDay] = useState(j.install || today),
-    [multi, setMulti] = useState(!!j.installEnd && j.installEnd !== j.install),
-    [end, setEnd] = useState(j.installEnd || j.install || today),
+  const [day, setDay] = useState(today),
+    [multi, setMulti] = useState(false),
+    [end, setEnd] = useState(today),
     [files, setFiles] = useState<File[]>([]);
+  const [dateAction,setDateAction]=useState("add"), [replaceDate,setReplaceDate]=useState("");
+  const additional=j.operations?.additionalInstallations || [];
+  const selectedVisit=additional.find((v:any)=>v.install===replaceDate)||j;
   const late = (dayDifference(j.received, day) || 0) > 30;
   return (
     <Form
@@ -3348,6 +3351,8 @@ function ScheduleForm({ j, team, today, save, allowUnassigned = false }: any) {
         for (const file of files)
           salesPhotos.push(await uploadAttachment(j.id, "photos", file));
         await save("schedule", {
+          dateAction: j.install ? dateAction : "replace",
+          replaceDate: j.install && dateAction === "replace" ? replaceDate : "",
           salesPhotos,
           date: day,
           endDate: multi ? end : day,
@@ -3364,6 +3369,27 @@ function ScheduleForm({ j, team, today, save, allowUnassigned = false }: any) {
         });
       }}
     >
+      {j.install && (
+        <>
+          <label>Schedule action<select value={dateAction} onChange={e=>{
+            setDateAction(e.target.value);
+            setReplaceDate("");
+            setDay(e.target.value==="add" ? today : j.install);
+            setEnd(e.target.value==="add" ? today : j.installEnd || j.install);
+            setMulti(e.target.value==="replace" && !!j.installEnd && j.installEnd!==j.install);
+          }}>
+            <option value="add">Add a date and keep existing appointments</option>
+            <option value="replace">Reschedule an existing appointment</option>
+          </select></label>
+          {dateAction==="replace" && !!additional.length && <label>Appointment to reschedule<select value={replaceDate} onChange={e=>{
+            const visit=additional.find((v:any)=>v.install===e.target.value)||j;
+            setReplaceDate(e.target.value);setDay(visit.install);setEnd(visit.installEnd||visit.install);setMulti(!!visit.installEnd&&visit.installEnd!==visit.install);
+          }}>
+            <option value="">{displayDate(j.install)} · Original appointment</option>
+            {additional.map((v:any)=><option key={v.install} value={v.install}>{displayDate(v.install)}</option>)}
+          </select></label>}
+        </>
+      )}
       <label className="op-check">
         <input
           type="checkbox"
@@ -3404,14 +3430,16 @@ function ScheduleForm({ j, team, today, save, allowUnassigned = false }: any) {
       <Select
         label="AM / PM"
         name="period"
-        value={j.installPeriod || "AM"}
+        key={"period:"+replaceDate}
+        value={selectedVisit.installPeriod || "AM"}
         items={["AM", "PM"]}
       />
       <Select
         required={false}
         label="Start time (optional)"
         name="time"
-        value={j.installTime || ""}
+        key={"time:"+replaceDate}
+        value={selectedVisit.installTime || ""}
         items={[
           { id: "", name: "Use AM / PM window" },
           ...Array.from({ length: 24 }, (_, hour) => {
@@ -3437,7 +3465,8 @@ function ScheduleForm({ j, team, today, save, allowUnassigned = false }: any) {
         type="number"
         min="1"
         max="99"
-        value={j.stopNumber || 1}
+        key={"stop:"+replaceDate}
+        value={selectedVisit.stopNumber || 1}
         required
       />
       <label>

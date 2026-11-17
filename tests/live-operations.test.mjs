@@ -5023,3 +5023,15 @@ test('reorder photos flatten transparency to white for printing', async () => {
   const pixels = await jpeg.raw().toBuffer();
   assert.ok(pixels.every(value => value === 255));
 });
+
+test('additional installation dates keep the original and can be rescheduled independently', async () => {
+  await act(pa, "create", {number:"EXTRA-DATE",customer:"Schedule test",address:"1 Main",amount:0,noPermitRequired:true});
+  const first=addDays(today,1), second=addDays(today,3), replacement=addDays(today,5);
+  const details={period:"AM",installerId:installer.id,stop:1};
+  await act(pa,"schedule",{...details,date:first});
+  await act(pa,"schedule",{...details,date:second,dateAction:"add"});
+  const {installAppointments}=await vite.ssrLoadModule("/lib/install-calendar.ts");
+  assert.deepEqual(installAppointments(j,[first,second]).map(visit=>visit.date),[first,second]);
+  await act(pa,"schedule",{...details,date:replacement,dateAction:"replace",replaceDate:second});
+  assert.deepEqual(installAppointments(j,[first,second,replacement]).map(visit=>visit.date),[first,replacement]);
+});

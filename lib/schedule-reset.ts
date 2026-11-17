@@ -7,6 +7,15 @@ export function resetJobSchedule(j:any, target:string, reason:string, actor:{id:
   removed={date:j.install,endDate:j.installEnd,time:j.installTime,period:j.installPeriod,stop:j.stopNumber,installerId:j.installerId,crew:j.crew,pendingSchedule:o.pendingSchedule};
   o.routing={};
   j.install='';j.installEnd='';j.installTime='';j.installPeriod='';j.stopNumber=0;j.scheduleCompletedOn='';o.pendingSchedule=null;
+  const [next,...remaining]=o.additionalInstallations||[];
+  if(next){Object.assign(j,next);o.additionalInstallations=remaining;}
+ }else if(target.startsWith('installation:')){
+  const date=target.slice('installation:'.length), visits=o.additionalInstallations||[];
+  const visit=visits.find((v:any)=>v.install===date);
+  if(!visit)throw Error('Installation appointment no longer exists.');
+  removed={date:visit.install,endDate:visit.installEnd,installerId:j.installerId};
+  o.additionalInstallations=visits.filter((v:any)=>v!==visit);
+  o.routing={};
  }else{
   removed=(o.services||[]).find((s:any)=>s.id===target);
   if(!removed)throw Error('Service appointment no longer exists.');
@@ -14,5 +23,5 @@ export function resetJobSchedule(j:any, target:string, reason:string, actor:{id:
   o.services=o.services.filter((s:any)=>s.id!==target);
  }
  o.scheduleResets=[{target,reason:reason.trim(),by:actor.name,byId:actor.id,at,schedule:removed},...(o.scheduleResets||[])];
- return {removed,text:`${target==='installation'?'Installation':'Service'} removed from schedule (${removed.date||removed.pendingSchedule?.date||'pending'}). Reset reason: ${reason.trim()}`};
+ return {removed,text:`${target.startsWith('installation')?'Installation':'Service'} removed from schedule (${removed.date||removed.pendingSchedule?.date||'pending'}). Reset reason: ${reason.trim()}`};
 }

@@ -2668,11 +2668,9 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
       )}
     </>
   );
-  const InfoSection = staffLayout ? "section" : "details";
-  const InfoHeading = staffLayout ? "h3" : "summary";
   const schedule = data.canEdit && (
-    <InfoSection className="op-disclosure">
-      <InfoHeading>{staffLayout ? "Installation Date" : "3. Schedule Work"} {j.install ? `✓ ${staffLayout ? displayDate(j.install) : ""}` : ""}</InfoHeading>
+    <details className="op-disclosure">
+      <summary>{staffLayout ? "Installation Date" : "3. Schedule Work"} {j.install ? `✓ ${staffLayout ? displayDate(j.install) : ""}` : ""}</summary>
       {o.pendingSchedule && (
         <div className="op-callout">
           <p>
@@ -2713,7 +2711,7 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
         save={save}
       />
       {['admin','supervisor','production_assistant'].includes(me.role) && (j.install || o.pendingSchedule || o.services?.length > 0) && <details className="op-disclosure"><summary>Remove from Schedule / Customer Reset</summary><p>Select the appointment to remove and enter the reason for the reset. The account and its documents remain available.</p><Form submitLabel="Remove from Schedule" successMessage="Appointment removed from the schedule. Reset reason saved to job history." onSave={async f=>save('resetSchedule',{target:field(f,'target'),reason:field(f,'reason')})}><label>Appointment<select name="target" required>{(j.install||o.pendingSchedule)&&<option value="installation">Installation · {j.install||o.pendingSchedule.date}</option>}{(o.additionalInstallations||[]).map((visit:any)=><option key={visit.install} value={"installation:"+visit.install}>Installation · {displayDate(visit.install)}</option>)}{(o.services||[]).map((appointment:any)=><option key={appointment.id} value={appointment.id}>Service · {appointment.date} · {appointment.crew}</option>)}</select></label><label>Why is this job being reset?<textarea name="reason" required maxLength={2000} placeholder="Enter the customer reset or scheduling reason…" /></label></Form></details>}
-    </InfoSection>
+    </details>
   );
   const workspace = (
     <section
@@ -2969,17 +2967,17 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
     <>
       {data.canEdit && (
         <>
-          <InfoSection className="op-disclosure">
-            <InfoHeading>{staffLayout ? "RCVD Info" : "1. Enter RCVD info"} {j.received ? `✓ ${staffLayout ? displayDate(j.received) : ""}` : ""}</InfoHeading>
+          <details className="op-disclosure">
+            <summary>{staffLayout ? "RCVD Info" : "1. Enter RCVD info"} {j.received ? `✓ ${staffLayout ? displayDate(j.received) : ""}` : ""}</summary>
             <ReceiveForm key={j.received || "unreceived"} j={j} save={save} />
             {me.role==='admin'&&j.stage==='Received'&&<details className="op-disclosure"><summary>Clear received date / Return to ORD</summary><p>Remove the materials received date and return this job to Ordered.</p><Form submitLabel="Clear received date and move to ORD" successMessage="Received date cleared. Job returned to ORD." onSave={async f=>save('clearReceived',{reason:field(f,'reason')})}><label>Reason (optional)<textarea name="reason" maxLength={1000}/></label></Form></details>}
-          </InfoSection>
+          </details>
         </>
       )}
-      <InfoSection className="op-disclosure">
-        <InfoHeading>
-          {staffLayout ? "Permit Info" : "2. Permit"} {j.permitReceived || j.noPermitRequired ? "✓" : ""} {staffLayout && displayDate(j.permitReceivedDate)}
-        </InfoHeading>
+      <details className="op-disclosure">
+        <summary>
+          {staffLayout ? "Permit Info" : "2. Permit"} {j.permitReceived || j.noPermitRequired ? "✓" : ""} {staffLayout && [displayDate(j.permitReceivedDate), j.permitNumber && `Permit #${j.permitNumber}`, j.buildingDepartment].filter(Boolean).map(value => ` · ${value}`).join("")}
+        </summary>
         <PermitDetails j={j} />
         {data.canEdit && (
           <PermitForm
@@ -2991,7 +2989,7 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
             departments={data.buildingDepartments}
           />
         )}
-      </InfoSection>
+      </details>
       {schedule}
     </>
   );

@@ -1162,3 +1162,15 @@ html:is(
 .live-installation-info .op-form [role="status"] {
   flex-basis: 100%;
 }
+
+.live-installation-info {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(19rem, 1fr));
+  align-items: start;
+  gap: 16px;
+  overflow-x: auto;
+}
+.live-installation-info > .op-disclosure {
+  min-width: 0;
+  margin: 0;
+}

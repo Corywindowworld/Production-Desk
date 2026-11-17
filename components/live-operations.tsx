@@ -850,7 +850,7 @@ export default function LiveOperations() {
         </Drawer>
       )}
       {current && (
-        <Drawer fullPage={["admin", "supervisor"].includes(me.role)} title={current.customer} onClose={() => setSelected(null)}>
+        <Drawer fullPage={["admin", "supervisor", "production_assistant"].includes(me.role)} title={["admin", "supervisor", "production_assistant"].includes(me.role) ? `${current.customer} · #${current.number}` : current.customer} onClose={() => setSelected(null)}>
           <JobFile
             key={current.id}
             reload={load}
@@ -2498,8 +2498,7 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
   const { me, team, today } = data,
     isInstaller = me.role === "installer",
     review = data.canReview,
-    staffLayout = ["admin", "supervisor"].includes(me.role),
-    schedulingLayout = me.role === "production_assistant",
+    staffLayout = ["admin", "supervisor", "production_assistant"].includes(me.role),
     o = j.operations || {},
     [editing, setEditing] = useState(false),
     [uploadError, setUploadError] = useState(""),
@@ -2594,7 +2593,6 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
   );
   const documents = (
     <section aria-label="Customer documents" style={{ marginBlock: 16 }}>
-      {(data.canEdit || review) && <CertificateInvite key={j.id} j={j} onSent={reload} />}
       <DigitalDocuments j={j} />
     </section>
   );
@@ -2629,9 +2627,50 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
       )}
     </>
   );
+  const salesPhotos = (
+    <>
+      <h3>Sales Photos</h3>
+      <Gallery
+        attachments={(j.attachments || []).filter(
+          (a: any) =>
+            o.salesKeys?.includes(a.key) ||
+            (!o.salesKeys && a.kind === "photos" && a.source !== "job"),
+        )}
+      />
+      {data.canEdit && (
+        <label className="live-upload">
+          {uploading ? "Uploading…" : "Add missing sales photo or document"}
+          <input
+            aria-label="Add sales photo or document"
+            type="file"
+            disabled={uploading}
+            onChange={async (e) => {
+              const file = e.target.files?.[0];
+              if (!file) return;
+              setUploading(true);
+              setUploadError("");
+              try {
+                const a = await uploadAttachment(j.id, "photos", file);
+                await save("attach", a);
+              } catch (e) {
+                setUploadError((e as Error).message);
+              } finally {
+                setUploading(false);
+              }
+            }}
+          />
+        </label>
+      )}
+      {uploadError && (
+        <p role="alert" className="op-red">
+          {uploadError}
+        </p>
+      )}
+    </>
+  );
   const schedule = data.canEdit && (
-    <details className="op-disclosure" open={schedulingLayout || undefined}>
-      <summary>{schedulingLayout ? "Schedule Work" : "3. Schedule Work"} {j.install ? "✓" : ""}</summary>
+    <details className="op-disclosure">
+      <summary>{staffLayout ? "Installation Date" : "3. Schedule Work"} {j.install ? `✓ ${staffLayout ? displayDate(j.install) : ""}` : ""}</summary>
       {o.pendingSchedule && (
         <div className="op-callout">
           <p>
@@ -2705,7 +2744,7 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
             { id: "documents", label: "Digital Documents" },
             { id: "notes", label: "Notes & History" },
           ] : []),
-          { id: "history", label: "Payments & Other" },
+          { id: "history", label: staffLayout ? "Other" : "Payments & Other" },
         ].map((t) => (
           <button
             type="button"
@@ -2765,6 +2804,7 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
         style={{ display: workspaceTab === "completion" ? "block" : "none" }}
       >
         {isInstaller && completionSection}
+        {staffLayout && data.canEdit && <CertificateInvite key={j.id} j={j} onSent={reload} />}
         {!isInstaller && <section className="op-disclosure" aria-label="Job visits">
           <h3>Job Visits</h3>
           {review && <ScheduledVisits job={j} onSaved={()=>setVisitRevision(v=>v+1)} />}
@@ -2881,6 +2921,7 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
             Complete Labor Sheet
           </button>
         )}
+        {staffLayout && <LinkedAccounts key={j.id} j={j} jobs={data.jobs} canEdit={data.canEdit} save={save} onOpen={onOpen} />}
         {staffLayout && paperwork}
         {me.role === "admin" && (
           <details className="op-disclosure">
@@ -2923,7 +2964,7 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
   );
   return (
     <>
-      {(isInstaller || review) && <TripShare key={j.id} jobId={j.id} phone={j.phone} phone2={j.phone2} phone3={j.phone3} />}
+      {isInstaller && <TripShare key={j.id} jobId={j.id} phone={j.phone} phone2={j.phone2} phone3={j.phone3} />}
       <Dialog open={laborOpen} onOpenChange={setLaborOpen}>
         <DialogContent style={{width:'96vw',maxWidth:1150,maxHeight:'92dvh',overflowY:'auto'}}>
           <DialogHeader><DialogTitle>Complete Labor Sheet · {j.customer} · #{j.number}</DialogTitle></DialogHeader>
@@ -2935,6 +2976,7 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
           DELIVERY ONLY — Product delivery only
         </div>
       )}
+      {staffLayout ? <h3>Customer Information</h3> : <>
       <p>Installer: {j.crew || "Not assigned"}</p>
       <p>
         Reorder Date: {displayDate(j.reorderDate) || "Not recorded"} · Last
@@ -2948,6 +2990,7 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
         </span>{" "}
         Customer ID #{j.number}
       </p>
+      </>}
       <a
         href={
           "https://www.google.com/maps/search/?api=1&query=" +
@@ -2960,7 +3003,6 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
       >
         {[j.address, j.city, j.state, j.zip].filter(Boolean).join(", ")} ↗
       </a>
-      {review && <CustomerContact j={j} save={save} />}
       <div className="op-detail-status">
         <div>
           <small>Customer phone</small>
@@ -2977,6 +3019,13 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
               </div>
             ),
         )}
+        {staffLayout && <>
+          <div><small>Installer</small><strong>{j.crew || "Not assigned"}</strong></div>
+          {j.reorderDate && <div><small>Reorder date</small><strong>{displayDate(j.reorderDate)}</strong></div>}
+          <div><small>Load ID</small><strong>{j.loadBrands || "Not recorded"}</strong></div>
+          {j.lastEstimatedShipDate && <div><small>Estimated ship date</small><strong>{displayDate(j.lastEstimatedShipDate)}</strong></div>}
+          <div><small>Status</small><strong>{labels[displayedJobStatus(j)] || displayedJobStatus(j)}</strong></div>
+        </>}
         {staffLayout && j.customerEmail && (
           <div>
             <small>Customer email</small>
@@ -3048,7 +3097,6 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
           </div>
         )}
       </div>
-      {schedulingLayout && schedule}
       {j.importSource && (
         <p className="op-callout">
           Imported from {j.importSource.file}, page {j.importSource.page}. Names
@@ -3108,13 +3156,16 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
       {inactiveSalesRep && (
         <p className="live-inactive">Sales Rep · Inactive</p>
       )}
-      {staffLayout && customerRecord}
-      {!isInstaller && <LinkedAccounts key={j.id} j={j} jobs={data.jobs} canEdit={data.canEdit} save={save} onOpen={onOpen} />}
-      {staffLayout && <>{documents}{workspace}{salesNotes}</>}
+      {staffLayout && <>
+        <CustomerContact j={j} save={save} />
+        <TripShare key={j.id} jobId={j.id} phone={j.phone} phone2={j.phone2} phone3={j.phone3} />
+        {documents}
+        <details className="op-disclosure"><summary>Sales</summary>{salesNotes}{salesPhotos}</details>
+      </>}
       {data.canEdit && (
         <>
           <details className="op-disclosure">
-            <summary>{schedulingLayout ? "Materials Received" : "1. Enter RCVD info"} {j.received ? "✓" : ""}</summary>
+            <summary>{staffLayout ? "RCVD Info" : "1. Enter RCVD info"} {j.received ? `✓ ${staffLayout ? displayDate(j.received) : ""}` : ""}</summary>
             <ReceiveForm j={j} save={save} />
             {me.role==='admin'&&j.stage==='Received'&&<details className="op-disclosure"><summary>Clear received date / Return to ORD</summary><p>Remove the materials received date and return this job to Ordered.</p><Form submitLabel="Clear received date and move to ORD" successMessage="Received date cleared. Job returned to ORD." onSave={async f=>save('clearReceived',{reason:field(f,'reason')})}><label>Reason (optional)<textarea name="reason" maxLength={1000}/></label></Form></details>}
           </details>
@@ -3122,7 +3173,7 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
       )}
       <details className="op-disclosure">
         <summary>
-          {schedulingLayout ? "Permit" : "2. Permit"} {j.permitReceived || j.noPermitRequired ? "✓" : ""}
+          {staffLayout ? "Permit Info" : "2. Permit"} {j.permitReceived || j.noPermitRequired ? "✓" : ""} {staffLayout && displayDate(j.permitReceivedDate)}
         </summary>
         <PermitDetails j={j} />
         {data.canEdit && (
@@ -3130,12 +3181,17 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
             key={j.version}
             j={j}
             save={save}
+            showReceivedDate={staffLayout}
             departments={data.buildingDepartments}
           />
         )}
       </details>
 
-      {!schedulingLayout && schedule}
+      {schedule}
+      {staffLayout && data.canEdit && <details className="op-disclosure">
+        <summary>Schedule Work</summary>
+        <ScheduleFollowUp j={j} team={team} today={today} save={save} />
+      </details>}
       {review && (
         <section className="live-status-control">
           <h3>Production status</h3>
@@ -3214,43 +3270,7 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
         </p>
       )}
 
-      <h3>Sales Photos</h3>
-      <Gallery
-        attachments={(j.attachments || []).filter(
-          (a: any) =>
-            o.salesKeys?.includes(a.key) ||
-            (!o.salesKeys && a.kind === "photos" && a.source !== "job"),
-        )}
-      />
-      {data.canEdit && (
-        <label className="live-upload">
-          {uploading ? "Uploading…" : "Add missing sales photo or document"}
-          <input
-            aria-label="Add sales photo or document"
-            type="file"
-            disabled={uploading}
-            onChange={async (e) => {
-              const file = e.target.files?.[0];
-              if (!file) return;
-              setUploading(true);
-              setUploadError("");
-              try {
-                const a = await uploadAttachment(j.id, "photos", file);
-                await save("attach", a);
-              } catch (e) {
-                setUploadError((e as Error).message);
-              } finally {
-                setUploading(false);
-              }
-            }}
-          />
-        </label>
-      )}
-      {uploadError && (
-        <p role="alert" className="op-red">
-          {uploadError}
-        </p>
-      )}
+      {!staffLayout && salesPhotos}
       {!staffLayout && salesNotes}
       {!!o.issues?.length && (
         <section className="live-issues">
@@ -3265,7 +3285,7 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
           ))}
         </section>
       )}
-      {isInstaller && workspace}
+      {(isInstaller || staffLayout) && workspace}
       {!staffLayout && !isInstaller && (
         <details className="op-disclosure">
           <summary>Job documents & paperwork</summary>
@@ -3333,6 +3353,26 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
       {staffLayout && <JobNotesHistory key={visitRevision} j={j} save={save} />}
     </>
   );
+}
+function ScheduleFollowUp({j,team,today,save}:any){
+  const [type,setType]=useState(j.stage==="Closed" || j.stage==="SVC" ? "Service" : "Completion");
+  return <Form successMessage="Work added to the schedule." onSave={async f=>{
+    const date=field(f,"date"), instructions=field(f,"instructions"), period=field(f,"period");
+    if(type==="Service"){
+      await save("request",{type:"Service",details:instructions,serviceDate:date,period,installerId:field(f,"installerId")});
+    }else{
+      await save("schedule",{date,dateAction:j.install?"add":"replace",period,installerId:j.installerId||"",stop:j.stopNumber||1,additionalInstructions:instructions});
+    }
+  }}>
+    <label>Work type<select value={type} onChange={e=>setType(e.target.value)}>
+      <option disabled={j.stage==="Closed"||j.stage==="SVC"}>Completion</option>
+      <option disabled={j.stage!=="Closed"&&j.stage!=="SVC"}>Service</option>
+    </select></label>
+    <Input label="Date" name="date" type="date" min={today} required />
+    <Select label="AM / PM" name="period" value="AM" items={["AM","PM"]} />
+    {type==="Service" && <Select label="Assigned installer" name="installerId" value={j.installerId} items={team.filter((m:any)=>m.role==="installer"&&m.active!==0)} />}
+    <label>Instructions<textarea name="instructions" required maxLength={4000} /></label>
+  </Form>;
 }
 function ScheduleForm({ j, team, today, save, allowUnassigned = false }: any) {
   const [day, setDay] = useState(today),
@@ -3798,7 +3838,7 @@ function PermitDetails({ j }: any) {
     </dl>
   );
 }
-function PermitForm({ j, save, departments = [] }: any) {
+function PermitForm({ j, save, departments = [], showReceivedDate = false }: any) {
   const [noPermitRequired, setNoPermitRequired] = useState(
       !!j.noPermitRequired,
     ),
@@ -3811,6 +3851,7 @@ function PermitForm({ j, save, departments = [] }: any) {
           save("permit", {
             noPermitRequired,
             received,
+            ...(showReceivedDate ? {receivedDate:field(f,"permitReceivedDate")} : {}),
             number: field(f, "permitNumber"),
             buildingDepartment: field(f, "buildingDepartment"),
             expiration: field(f, "permitExpiration"),
@@ -3835,6 +3876,7 @@ function PermitForm({ j, save, departments = [] }: any) {
           />
           No Permit Required
         </label>
+        {showReceivedDate && <Input label="Permit received date" name="permitReceivedDate" type="date" max={localDay()} value={received ? j.permitReceivedDate : ""} />}
         <Input
           name="permitNumber"
           label="Permit number"

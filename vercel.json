@@ -7,6 +7,14 @@
     {
       "path": "/api/operations/bonus-snapshot",
       "schedule": "59 4 * * *"
+    },
+    {
+      "path": "/api/operations/start-production",
+      "schedule": "0 16 * * *"
+    },
+    {
+      "path": "/api/operations/start-production",
+      "schedule": "0 17 * * *"
     }
   ]
 }

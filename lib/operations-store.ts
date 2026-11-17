@@ -1376,7 +1376,7 @@ export async function operation(m: Member, input: any) {
         );
     };
     const addService = async (r: any, id: string) => {
-      assert(j.stage === "Closed", "Only a COMP job can move to SVC.", 400);
+      assert(["Closed", "SVC"].includes(j.stage), "Only COMP or SVC jobs can schedule service.", 400);
       const i = await installer(r.installerId || "");
       await checkAvailability(i.id, r.serviceDate);
       o.services = [
@@ -1778,6 +1778,7 @@ export async function operation(m: Member, input: any) {
           inspectionComplete: z.boolean().default(false),
           noPermitRequired: z.boolean().default(false),
           received: z.boolean(),
+          receivedDate: optionalDate.optional(),
           number: z.string().trim().max(150),
           buildingDepartment: z.string().trim().max(200).default(""),
           expiration: optionalDate,
@@ -1804,6 +1805,9 @@ export async function operation(m: Member, input: any) {
       j.buildingDepartmentPhone = p.buildingDepartmentPhone;
       j.privateProvider = p.privateProvider;
       j.buildingDepartment = p.buildingDepartment;
+      assert(!p.receivedDate || p.receivedDate <= today, "Permit received date cannot be in the future.", 400);
+      if (!p.received) j.permitReceivedDate = "";
+      else if (p.receivedDate !== undefined) j.permitReceivedDate = p.receivedDate;
       j.permitReceived = p.received;
       j.permitNumber = p.number;
       const permit = linkedPermitValues(j);
@@ -2337,7 +2341,7 @@ export async function operation(m: Member, input: any) {
           400,
         );
       if (r.type === "Service") {
-        assert(j.stage === "Closed", "Only a COMP job can move to SVC.", 400);
+        assert(["Closed", "SVC"].includes(j.stage), "Only COMP or SVC jobs can schedule service.", 400);
         assert(
           r.serviceDate && r.serviceDate >= today,
           "Select a future service date.",
@@ -2414,7 +2418,7 @@ export async function operation(m: Member, input: any) {
       r.reviewedAt = at;
       history = `${r.type} ${r.status.toLowerCase()}`;
     } else if (action === "contactStart") {
-      assert(reviewer(m), "Field supervisor or administrator access required.");
+      assert(reviewer(m) || m.role === "production_assistant", "Staff access required.");
       const data=parse(z.object({id:z.string().uuid(),method:z.enum(["Call","Text"]),phoneField:z.enum(["phone","phone2","phone3"])}),input.data);
       const number=String(j[data.phoneField]||"");
       assert(number.replace(/\D/g,"").length>=10,"Select a valid saved customer phone number.",400);
@@ -2422,7 +2426,7 @@ export async function operation(m: Member, input: any) {
       o.contacts=[{...data,number,at,by:m.name,byId:m.id},...(o.contacts||[])];
       history=`${data.method} initiated to ${data.phoneField==="phone"?"Ph#1":data.phoneField==="phone2"?"Ph#2":"Ph#3"} (${number}). Outcome not yet confirmed.`;
     } else if (action === "contactOutcome") {
-      assert(reviewer(m), "Field supervisor or administrator access required.");
+      assert(reviewer(m) || m.role === "production_assistant", "Staff access required.");
       const data=parse(z.object({id:z.string().uuid(),outcome:z.string().min(1).max(100),note:z.string().max(2000).default("")}),input.data);
       const contact=(o.contacts||[]).find((c:any)=>c.id===data.id);
       assert(contact,"Contact attempt not found.",404);
@@ -2724,5 +2728,34 @@ export async function saveMonthEndBonusSnapshot(now = new Date()) {
       .bind(period.end, JSON.stringify(payload))
       .run();
     return { saved: !!result.meta.changes, period: period.end };
+  });
+}
+
+
+export async function startScheduledProduction(now = new Date()) {
+  const date = new Intl.DateTimeFormat("en-CA", {timeZone:"America/New_York", year:"numeric", month:"2-digit", day:"2-digit"}).format(now);
+  const hour = Number(new Intl.DateTimeFormat("en-US", {timeZone:"America/New_York", hour:"numeric", hourCycle:"h23"}).format(now));
+  if (hour < 12) return {started: 0};
+  const at = now.toISOString();
+  return database().transaction(async tx => {
+    const {results} = await tx.prepare(
+      "SELECT id,payload FROM jobs WHERE payload::jsonb->>'stage'='Received' AND payload::jsonb->>'install'=? ORDER BY id FOR UPDATE",
+    ).bind(date).all();
+    let started = 0;
+    for (const row of results) {
+      const job = storedObject(row.payload);
+      const operations = job.operations || (job.operations = {});
+      if (operations.report?.pending || job.deliveryOnly || !job.installerId || !installAppointments(job,[date]).length) continue;
+      if (operations.report) {
+        operations.previousReports = [...(operations.previousReports || []), operations.report];
+        operations.report = null;
+      }
+      job.stage = "Production";
+      job.installed = date;
+      job.history = [{at, by:"Production Desk", text:"Job automatically moved to PROD at the installation date’s noon cutoff; production aging started."}, ...(job.history || [])];
+      await tx.prepare("UPDATE jobs SET payload=?,version=version+1,updated=? WHERE id=?").bind(JSON.stringify(job),at,row.id).run();
+      started++;
+    }
+    return {started};
   });
 }

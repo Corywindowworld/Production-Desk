@@ -1,6 +1,6 @@
 export const linkedPermitFields = [
  'permitReceived','permitNumber','noPermitRequired','buildingDepartment','buildingDepartmentPhone',
- 'permitExpiration','privateProvider','customerSuppliedPermit',
+ 'permitExpiration','permitReceivedDate','privateProvider','customerSuppliedPermit',
 ] as const;
 
 export function linkedPermitValues(source:Record<string,any>) {

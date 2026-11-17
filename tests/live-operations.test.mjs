@@ -1051,7 +1051,7 @@ test("scheduling COMP becomes service, INC remains incomplete, and Other schedul
         installerId: installer.id,
         period: "AM",
       }),
-    /Only a COMP/,
+    /Only COMP or SVC/,
   );
   await pg.query(
     "UPDATE production.jobs SET payload=jsonb_set(payload::jsonb,'{stage}','\"Closed\"') WHERE id=$1",
@@ -5034,4 +5034,19 @@ test('additional installation dates keep the original and can be rescheduled ind
   assert.deepEqual(installAppointments(j,[first,second]).map(visit=>visit.date),[first,second]);
   await act(pa,"schedule",{...details,date:replacement,dateAction:"replace",replaceDate:second});
   assert.deepEqual(installAppointments(j,[first,second,replacement]).map(visit=>visit.date),[first,replacement]);
+});
+
+test('scheduled RCVD installation starts once at noon Eastern', async () => {
+  const {startScheduledProduction}=await vite.ssrLoadModule('/lib/operations-store.ts');
+  const id=crypto.randomUUID(), install='2026-11-17';
+  const payload={id,stage:'Received',install,installerId:installer.id,operations:{report:{approved:true,id:'prior'}},history:[]};
+  await pg.query('INSERT INTO production.jobs(id,payload,version,updated) VALUES($1,$2,1,$3)',[id,JSON.stringify(payload),install]);
+  assert.equal((await startScheduledProduction(new Date(install+'T16:59:00Z'))).started,0);
+  assert.equal((await startScheduledProduction(new Date(install+'T17:00:00Z'))).started,1);
+  assert.equal((await startScheduledProduction(new Date(install+'T17:05:00Z'))).started,0);
+  const job=JSON.parse((await pg.query('SELECT payload FROM production.jobs WHERE id=$1',[id])).rows[0].payload);
+  assert.equal(job.stage,'Production');
+  assert.equal(job.installed,install);
+  assert.equal(job.operations.previousReports[0].id,'prior');
+  await pg.query('DELETE FROM production.jobs WHERE id=$1',[id]);
 });

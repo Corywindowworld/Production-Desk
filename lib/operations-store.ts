@@ -220,6 +220,7 @@ export function publicJob(m: Member, j: any) {
       routing: j.operations?.routing || {},
       remoteCertificates: j.operations?.remoteCertificates || [],
       recoveredCertificates: j.operations?.recoveredCertificates || [],
+      recoveredCertificatePhotos: j.operations?.recoveredCertificatePhotos || [],
       services: (j.operations?.services || []).filter(
         (s: any) => s.installerId === m.id,
       ),
@@ -260,6 +261,8 @@ async function recoverProductionCertificates(db: ReturnType<typeof database>, jo
     const {job, review} = candidate;
     job.operations ??= {};
     job.operations.recoveredCertificates ??= [];
+    job.operations.recoveredCertificatePhotos ??= [];
+    job.operations.recoveredCertificatePhotos.push(...(report.attachments || []));
     job.operations.recoveredCertificates.push({
       ...report.certificate, reviewedAt: review.at, reviewedBy: review.by,
     });

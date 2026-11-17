@@ -2816,6 +2816,7 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
         </section>}
         {!staffLayout && paperwork}
         {!isInstaller && completionSection}
+        <InstallationPhotos operations={o} />
         {me.role === "admin" && <AdminResultForm j={j} save={save} />}
         <details className="op-disclosure">
           <summary>Submitted Job Result</summary>
@@ -4035,6 +4036,20 @@ function JobNotesHistory({j,save}:any){
     <h4>Pictures ({pictures.length})</h4>
     {visitError&&<p role="alert">{visitError} Other account pictures are shown below.</p>}
     <Gallery attachments={pictures}/>
+  </section>;
+}
+function InstallationPhotos({operations}:any) {
+  const reports = [operations.report, ...(operations.previousReports || []), ...(operations.serviceVisitResults || [])];
+  const files = [
+    ...reports.filter(report => report?.certificate).flatMap(report => report.attachments || []),
+    ...(operations.recoveredCertificatePhotos || []),
+  ];
+  const photos = Array.from(new Map(files
+    .filter((file:any) => file.key && file.kind !== "check" && /\.(jpe?g|png|webp|gif|heic|heif|avif)$/i.test(file.name || ""))
+    .map((file:any) => [file.key, file])).values());
+  return <section className="digital-documents" aria-label="Installation Photos">
+    <h3>Installation Photos</h3>
+    {photos.length ? <Gallery attachments={photos} /> : <p>No installation photos submitted yet.</p>}
   </section>;
 }
 function Gallery({ attachments }: any) {

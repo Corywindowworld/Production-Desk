@@ -2523,7 +2523,7 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
   if (isInstaller) j.certificateProfile = data.leadProfile;
   const completionSection = (isInstaller || review) && (
             <details open={isInstaller || undefined} className="op-disclosure live-completion">
-              <summary>Job Completion {o.report?.pending ? "✓" : ""}</summary>
+              <summary>Completion Certificate {o.report?.pending ? "✓" : ""}</summary>
               <p>
                 Select Complete or Incomplete and upload every required photo
                 and certificate. Additional photos are optional.
@@ -2734,7 +2734,7 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
         }}
       >
         {[
-          { id: "completion", label: isInstaller ? "Job Completion" : "Job Visit & Completion" },
+          { id: "completion", label: isInstaller ? "Completion Certificate" : "Job Visit & Completion" },
           {
             id: "reorders",
             label:
@@ -2805,7 +2805,6 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
         style={{ display: workspaceTab === "completion" ? "block" : "none" }}
       >
         {isInstaller && completionSection}
-        {staffLayout && data.canEdit && <CertificateInvite key={j.id} j={j} onSent={reload} />}
         {!isInstaller && <section className="op-disclosure" aria-label="Job visits">
           <h3>Job Visits</h3>
           {review && <ScheduledVisits job={j} onSaved={()=>setVisitRevision(v=>v+1)} />}
@@ -2816,6 +2815,7 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
         </section>}
         {!staffLayout && paperwork}
         {!isInstaller && completionSection}
+        {staffLayout && data.canEdit && <CertificateInvite key={j.id} j={j} onSent={reload} />}
         <InstallationPhotos operations={o} />
         {me.role === "admin" && <AdminResultForm j={j} save={save} />}
         <details className="op-disclosure">
@@ -3191,7 +3191,6 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
       {staffLayout && <>
         <CustomerContact j={j} save={save} />
         <TripShare key={j.id} jobId={j.id} phone={j.phone} phone2={j.phone2} phone3={j.phone3} />
-        {documents}
       </>}
       {staffLayout ? <section className="digital-documents live-installation-info" aria-label="Installation information">{installationInfo}</section> : installationInfo}
       {staffLayout && <details className="op-disclosure"><summary>Sales</summary>{salesNotes}{salesPhotos}</details>}
@@ -3292,6 +3291,7 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
           ))}
         </section>
       )}
+      {staffLayout && documents}
       {(isInstaller || staffLayout) && workspace}
       {!staffLayout && !isInstaller && (
         <details className="op-disclosure">

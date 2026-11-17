@@ -15,7 +15,7 @@ export async function actor(request:Request):Promise<Member>{
 export const isOwner=(m:Member)=>m.id==='owner';
 export const canManageAccounts=(m:Member)=>m.role==='admin';
 export const isOffice=(m:Member)=>m.role==='admin'||m.role==='office'||m.role==='production_assistant';
-export function canSeeJob(m:Member,j:any){return isOffice(m)||m.role==='supervisor'||(m.role==='installer'&&(j.installerId===m.id||j.operations?.services?.some((s:any)=>s.installerId===m.id)))}
+export function canSeeJob(m:Member,j:any){return isOffice(m)||m.role==='supervisor'||(m.role==='installer'&&(j.installerId===m.id||j.operations?.additionalInstallations?.some((visit:any)=>visit.installerId===m.id)||j.operations?.services?.some((s:any)=>s.installerId===m.id)))}
 export function requireOffice(m:Member){if(!isOffice(m))throw new ApiError(403,'Office access required.')}
 export function sameOrigin(request:Request){const origin=request.headers.get('origin');if(origin&&new URL(origin).origin!==new URL(request.url).origin)throw new ApiError(403,'Invalid request origin.')}
 export type DashboardStep='session'|'jobs-query'|'jobs-decode'|'installer-view'|'team'|'surveys'|'bonus-settings'|'bonus-metrics'|'crew-colors'|'settings-history'|'response';

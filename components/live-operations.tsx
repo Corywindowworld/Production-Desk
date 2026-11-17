@@ -3368,7 +3368,7 @@ function ScheduleFollowUp({j,team,today,save}:any){
     if(type==="Service"){
       await save("request",{type:"Service",details:instructions,serviceDate:date,period,installerId:field(f,"installerId")});
     }else{
-      await save("schedule",{date,dateAction:j.install?"add":"replace",period,installerId:j.installerId||"",stop:j.stopNumber||1,additionalInstructions:instructions});
+      await save("schedule",{date,dateAction:j.install?"add":"replace",period,installerId:field(f,"installerId"),stop:j.stopNumber||1,additionalInstructions:instructions});
     }
   }}>
     <label>Work type<select value={type} onChange={e=>setType(e.target.value)}>
@@ -3377,7 +3377,7 @@ function ScheduleFollowUp({j,team,today,save}:any){
     </select></label>
     <Input label="Date" name="date" type="date" min={today} required />
     <Select label="AM / PM" name="period" value="AM" items={["AM","PM"]} />
-    {type==="Service" && <Select label="Assigned installer" name="installerId" value={j.installerId} items={team.filter((m:any)=>m.role==="installer"&&m.active!==0)} />}
+    <Select label="Assigned installer" name="installerId" value={j.installerId} items={team.filter((m:any)=>m.role==="installer"&&m.active!==0)} />
     <label>Instructions<textarea name="instructions" required maxLength={4000} /></label>
   </Form>;
 }

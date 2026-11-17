@@ -155,6 +155,7 @@ function uniqueChoices(values: any[]) {
 export function installerVisible(m: Member, j: any, today = localDay()) {
   return (
     j.installerId === m.id ||
+    j.operations?.additionalInstallations?.some((visit:any)=>visit.installerId===m.id) ||
     j.operations?.services?.some((s: any) => s.installerId === m.id)
   );
 }
@@ -216,7 +217,7 @@ export function publicJob(m: Member, j: any) {
       report: j.operations?.report,
       reportDraft: j.operations?.reportDraft,
       previousReports: j.operations?.previousReports || [],
-      additionalInstallations: j.installerId === m.id ? j.operations?.additionalInstallations || [] : [],
+      additionalInstallations: (j.operations?.additionalInstallations || []).filter((visit:any)=>(visit.installerId ?? j.installerId)===m.id),
       routing: j.operations?.routing || {},
       remoteCertificates: j.operations?.remoteCertificates || [],
       recoveredCertificates: j.operations?.recoveredCertificates || [],
@@ -1332,13 +1333,14 @@ export async function operation(m: Member, input: any) {
       const end = s.endDate || s.date;
       assert(!s.replaceDate || replaceIndex >= 0, "That appointment no longer exists. Refresh and try again.", 409);
       if (secondary) {
-        assert(j.install && s.installerId === (j.installerId || ""), "Additional dates use the job’s assigned installer.", 400);
+        assert(j.install, "Schedule the original installation before adding another date.", 400);
       }
       const otherVisits = [...(secondary && j.install ? [j] : []), ...additional.filter((_:any,index:number)=>index!==replaceIndex)];
       assert(!otherVisits.some((visit:any)=>s.date<=(visit.installEnd||visit.install)&&end>=visit.install), "These dates overlap another appointment for this job.", 400);
       if (secondary) {
-        if (s.installerId) await checkAvailability(s.installerId,s.date,end);
-        const visit = {install:s.date,installEnd:end,installTime:s.time||"",installPeriod:s.period,stopNumber:s.stop,scheduleInstructions:s.additionalInstructions||""};
+        const crew = s.installerId ? await installer(s.installerId) : null;
+        if (crew) await checkAvailability(crew.id,s.date,end);
+        const visit = {installerId:s.installerId,crew:crew?.name||"Unassigned",supervisorId:crew?.supervisor_id||"",install:s.date,installEnd:end,installTime:s.time||"",installPeriod:s.period,stopNumber:s.stop,scheduleInstructions:s.additionalInstructions||""};
         o.additionalInstallations = add ? [...additional,visit] : additional.map((old:any,index:number)=>index===replaceIndex?visit:old);
         o.pendingSchedule = null;
         if (!add) o.routing = {};

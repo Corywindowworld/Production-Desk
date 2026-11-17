@@ -17,7 +17,7 @@ export async function warehouseScheduleData(m:Member,range:{from?:string;to?:str
  for(const row of rows){
   const j=storedObject(row.payload),record=row.record?storedObject(row.record):{};
   const base={jobId:j.id,number:j.number,customer:j.customer,address:j.address||'',city:j.city||'',product:j.product||'',windowCount:j.windowCount||0,slidingDoors:j.slidingDoors||0,entryDoorCount:j.entryDoorCount||0,screenCount:j.screenCount||0,bay:j.bay||record.warehouseBay||(j.materials||[]).map((v:any)=>v.bay).filter(Boolean).join(', ')};
-  for(const a of installAppointments(j,dates))appointments.push({...base,key:j.id+':installation:'+a.date,date:a.date,kind:j.stage==='SVC'?'Service':'Installation',installerId:j.installerId||'',crew:names.get(j.installerId)||j.crew||'Unassigned',period:a.period||'',time:a.time||'',stop:a.stop||null,daysLeft:a.daysLeft});
+  for(const a of installAppointments(j,dates))appointments.push({...base,key:j.id+':installation:'+a.date,date:a.date,kind:j.stage==='SVC'?'Service':'Installation',installerId:a.installerId||'',crew:names.get(a.installerId)||a.crew||'Unassigned',period:a.period||'',time:a.time||'',stop:a.stop||null,daysLeft:a.daysLeft});
   for(const visit of j.operations?.services||[]){
    if(!dates.includes(visit.date)||visit.cancelled||visit.canceled)continue;
    appointments.push({...base,key:j.id+':'+visit.id,date:visit.date,kind:'Service',installerId:visit.installerId||'',crew:names.get(visit.installerId)||visit.crew||'Unassigned',period:visit.period||'',time:visit.time||'',stop:j.operations?.routing?.[visit.date]?.[visit.id]?.stop||visit.stop||null,daysLeft:1});

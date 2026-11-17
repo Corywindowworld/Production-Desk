@@ -1124,3 +1124,41 @@ html:is(
 .job-alert-menu>summary::before{content:'\25B8';font-size:14px}.job-alert-menu[open]>summary::before{content:'\25BE'}
 
 .lead-large-check{display:flex!important;align-items:center;gap:12px;min-height:48px;padding:8px 0;cursor:pointer}.lead-large-check input[type=checkbox],.lead-large-check input[type=radio]{width:26px!important;height:26px!important;min-width:26px;flex-shrink:0;accent-color:#155cba}.reorder-approval-summary{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}.reorder-approval-summary button{font-size:13px}
+
+.live-installation-info .op-form > fieldset,
+.live-installation-info .live-receipt-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 8px 12px;
+}
+.live-installation-info .live-receipt-row {
+  padding: 0;
+  min-width: 0;
+}
+.live-installation-info .op-form label {
+  width: auto;
+  min-width: 0;
+  margin: 0;
+}
+.live-installation-info .op-form :is(input:not([type="checkbox"]), select) {
+  width: auto;
+  max-width: min(100%, 12rem);
+  padding: 5px 8px;
+  min-height: 34px;
+}
+.live-installation-info .op-form input[type="text"] {
+  width: 10rem;
+}
+.live-installation-info .op-form textarea {
+  min-height: 34px;
+  width: min(12rem, 100%);
+  padding: 5px 8px;
+}
+.live-installation-info .op-form .op-check {
+  align-self: center;
+}
+.live-installation-info .op-form [role="alert"],
+.live-installation-info .op-form [role="status"] {
+  flex-basis: 100%;
+}

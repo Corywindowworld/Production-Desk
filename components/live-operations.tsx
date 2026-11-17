@@ -2971,7 +2971,7 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
         <>
           <InfoSection className="op-disclosure">
             <InfoHeading>{staffLayout ? "RCVD Info" : "1. Enter RCVD info"} {j.received ? `✓ ${staffLayout ? displayDate(j.received) : ""}` : ""}</InfoHeading>
-            <ReceiveForm j={j} save={save} />
+            <ReceiveForm key={j.received || "unreceived"} j={j} save={save} />
             {me.role==='admin'&&j.stage==='Received'&&<details className="op-disclosure"><summary>Clear received date / Return to ORD</summary><p>Remove the materials received date and return this job to Ordered.</p><Form submitLabel="Clear received date and move to ORD" successMessage="Received date cleared. Job returned to ORD." onSave={async f=>save('clearReceived',{reason:field(f,'reason')})}><label>Reason (optional)<textarea name="reason" maxLength={1000}/></label></Form></details>}
           </InfoSection>
         </>
@@ -3194,7 +3194,7 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
         <TripShare key={j.id} jobId={j.id} phone={j.phone} phone2={j.phone2} phone3={j.phone3} />
         {documents}
       </>}
-      {staffLayout ? <section className="digital-documents" aria-label="Installation information">{installationInfo}</section> : installationInfo}
+      {staffLayout ? <section className="digital-documents live-installation-info" aria-label="Installation information">{installationInfo}</section> : installationInfo}
       {staffLayout && <details className="op-disclosure"><summary>Sales</summary>{salesNotes}{salesPhotos}</details>}
       {staffLayout && data.canEdit && <details className="op-disclosure">
         <summary>Schedule Work</summary>
@@ -3784,6 +3784,8 @@ function MaterialRows({ rows, setRows, product }: any) {
   );
 }
 function ReceiveForm({ j, save }: any) {
+  const [received,setReceived]=useState(j.received || localDay());
+  const correcting=j.stage !== "Ordered" && !!j.received && received !== j.received;
   const [rows, setRows] = useState<any[]>(
     j.materials?.length
       ? j.materials
@@ -3806,22 +3808,14 @@ function ReceiveForm({ j, save }: any) {
         })
       }
     >
-      <Input
-        name="received"
-        label="Materials Received date"
-        type="date"
-        max={localDay()}
-        value={j.received || localDay()}
-        required
-      />
-      {j.stage !== "Ordered" && j.received && (
-        <Input
-          name="reference"
-          label="Source / reason if correcting received date"
-        />
+      <label>Materials Received date
+        <input name="received" type="date" max={localDay()} required value={received} onChange={e=>setReceived(e.target.value)} />
+      </label>
+      <MaterialRows rows={rows} setRows={setRows} product={j.product} />
+      {correcting && (
+        <Input name="reference" label="Reason for changing received date" required />
       )}
       {j.backordered&&<label className="op-check"><input type="checkbox" name="allProductsReceived" required style={{width:26,height:26}}/>I confirm all products for this order, including backordered items, have been received and are usable.</label>}
-      <MaterialRows rows={rows} setRows={setRows} product={j.product} />
     </Form>
   );
 }

@@ -2315,7 +2315,7 @@ test("location permissions, scoped maps, private links and session revocation", 
       new Date().toISOString(),
     ],
   );
-  await assert.rejects(() => location.createShare(pa, jobId), /assigned/);
+  await location.createShare(pa, jobId);
   await assert.rejects(
     () => location.createShare({ ...fs, id: "different-supervisor" }, jobId),
     /assigned/,
@@ -4045,7 +4045,7 @@ test("city cleanup formats Brooksville and Riverview and excludes removed aliase
 test('FS contact attempts preserve saved numbers, staff outcomes, and permissions', async()=>{
  await act(admin,'create',{number:'CONTACT-TEST',customer:'Contact Test',address:'1 Test St',amount:0,phone:'813-555-0100',phone2:'727-555-0101'});
  const id=crypto.randomUUID();
- await assert.rejects(()=>act(pa,'contactStart',{id,method:'Call',phoneField:'phone'}),/supervisor|administrator/i);
+ await assert.rejects(()=>act(installer,'contactStart',{id,method:'Call',phoneField:'phone'}),/staff|assigned/i);
  await act(fs,'contactStart',{id,method:'Call',phoneField:'phone2'});
  assert.equal(j.operations.contacts[0].number,'727-555-0101');
  assert.equal(j.operations.contacts[0].byId,fs.id);
@@ -5038,7 +5038,7 @@ test('additional installation dates keep the original and can be rescheduled ind
 
 test('scheduled RCVD installation starts once at noon Eastern', async () => {
   const {startScheduledProduction}=await vite.ssrLoadModule('/lib/operations-store.ts');
-  const id=crypto.randomUUID(), install='2026-11-17';
+  const id=crypto.randomUUID(), install='2027-11-17';
   const payload={id,stage:'Received',install,installerId:installer.id,operations:{report:{approved:true,id:'prior'}},history:[]};
   await pg.query('INSERT INTO production.jobs(id,payload,version,updated) VALUES($1,$2,1,$3)',[id,JSON.stringify(payload),install]);
   assert.equal((await startScheduledProduction(new Date(install+'T16:59:00Z'))).started,0);

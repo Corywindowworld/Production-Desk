@@ -2668,9 +2668,11 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
       )}
     </>
   );
+  const InfoSection = staffLayout ? "section" : "details";
+  const InfoHeading = staffLayout ? "h3" : "summary";
   const schedule = data.canEdit && (
-    <details className="op-disclosure">
-      <summary>{staffLayout ? "Installation Date" : "3. Schedule Work"} {j.install ? `✓ ${staffLayout ? displayDate(j.install) : ""}` : ""}</summary>
+    <InfoSection className="op-disclosure">
+      <InfoHeading>{staffLayout ? "Installation Date" : "3. Schedule Work"} {j.install ? `✓ ${staffLayout ? displayDate(j.install) : ""}` : ""}</InfoHeading>
       {o.pendingSchedule && (
         <div className="op-callout">
           <p>
@@ -2703,6 +2705,7 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
         </div>
       )}
       <ScheduleForm
+        installationOnly={staffLayout}
         allowUnassigned={["admin","supervisor","production_assistant"].includes(me.role)}
         j={j}
         team={team}
@@ -2710,7 +2713,7 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
         save={save}
       />
       {['admin','supervisor','production_assistant'].includes(me.role) && (j.install || o.pendingSchedule || o.services?.length > 0) && <details className="op-disclosure"><summary>Remove from Schedule / Customer Reset</summary><p>Select the appointment to remove and enter the reason for the reset. The account and its documents remain available.</p><Form submitLabel="Remove from Schedule" successMessage="Appointment removed from the schedule. Reset reason saved to job history." onSave={async f=>save('resetSchedule',{target:field(f,'target'),reason:field(f,'reason')})}><label>Appointment<select name="target" required>{(j.install||o.pendingSchedule)&&<option value="installation">Installation · {j.install||o.pendingSchedule.date}</option>}{(o.additionalInstallations||[]).map((visit:any)=><option key={visit.install} value={"installation:"+visit.install}>Installation · {displayDate(visit.install)}</option>)}{(o.services||[]).map((appointment:any)=><option key={appointment.id} value={appointment.id}>Service · {appointment.date} · {appointment.crew}</option>)}</select></label><label>Why is this job being reset?<textarea name="reason" required maxLength={2000} placeholder="Enter the customer reset or scheduling reason…" /></label></Form></details>}
-    </details>
+    </InfoSection>
   );
   const workspace = (
     <section
@@ -2962,6 +2965,36 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
       </section>
     </section>
   );
+  const installationInfo = (
+    <>
+      {data.canEdit && (
+        <>
+          <InfoSection className="op-disclosure">
+            <InfoHeading>{staffLayout ? "RCVD Info" : "1. Enter RCVD info"} {j.received ? `✓ ${staffLayout ? displayDate(j.received) : ""}` : ""}</InfoHeading>
+            <ReceiveForm j={j} save={save} />
+            {me.role==='admin'&&j.stage==='Received'&&<details className="op-disclosure"><summary>Clear received date / Return to ORD</summary><p>Remove the materials received date and return this job to Ordered.</p><Form submitLabel="Clear received date and move to ORD" successMessage="Received date cleared. Job returned to ORD." onSave={async f=>save('clearReceived',{reason:field(f,'reason')})}><label>Reason (optional)<textarea name="reason" maxLength={1000}/></label></Form></details>}
+          </InfoSection>
+        </>
+      )}
+      <InfoSection className="op-disclosure">
+        <InfoHeading>
+          {staffLayout ? "Permit Info" : "2. Permit"} {j.permitReceived || j.noPermitRequired ? "✓" : ""} {staffLayout && displayDate(j.permitReceivedDate)}
+        </InfoHeading>
+        <PermitDetails j={j} />
+        {data.canEdit && (
+          <PermitForm
+            key={j.version}
+            j={j}
+            save={save}
+            showReceivedDate={staffLayout}
+            alwaysOpen={staffLayout}
+            departments={data.buildingDepartments}
+          />
+        )}
+      </InfoSection>
+      {schedule}
+    </>
+  );
   return (
     <>
       {isInstaller && <TripShare key={j.id} jobId={j.id} phone={j.phone} phone2={j.phone2} phone3={j.phone3} />}
@@ -3160,34 +3193,9 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
         <CustomerContact j={j} save={save} />
         <TripShare key={j.id} jobId={j.id} phone={j.phone} phone2={j.phone2} phone3={j.phone3} />
         {documents}
-        <details className="op-disclosure"><summary>Sales</summary>{salesNotes}{salesPhotos}</details>
       </>}
-      {data.canEdit && (
-        <>
-          <details className="op-disclosure">
-            <summary>{staffLayout ? "RCVD Info" : "1. Enter RCVD info"} {j.received ? `✓ ${staffLayout ? displayDate(j.received) : ""}` : ""}</summary>
-            <ReceiveForm j={j} save={save} />
-            {me.role==='admin'&&j.stage==='Received'&&<details className="op-disclosure"><summary>Clear received date / Return to ORD</summary><p>Remove the materials received date and return this job to Ordered.</p><Form submitLabel="Clear received date and move to ORD" successMessage="Received date cleared. Job returned to ORD." onSave={async f=>save('clearReceived',{reason:field(f,'reason')})}><label>Reason (optional)<textarea name="reason" maxLength={1000}/></label></Form></details>}
-          </details>
-        </>
-      )}
-      <details className="op-disclosure">
-        <summary>
-          {staffLayout ? "Permit Info" : "2. Permit"} {j.permitReceived || j.noPermitRequired ? "✓" : ""} {staffLayout && displayDate(j.permitReceivedDate)}
-        </summary>
-        <PermitDetails j={j} />
-        {data.canEdit && (
-          <PermitForm
-            key={j.version}
-            j={j}
-            save={save}
-            showReceivedDate={staffLayout}
-            departments={data.buildingDepartments}
-          />
-        )}
-      </details>
-
-      {schedule}
+      {staffLayout ? <section className="digital-documents" aria-label="Installation information">{installationInfo}</section> : installationInfo}
+      {staffLayout && <details className="op-disclosure"><summary>Sales</summary>{salesNotes}{salesPhotos}</details>}
       {staffLayout && data.canEdit && <details className="op-disclosure">
         <summary>Schedule Work</summary>
         <ScheduleFollowUp j={j} team={team} today={today} save={save} />
@@ -3374,10 +3382,10 @@ function ScheduleFollowUp({j,team,today,save}:any){
     <label>Instructions<textarea name="instructions" required maxLength={4000} /></label>
   </Form>;
 }
-function ScheduleForm({ j, team, today, save, allowUnassigned = false }: any) {
-  const [day, setDay] = useState(today),
-    [multi, setMulti] = useState(false),
-    [end, setEnd] = useState(today),
+function ScheduleForm({ j, team, today, save, allowUnassigned = false, installationOnly = false }: any) {
+  const [day, setDay] = useState(installationOnly && j.install ? j.install : today),
+    [multi, setMulti] = useState(!!(installationOnly && j.install && j.installEnd > j.install)),
+    [end, setEnd] = useState(installationOnly ? j.installEnd || j.install || today : today),
     [files, setFiles] = useState<File[]>([]);
   const [dateAction,setDateAction]=useState("add"), [replaceDate,setReplaceDate]=useState("");
   const additional=j.operations?.additionalInstallations || [];
@@ -3391,7 +3399,7 @@ function ScheduleForm({ j, team, today, save, allowUnassigned = false }: any) {
         for (const file of files)
           salesPhotos.push(await uploadAttachment(j.id, "photos", file));
         await save("schedule", {
-          dateAction: j.install ? dateAction : "replace",
+          dateAction: !installationOnly && j.install ? dateAction : "replace",
           replaceDate: j.install && dateAction === "replace" ? replaceDate : "",
           salesPhotos,
           date: day,
@@ -3409,7 +3417,7 @@ function ScheduleForm({ j, team, today, save, allowUnassigned = false }: any) {
         });
       }}
     >
-      {j.install && (
+      {!installationOnly && j.install && (
         <>
           <label>Schedule action<select value={dateAction} onChange={e=>{
             setDateAction(e.target.value);
@@ -3509,6 +3517,7 @@ function ScheduleForm({ j, team, today, save, allowUnassigned = false }: any) {
         value={selectedVisit.stopNumber || 1}
         required
       />
+      {!installationOnly && (
       <label>
         Additional sales photos
         <input
@@ -3518,6 +3527,7 @@ function ScheduleForm({ j, team, today, save, allowUnassigned = false }: any) {
           onChange={(e) => setFiles(Array.from(e.target.files || []))}
         />
       </label>
+      )}
       <Text
         name="instructions"
         label="Job instructions (visible to installer)"
@@ -3838,14 +3848,12 @@ function PermitDetails({ j }: any) {
     </dl>
   );
 }
-function PermitForm({ j, save, departments = [], showReceivedDate = false }: any) {
+function PermitForm({ j, save, departments = [], showReceivedDate = false, alwaysOpen = false }: any) {
   const [noPermitRequired, setNoPermitRequired] = useState(
       !!j.noPermitRequired,
     ),
     [received, setReceived] = useState(!!j.permitReceived);
-  return (
-    <details>
-      <summary>Update permit</summary>
+  const form = (
       <Form
         onSave={async (f) =>
           save("permit", {
@@ -3931,8 +3939,8 @@ function PermitForm({ j, save, departments = [], showReceivedDate = false }: any
           Permit Received
         </label>
       </Form>
-    </details>
   );
+  return alwaysOpen ? form : <details><summary>Update permit</summary>{form}</details>;
 }
 function RequestForm({ team, save, admin = false, stage }: any) {
   const [type, setType] = useState("UTI");

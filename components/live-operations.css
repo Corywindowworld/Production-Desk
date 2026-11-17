@@ -1185,3 +1185,11 @@ html:is(
 .live-installation-info .op-form button {
   flex: 0 0 auto;
 }
+
+.live-operations .live-installation-info .live-receipt-row {
+  display: flex;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+}

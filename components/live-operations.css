@@ -1163,14 +1163,25 @@ html:is(
   flex-basis: 100%;
 }
 
-.live-installation-info {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(19rem, 1fr));
-  align-items: start;
-  gap: 16px;
+.live-installation-info .op-form {
   overflow-x: auto;
 }
-.live-installation-info > .op-disclosure {
+.live-installation-info .op-form > fieldset,
+.live-installation-info .live-receipt-row,
+.live-installation-info > .op-disclosure > .live-record {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 8px 12px;
+  min-width: max-content;
+}
+.live-installation-info > .op-disclosure > .live-record {
   min-width: 0;
-  margin: 0;
+  overflow-x: auto;
+}
+.live-installation-info > .op-disclosure > .live-record > div {
+  flex: 0 0 auto;
+}
+.live-installation-info .op-form label,
+.live-installation-info .op-form button {
+  flex: 0 0 auto;
 }

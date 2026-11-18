@@ -4537,6 +4537,11 @@ test('backordered INC certificates stay ORD, skip reorders and require full rece
  await operation(fs,{action:'reviewReport',jobId:early.id,version:e.version,data:{approve:true}});assert.equal((await early.current()).stage,'Received');
  const regular=await fixture();await operation(installer,{action:'report',jobId:regular.id,version:1,data:{...regular.result,backordered:false}});const r=await regular.current();
  await assert.rejects(()=>operation(fs,{action:'reviewReport',jobId:regular.id,version:r.version,data:{approve:true}}),/reorder information/);
+ await operation(fs,{action:'reviewReport',jobId:regular.id,version:r.version,data:{approve:true,noReorderRequired:true}});
+ const withoutReorder=await regular.current();
+ assert.equal(withoutReorder.stage,'Incomplete');
+ assert.equal(withoutReorder.reorderDate,undefined);
+ assert.equal(withoutReorder.incompleteSince,today);
  const invalid=await fixture();await assert.rejects(()=>operation(installer,{action:'report',jobId:invalid.id,version:1,data:{...invalid.result,status:'Complete',certificate:certificate('Complete')}}),/only to incomplete/);
 });
 

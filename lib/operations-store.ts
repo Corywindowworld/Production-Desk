@@ -1846,11 +1846,12 @@ export async function operation(m: Member, input: any) {
           reason: z.string().trim().min(1).max(1000),
           reorder: z.string().trim().max(4000).default(""),
           reorderDate: optionalDate,
+          noReorderRequired: z.boolean().default(false),
         }),
         input.data,
       );
       const previous = j.stage;
-      if (result.target === "Incomplete") {
+      if (result.target === "Incomplete" && !result.noReorderRequired) {
         const reorder = result.reorder || String(j.reorder || "").trim(),
           reorderDate = result.reorderDate || j.reorderDate || "";
         assert(reorder, "Enter reorder information before moving to INC.", 400);
@@ -1862,10 +1863,11 @@ export async function operation(m: Member, input: any) {
         j.reorder = reorder;
         j.reorderDate = reorderDate;
       }
+      if (result.target === "Incomplete" && result.noReorderRequired) j.reorderRequired = false;
       j.stage = result.target;
       if (j.stage === "Closed") j.scheduleCompletedOn = today;
       else {
-        j.incompleteSince = j.reorderDate;
+        j.incompleteSince = result.noReorderRequired ? today : j.reorderDate;
         j.scheduleCompletedOn = "";
       }
       if (o.report?.pending)
@@ -2257,8 +2259,11 @@ export async function operation(m: Member, input: any) {
           : undefined,
       };
       if (approve) {
+        const noReorder = parse(z.boolean().default(j.reorderRequired === false), input.data.noReorderRequired);
+        if (o.report.status === "Incomplete" && !o.report.backordered)
+          j.reorderRequired = !noReorder;
         if (
-          o.report.status === "Incomplete" && !o.report.backordered &&
+          !noReorder && o.report.status === "Incomplete" && !o.report.backordered &&
           input.data.reorder !== undefined
         ) {
           j.reorder = parse(
@@ -2273,7 +2278,7 @@ export async function operation(m: Member, input: any) {
           );
         }
         assert(!reportError(o.report), reportError(o.report), 400);
-        if (o.report.status === "Incomplete" && !o.report.backordered)
+        if (o.report.status === "Incomplete" && !o.report.backordered && !noReorder)
           assert(
             String(j.reorder || "").trim(),
             "Enter reorder information before approving an INC result.",
@@ -2282,7 +2287,7 @@ export async function operation(m: Member, input: any) {
         j.stage = o.report.backordered ? (j.backordered ? "Ordered" : j.stage) : o.report.status === "Complete" ? "Closed" : "Incomplete";
         if (j.stage === "Closed")
           j.scheduleCompletedOn = o.report.installed || today;
-        if (j.stage === "Incomplete") j.incompleteSince = j.reorderDate || at;
+        if (j.stage === "Incomplete") j.incompleteSince = noReorder ? today : j.reorderDate || at;
         history = `Installer report approved; job moved to ${j.stage === "Closed" ? "COMP" : j.stage === "Ordered" ? "ORD" : j.stage === "Received" ? "RCVD" : "INC"}`;
         if (o.report.omitLabor && o.report.certificate?.type === "Service") {
           // Preserve this visit independently of future service reports.
@@ -2313,7 +2318,7 @@ export async function operation(m: Member, input: any) {
         409,
       );
       assert(!reportError(o.report), reportError(o.report), 400);
-      if (o.report.status === "Incomplete" && !o.report.backordered)
+      if (o.report.status === "Incomplete" && !o.report.backordered && j.reorderRequired !== false)
         assert(
           String(j.reorder || "").trim(),
           "Enter reorder information before approving INC.",

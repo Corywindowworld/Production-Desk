@@ -1648,6 +1648,7 @@ function Approvals({ jobs, reorderJobs, me, review, saving, change, onOpen, relo
                           approve: true,
                           ...(j.operations.report.status === "Incomplete" && !j.operations.report.backordered
                             ? {
+                                noReorderRequired: f.has("noReorderRequired"),
                                 reorder: field(f, "reorder"),
                                 reorderDate: field(f, "reorderDate"),
                               }
@@ -1659,19 +1660,7 @@ function Approvals({ jobs, reorderJobs, me, review, saving, change, onOpen, relo
                   >
                     {j.operations.report.status === "Incomplete" && !j.operations.report.backordered && (
                       <>
-                        <Text
-                          name="reorder"
-                          label="Reorder information"
-                          value={j.reorder}
-                        />
-                        <Input
-                          name="reorderDate"
-                          label="Reorder date"
-                          type="date"
-                          max={localDay()}
-                          value={j.reorderDate}
-                          required
-                        />
+                        <IncompleteReorderFields j={j} />
                       </>
                     )}
                     <p>
@@ -3620,6 +3609,16 @@ function StatusForm({ j, save, admin }: any) {
     </Form>
   );
 }
+function IncompleteReorderFields({j}:any){
+  const [noReorder,setNoReorder]=useState(j.reorderRequired===false);
+  return <>
+    <label className="op-check"><input type="checkbox" name="noReorderRequired" checked={noReorder} onChange={e=>setNoReorder(e.target.checked)} />No reorder required — incomplete for another reason</label>
+    {!noReorder && <>
+      <Text name="reorder" label="Reorder information" value={j.reorder} />
+      <Input name="reorderDate" label="Reorder date" type="date" max={localDay()} value={j.reorderDate} required />
+    </>}
+  </>;
+}
 function AdminResultForm({ j, save }: any) {
   const [target, setTarget] = useState("Incomplete");
   return (
@@ -3638,6 +3637,7 @@ function AdminResultForm({ j, save }: any) {
             return;
           await save("adminResult", {
             target,
+            noReorderRequired:f.has("noReorderRequired"),
             reason: field(f, "reason"),
             reorder: field(f, "reorder"),
             reorderDate: field(f, "reorderDate"),
@@ -3653,24 +3653,7 @@ function AdminResultForm({ j, save }: any) {
           </select>
         </label>
         {target === "Incomplete" && (
-          <>
-            <label>
-              Reorder information
-              <textarea
-                name="reorder"
-                defaultValue={j.reorder || ""}
-                required
-              />
-            </label>
-            <Input
-              name="reorderDate"
-              label="Reorder date · starts INC aging"
-              type="date"
-              value={j.reorderDate || localDay()}
-              max={localDay()}
-              required
-            />
-          </>
+          <IncompleteReorderFields j={j} />
         )}
         <Input
           name="reason"

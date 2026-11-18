@@ -3351,23 +3351,47 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
   );
 }
 function ScheduleFollowUp({j,team,today,save}:any){
-  const [type,setType]=useState(j.stage==="Closed" || j.stage==="SVC" ? "Service" : "Completion");
-  return <Form successMessage="Work added to the schedule." onSave={async f=>{
-    const date=field(f,"date"), instructions=field(f,"instructions"), period=field(f,"period");
-    if(type==="Service"){
-      await save("request",{type:"Service",details:instructions,serviceDate:date,period,installerId:field(f,"installerId")});
+  const [selected,setSelected]=useState("");
+  const visits=[
+    ...(j.operations?.additionalInstallations||[]).map((visit:any)=>({
+      id:"completion:"+visit.install,type:"Completion",date:visit.install,endDate:visit.installEnd,
+      period:visit.installPeriod||"AM",installerId:visit.installerId??j.installerId,
+      instructions:visit.scheduleInstructions||"",stop:visit.stopNumber||1,
+    })),
+    ...(j.operations?.services||[]).map((visit:any)=>({
+      ...visit,id:"service:"+visit.id,type:"Service",instructions:visit.details||"",
+    })),
+  ];
+  const visit=visits.find((item:any)=>item.id===selected);
+  return <>
+    <label>Appointment<select value={selected} onChange={e=>setSelected(e.target.value)}>
+      <option value="">Add new visit</option>
+      {visits.map((item:any)=><option key={item.id} value={item.id}>{item.type} · {displayDate(item.date)}</option>)}
+    </select></label>
+    <FollowUpAppointmentForm key={selected+":"+j.version} j={j} team={team} today={today} visit={visit} save={save} />
+  </>;
+}
+function FollowUpAppointmentForm({j,team,today,visit,save}:any){
+  const [type,setType]=useState(visit?.type || (j.stage==="Closed" || j.stage==="SVC" ? "Service" : "Completion"));
+  return <Form submitLabel={visit?"Save appointment changes":"Save"} successMessage={visit?"Appointment updated.":"Work added to the schedule."} onSave={async f=>{
+    const date=field(f,"date"),instructions=field(f,"instructions"),period=field(f,"period"),installerId=field(f,"installerId");
+    if(visit?.type==="Service"){
+      await save("editServiceSchedule",{id:visit.id.slice("service:".length),date,period,installerId,instructions});
+    }else if(type==="Service"){
+      await save("request",{type:"Service",details:instructions,serviceDate:date,period,installerId});
     }else{
-      await save("schedule",{date,dateAction:j.install?"add":"replace",period,installerId:field(f,"installerId"),stop:j.stopNumber||1,additionalInstructions:instructions});
+      await save("schedule",{date,endDate:field(f,"endDate")||date,dateAction:visit?"replace":j.install?"add":"replace",replaceDate:visit?.date||"",period,installerId,stop:visit?.stop||j.stopNumber||1,additionalInstructions:instructions});
     }
   }}>
-    <label>Work type<select value={type} onChange={e=>setType(e.target.value)}>
+    {visit ? <p>{visit.type} appointment</p> : <label>Work type<select value={type} onChange={e=>setType(e.target.value)}>
       <option disabled={j.stage==="Closed"||j.stage==="SVC"}>Completion</option>
       <option disabled={j.stage!=="Closed"&&j.stage!=="SVC"}>Service</option>
-    </select></label>
-    <Input label="Date" name="date" type="date" min={today} required />
-    <Select label="AM / PM" name="period" value="AM" items={["AM","PM"]} />
-    <Select label="Assigned installer" name="installerId" value={j.installerId} items={team.filter((m:any)=>m.role==="installer"&&m.active!==0)} />
-    <label>Instructions<textarea name="instructions" required maxLength={4000} /></label>
+    </select></label>}
+    <Input label="Date" name="date" type="date" value={visit?.date} min={visit?undefined:today} required />
+    {visit?.endDate>visit?.date && <Input label="End date" name="endDate" type="date" value={visit.endDate} required />}
+    <Select label="AM / PM" name="period" value={visit?.period||"AM"} items={["AM","PM"]} />
+    <Select label="Assigned installer" name="installerId" value={visit?.installerId||j.installerId} items={team.filter((m:any)=>m.role==="installer"&&m.active!==0)} />
+    <label>Instructions<textarea name="instructions" required maxLength={4000} defaultValue={visit?.instructions||""} /></label>
   </Form>;
 }
 function ScheduleForm({ j, team, today, save, allowUnassigned = false, installationOnly = false }: any) {

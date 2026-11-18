@@ -1707,6 +1707,24 @@ export async function operation(m: Member, input: any) {
     } else if (action === "resetSchedule") {
       const r=parse(z.object({target:z.string().min(1).max(200),reason:z.string().trim().min(1,"Enter a reset reason.").max(2000)}),input.data);
       try {const result=resetJobSchedule(j,r.target,r.reason,m,at);history=result.text;await alert(result.removed.installerId,`Job #${j.number}: ${history}`);}catch(error){throw new ApiError(400,(error as Error).message);}
+    } else if (action === "editServiceSchedule") {
+      edit();
+      const v=parse(z.object({
+        id:z.string().min(1),date:optionalDate,period:z.enum(["AM","PM"]),
+        installerId:z.string().uuid(),instructions:z.string().trim().min(1).max(4000),
+      }),input.data);
+      const visit=(o.services||[]).find((entry:any)=>entry.id===v.id);
+      assert(visit,"Service appointment no longer exists. Refresh and try again.",409);
+      assert(v.date,"Select a date.",400);
+      const crew=await installer(v.installerId);
+      await checkAvailability(crew.id,v.date!);
+      const previous={...visit};
+      Object.assign(visit,{date:v.date,period:v.period,installerId:crew.id,crew:crew.name,details:v.instructions});
+      if(o.routing?.[previous.date])delete o.routing[previous.date][visit.id];
+      for(const request of o.requests||[])if(request.id===visit.id)Object.assign(request,{serviceDate:v.date,period:v.period,installerId:crew.id,details:v.instructions});
+      history=`Service appointment updated: ${previous.date} → ${v.date}; installer ${previous.crew || "Unassigned"} → ${crew.name}.`;
+      if(previous.installerId!==crew.id)await alert(previous.installerId,`Job #${j.number}: service appointment reassigned to ${crew.name}.`);
+      await alert(crew.id,`Job #${j.number}: service appointment updated to ${v.date} ${v.period}. ${v.instructions}`);
     } else if (action === "schedule") {
       await scheduleJob(input.data);
     } else if (action === "approveSchedule" || action === "rejectSchedule") {

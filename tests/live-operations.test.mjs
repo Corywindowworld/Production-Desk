@@ -5055,3 +5055,19 @@ test('scheduled RCVD installation starts once at noon Eastern', async () => {
   assert.equal(job.operations.previousReports[0].id,'prior');
   await pg.query('DELETE FROM production.jobs WHERE id=$1',[id]);
 });
+
+test('editing a service appointment changes its crew and date without replacing another visit', async()=>{
+ const id=crypto.randomUUID(),visitId=crypto.randomUUID(),date=addDays(today,1),newDate=addDays(today,3);
+ const payload={id,number:'EDIT-SERVICE',customer:'Appointment test',stage:'SVC',history:[],operations:{services:[
+  {id:visitId,date,period:'AM',installerId:installer.id,crew:installer.name,details:'Original instructions'},
+  {id:'keep',date:addDays(today,7),period:'AM',installerId:installer.id},
+ ]}};
+ await pg.query('INSERT INTO production.jobs(id,payload,version,updated) VALUES($1,$2,1,$3)',[id,JSON.stringify(payload),today]);
+ await operation(pa,{action:'editServiceSchedule',jobId:id,version:1,data:{id:visitId,date:newDate,period:'PM',installerId:installer.id,instructions:'Updated work'}});
+ const job=JSON.parse((await pg.query('SELECT payload FROM production.jobs WHERE id=$1',[id])).rows[0].payload);
+ assert.equal(job.operations.services.length,2);
+ assert.equal(job.operations.services[0].date,newDate);
+ assert.equal(job.operations.services[0].details,'Updated work');
+ assert.equal(job.operations.services[1].id,'keep');
+ assert.equal(job.stage,'SVC');
+});

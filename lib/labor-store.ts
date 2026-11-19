@@ -51,7 +51,12 @@ export async function laborAction(m:Member,input:any){
    }else if(base.action==='edit'){
     fail(['admin','supervisor'].includes(m.role),'FS/Admin edit access required.',403);
     fail(sheet.status!=='Replaced','This sheet has been replaced.',409);
-    const lines=z.array(z.object({description:z.string().trim().min(1).max(250),contract:laborUnits,rate:z.number().finite().min(0).max(100000).nullable(),actual:laborUnits.nullable(),reason:z.string().max(1500).default(''),extra:z.boolean().default(false)})).min(1).max(100).parse(Array.isArray(input.lines)?input.lines.filter((line:any)=>String(line.description||'').trim()||Number(line.contract)||Number(line.actual)||Number(line.rate)):input.lines);
+    const lines=z.array(z.object({description:z.string().trim().min(1).max(250),contract:laborUnits,rate:z.number().finite().min(0).max(100000).nullable(),actual:laborUnits.nullable(),reason:z.string().max(1500).default(''),extra:z.boolean().default(false)})).min(1).max(100).parse(Array.isArray(input.lines)?input.lines
+      .filter((line:any)=>String(line.description||'').trim()||Number(line.contract)||Number(line.actual))
+      .map((line:any)=>({
+       ...line,
+       description:String(line.description||'').trim() || String(input.formFields?.miscLabor||input.formFields?.differences||'').trim().slice(0,250),
+      })):input.lines);
     const snapshot=structuredClone(sheet);delete snapshot.revisions;
     sheet.revisions=[...(sheet.revisions||[]),{at,by:m.name,sheet:snapshot}];
     const needsReview=['Submitted','Approved'].includes(sheet.status);

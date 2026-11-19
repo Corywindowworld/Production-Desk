@@ -16,3 +16,20 @@
 .labor-completion-box{border:1px solid #222;margin-top:0}.labor-completion-box .labor-questions,.labor-completion-box .labor-signoff{border:0}.labor-signature-line{border-top:1px solid #111;margin:12px 0 0;padding-top:4px;font-size:12px;font-weight:700;width:70%}
 
 .labor-completion-box .labor-questions{padding-top:16px}.labor-inspection-divider{border:0;border-top:1px solid #222;margin:16px 0}
+
+.labor-remove-line {
+  float: left;
+  margin-right: 8px;
+  border: 1px solid #a33;
+  border-radius: 4px;
+  background: white;
+  color: #a11;
+  cursor: pointer;
+  font-size: 22px;
+  line-height: 1;
+  min-width: 30px;
+  min-height: 30px;
+}
+@media print {
+  .labor-remove-line { display: none !important; }
+}

@@ -70,7 +70,7 @@ export async function laborAction(m:Member,input:any){
     fail(['Draft','Returned'].includes(sheet.status),'Only an open labor draft can be edited.',409);
     const line=z.object({description:z.string().max(250),contract:laborUnits,rate:z.number().finite().min(0).max(100000).nullable(),actual:laborUnits.nullable(),reason:z.string().max(1500),extra:z.boolean()});
     const v=z.object({lines:z.array(line).min(1).max(100)}).parse(input),original=sheet.originalLines||sheet.lines;
-    if(sheet.source!=='manual'){fail(v.lines.length>=original.length,'Keep every sales-order labor item.');original.forEach((l:any,i:number)=>fail(v.lines[i].description===l.description&&v.lines[i].contract===l.contract&&(v.lines[i].rate===l.rate||l.rate==null&&(v.lines[i].rate===0||['Trip Charge','Miscellaneous Labor'].includes(l.description))),'Sales-order labor details cannot be changed.'));sheet.originalLines=original;}
+    if(sheet.source!=='manual'){fail(v.lines.length>=original.filter((line:any)=>!line.extra).length,'Keep every sales-order labor item.');original.forEach((l:any,i:number)=>fail(v.lines[i].description===l.description&&v.lines[i].contract===l.contract&&(v.lines[i].rate===l.rate||l.rate==null&&(v.lines[i].rate===0||['Trip Charge','Miscellaneous Labor'].includes(l.description))),'Sales-order labor details cannot be changed.'));sheet.originalLines=original;}
     if(sheet.templateVersion)fail(templateDetailsValid(v.lines),'Keep the printed labor descriptions and pay rates.');sheet.lines=v.lines;if(input.formFields!==undefined)saveFormFields(m,sheet,input.formFields);message='Labor draft saved';
    }else if(base.action==='submit'){
     fail(office(m)||m.role==='installer'&&canSeeJob(m,j),'Assigned installer or office access required.',403);

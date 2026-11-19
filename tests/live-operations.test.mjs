@@ -5083,3 +5083,17 @@ test('batching includes a selected job without labor or a certificate and retain
  assert.ok((await batchData(pa,batch.id,true)).pdf_base64);
  assert.ok((await batchData(pa)).jobs.some(job=>job.jobId===id&&job.batched));
 });
+
+test('clearing batching hides selected paperwork but a new appointment appears',async()=>{
+ const {batchData,batchAction}=await vite.ssrLoadModule('/lib/completion-batches.ts');
+ const id=crypto.randomUUID(),job={id,number:'CLEAR-BATCH',customer:'Clear test',stage:'Incomplete',install:today,operations:{},history:[]};
+ await pg.query('INSERT INTO production.jobs(id,payload,version,updated) VALUES($1,$2,1,$3)',[id,JSON.stringify(job),today]);
+ const entry=(await batchData(pa)).jobs.find(entry=>entry.jobId===id);
+ await batchAction(pa,{action:'clear',items:[{jobId:id,clearKey:entry.clearKey}]});
+ assert.ok(!(await batchData(pa)).jobs.some(entry=>entry.jobId===id));
+ const saved=JSON.parse((await pg.query('SELECT payload FROM production.jobs WHERE id=$1',[id])).rows[0].payload);
+ assert.match(saved.history[0].text,/Cleared from completion batching/);
+ saved.install=addDays(today,2);
+ await pg.query('UPDATE production.jobs SET payload=$2 WHERE id=$1',[id,JSON.stringify(saved)]);
+ assert.ok((await batchData(pa)).jobs.some(entry=>entry.jobId===id));
+});

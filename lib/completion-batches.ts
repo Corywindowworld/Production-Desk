@@ -24,11 +24,30 @@ export async function batchData(m:Member,id?:string,currentLayout=false){
  return {jobs:rows.map((r:any)=>obj(r.payload)).flatMap((j:any)=>{
  const approved=approvedPackets(j);
  const entries:any[]=approved.map((l:any)=>{const snap=completionPacketJob(j,l);return {id:l.id,jobId:j.id,customer:snap.customer,number:snap.number,date:snap.operations.report?.installed||(l.approvedWithoutCertificate&&l.submittedAt?l.submittedAt:l.approvedAt)?.slice(0,10)||'',status:l.approvedWithoutCertificate?'Labor only':snap.operations.report?.certificate?.type==='Service'?'Service':snap.operations.report?.status,missing:completionPacketMissing(snap,l),batched:used.has(l.id),laborId:l.id};});
- const current=laborReady(j);if(!approved.length||j.operations?.report?.approved&&current.missing.length)entries.push({id:j.id,jobId:j.id,customer:j.customer,number:j.number,date:j.operations?.report?.installed||j.operations?.report?.reviewedAt?.slice(0,10)||j.install||'',status:j.operations?.report?.certificate?.type==='Service'?'Service':j.operations?.report?.status||j.stage,missing:current.missing,batched:false,laborId:''});return entries;
+ const current=laborReady(j);if(!approved.length||j.operations?.report?.approved&&current.missing.length)entries.push({id:j.id,jobId:j.id,customer:j.customer,number:j.number,date:j.operations?.report?.installed||j.operations?.report?.reviewedAt?.slice(0,10)||j.install||'',status:j.operations?.report?.certificate?.type==='Service'?'Service':j.operations?.report?.status||j.stage,missing:current.missing,batched:false,laborId:''});return entries.map(entry=>({...entry,clearKey:entry.laborId||[j.operations?.report?.id||'',j.operations?.report?.reviewedAt||'',j.install||'',j.stage||''].join('|')})).filter(entry=>!(j.operations?.batchCleared||[]).some((cleared:any)=>cleared.key===entry.clearKey));
+
  }),batches:(await db.prepare('SELECT id,created,created_by,sent_at,sent_by FROM production.completion_batches ORDER BY created DESC').all()).results};
 }
 export async function batchAction(m:Member,input:any){
  if(!office(m))throw new ApiError(403,'Office access required.');const db=database();await batchSetup(db);
+ if(input.action==='clear'){
+  const selections=z.array(z.object({jobId:z.string().uuid(),clearKey:z.string().min(1).max(500)})).min(1).max(100).parse(input.items);
+  await db.transaction(async tx=>{
+   for(const selection of [...selections].sort((a,b)=>a.jobId.localeCompare(b.jobId))){
+    const row=await tx.prepare('SELECT payload FROM jobs WHERE id=? FOR UPDATE').bind(selection.jobId).first();
+    if(!row)throw new ApiError(404,'Job not found.');
+    const job=obj(row.payload);job.operations??={};
+    const validKeys=[...approvedPackets(job).map((packet:any)=>packet.id),[job.operations.report?.id||'',job.operations.report?.reviewedAt||'',job.install||'',job.stage||''].join('|')];
+    if(!validKeys.includes(selection.clearKey))throw new ApiError(409,'Job paperwork changed. Refresh before clearing.');
+    if((job.operations.batchCleared||[]).some((cleared:any)=>cleared.key===selection.clearKey))continue;
+    const at=new Date().toISOString();
+    job.operations.batchCleared=[...(job.operations.batchCleared||[]),{key:selection.clearKey,at,by:m.name}];
+    job.history=[{at,by:m.name,text:'Cleared from completion batching — batch not needed.'},...(job.history||[])];
+    await tx.prepare('UPDATE jobs SET payload=?,version=version+1,updated=? WHERE id=?').bind(JSON.stringify(job),at,job.id).run();
+   }
+  });
+  return {ok:true};
+ }
  if(input.action==='sent'){
   const id=z.string().uuid().parse(input.id);await db.transaction(async tx=>{const row=await tx.prepare('SELECT id,sent_at FROM production.completion_batches WHERE id=? FOR UPDATE').bind(id).first();if(!row)throw new ApiError(404,'Batch not found.');if(row.sent_at)throw new ApiError(409,'Batch is already marked sent.');const at=new Date().toISOString();await tx.prepare('UPDATE production.completion_batches SET sent_at=?,sent_by=? WHERE id=?').bind(at,m.name,id).run();const items=(await tx.prepare('SELECT job_id FROM production.completion_batch_items WHERE batch_id=?').bind(id).all()).results;for(const item of items){const r=await tx.prepare('SELECT payload FROM jobs WHERE id=? FOR UPDATE').bind(item.job_id).first();if(r){const j=obj(r.payload);j.history=[{at,by:m.name,text:`Completion Desk batch ${id} marked sent`},...(j.history||[])];await tx.prepare('UPDATE jobs SET payload=?,version=version+1,updated=? WHERE id=?').bind(JSON.stringify(j),at,j.id).run();}}});return {ok:true};
  }

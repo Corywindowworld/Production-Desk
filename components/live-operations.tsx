@@ -426,6 +426,7 @@ export default function LiveOperations() {
   ];
   const approvals = jobs.filter(
     (j: any) =>
+      j.operations?.laborSheets?.some((sheet:any)=>sheet.status==="Submitted") ||
       approvedLaborToClear(j).length>0 ||
       j.operations?.pendingSchedule ||
       j.operations?.report?.pending ||
@@ -755,10 +756,10 @@ export default function LiveOperations() {
               />
             </>
           )}
-          {tab === "Approvals" && review && <>{jobs.filter((j:any)=>j.operations?.laborSheets?.some((s:any)=>s.status==="Submitted")).map((j:any)=><section className="op-panel" key={j.id}><h3>{j.customer} · #{j.number}</h3><LaborSheet j={j} me={me} profile={data.leadProfile} reload={load}/></section>)}</>}
           {tab === "Approvals" && (
             <Approvals
               jobs={approvals}
+              profile={data.leadProfile}
               reorderJobs={jobs}
               reload={load}
               me={me}
@@ -1512,7 +1513,7 @@ function SalesRepresentative({ options = [], initial }: any) {
   );
 }
 type ApprovalSelection = {jobId:string; version:number; kind:'report'|'labor'|'reorder'; recordId?:string};
-function Approvals({ jobs, reorderJobs, me, review, saving, change, onOpen, reload }: any) {
+function Approvals({ jobs, reorderJobs, me, review, saving, change, onOpen, reload, profile }: any) {
   const [error, setError] = useState("");
   const [clearing,setClearing]=useState(false);
   const [selected,setSelected] = useState<Record<string,ApprovalSelection>>({});
@@ -1577,13 +1578,13 @@ function Approvals({ jobs, reorderJobs, me, review, saving, change, onOpen, relo
         const matchingLabor = showReport && labor.some((sheet:any)=>laborMatchesReport(sheet,report));
         const standaloneLabor = labor.filter((sheet:any)=>!showReport || !laborMatchesReport(sheet,report));
         return (
-        <article className="live-approval-card" key={j.id} style={j.operations.report?.approved && !j.operations.pendingSchedule && !j.operations.requests?.some((r:any)=>r.status==="Pending") ? {display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",padding:12} : undefined}>
-          <h3>
-            {j.customer} · #{j.number}
-          </h3>
+        <details className="live-approval-card op-disclosure" key={j.id}>
+          <summary>{j.customer} · #{j.number}</summary>
           <button className="live-button" onClick={() => onOpen(j.id)}>
             View job
           </button>
+          {(showReport || report?.pending) && <details className="op-disclosure">
+            <summary>Completion · {report?.status}{report?.pending ? " · Awaiting approval" : " · Approved"}</summary>
           {showReport && <div className="op-schedule-actions">
             {review && select(j,"report",matchingLabor ? "approved result and labor" : "approved result")}
             <strong>Approved · {report.status}{matchingLabor ? " + Labor" : ""}</strong>
@@ -1591,39 +1592,7 @@ function Approvals({ jobs, reorderJobs, me, review, saving, change, onOpen, relo
             <ApprovalPrintButtons j={j} report={report} onError={setError}/>
             {review && <button className="live-button" disabled={saving||clearing} onClick={()=>act(j,"dismissApproval",{})}>Clear from list</button>}
           </div>}
-          {standaloneLabor.map((sheet:any)=><div className="op-schedule-actions" key={sheet.id}>
-            {review && select(j,"labor","approved labor sheet",sheet.id)}
-            <strong>{sheet.approvedWithoutCertificate ? "Labor approved without certificate" : "Approved labor"} · {sheet.visitType||'Installation'}</strong>
-            {sheet.packetJob?.operations?.report?.certificate && <button type="button" className="live-button" onClick={()=>{try{printJobCertificate(sheet.packetJob.operations.report.certificate);}catch(e){setError((e as Error).message);}}}>Print Certificate</button>}
-            <ApprovalPrintButtons j={j} report={sheet.packetJob?.operations?.report} sheet={sheet} onError={setError}/>
-            {review && <button type="button" className="live-button" disabled={saving||clearing} onClick={()=>void clearLabor(j,sheet)}>Clear labor from list</button>}
-          </div>)}
           {j.operations.report?.measurementSurvey && <p><strong>Sales rep measurements</strong> · {j.operations.report.measurementSurvey.stars} out of 5 stars{j.operations.report.measurementSurvey.notes && <><br/>{j.operations.report.measurementSurvey.notes}</>}</p>}
-          {j.operations.pendingSchedule && (
-            <section>
-              <h4>Schedule request</h4>
-              <p>
-                {displayDate(j.operations.pendingSchedule.date)} ·{" "}
-                {j.operations.pendingSchedule.period}
-              </p>
-              {review && (
-                <div className="op-schedule-actions">
-                  <button
-                    disabled={saving}
-                    onClick={() => act(j, "approveSchedule", {})}
-                  >
-                    Approve
-                  </button>
-                  <button
-                    disabled={saving}
-                    onClick={() => act(j, "rejectSchedule", {})}
-                  >
-                    Deny
-                  </button>
-                </div>
-              )}
-            </section>
-          )}
           {j.operations.report?.pending && (
             <section>
               <h4>
@@ -1683,6 +1652,41 @@ function Approvals({ jobs, reorderJobs, me, review, saving, change, onOpen, relo
               )}
             </section>
           )}
+          </details>}
+          {review && j.operations?.laborSheets?.some((sheet:any)=>sheet.status==="Submitted") &&
+            <LaborSheet j={j} me={me} profile={profile} reload={reload} />}
+          {standaloneLabor.map((sheet:any)=><div className="op-schedule-actions" key={sheet.id}>
+            {review && select(j,"labor","approved labor sheet",sheet.id)}
+            <strong>{sheet.approvedWithoutCertificate ? "Labor approved without certificate" : "Approved labor"} · {sheet.visitType||'Installation'}</strong>
+            {sheet.packetJob?.operations?.report?.certificate && <button type="button" className="live-button" onClick={()=>{try{printJobCertificate(sheet.packetJob.operations.report.certificate);}catch(e){setError((e as Error).message);}}}>Print Certificate</button>}
+            <ApprovalPrintButtons j={j} report={sheet.packetJob?.operations?.report} sheet={sheet} onError={setError}/>
+            {review && <button type="button" className="live-button" disabled={saving||clearing} onClick={()=>void clearLabor(j,sheet)}>Clear labor from list</button>}
+          </div>)}
+          {j.operations.pendingSchedule && (
+            <section>
+              <h4>Schedule request</h4>
+              <p>
+                {displayDate(j.operations.pendingSchedule.date)} ·{" "}
+                {j.operations.pendingSchedule.period}
+              </p>
+              {review && (
+                <div className="op-schedule-actions">
+                  <button
+                    disabled={saving}
+                    onClick={() => act(j, "approveSchedule", {})}
+                  >
+                    Approve
+                  </button>
+                  <button
+                    disabled={saving}
+                    onClick={() => act(j, "rejectSchedule", {})}
+                  >
+                    Deny
+                  </button>
+                </div>
+              )}
+            </section>
+          )}
           {(j.operations.requests || [])
             .filter((r: any) => r.status === "Pending")
             .map((r: any) => (
@@ -1716,7 +1720,7 @@ function Approvals({ jobs, reorderJobs, me, review, saving, change, onOpen, relo
                 )}
               </section>
             ))}
-        </article>
+        </details>
         );
       })}
     </section>

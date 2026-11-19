@@ -1401,7 +1401,8 @@ function Calendar({
                     {j.time ? hourLabel(j.time) : j.period} ·{" "}
                     {j.service ? "Service" : `Stop ${j.stop || 1}`} · {j.crew}
                   </b>
-                  <span>{j.customer}</span>
+                  <span>{j.customer} · CID #{j.number}</span>
+                  {j.city && <small>{j.city}</small>}
                   {j.routeEta != null && <small>Route estimate: {Math.floor(j.routeEta/60)%12||12}:{String(j.routeEta%60).padStart(2,"0")} {j.routeEta<720?"AM":"PM"}</small>}
                   {j.deliveryOnly && (
                     <strong className="live-delivery-badge">

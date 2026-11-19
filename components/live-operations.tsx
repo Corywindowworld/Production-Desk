@@ -1573,7 +1573,7 @@ function Approvals({ jobs, reorderJobs, me, review, saving, change, onOpen, relo
       {!jobs.length && !reorderApprovalJobs.length && <p>No pending requests.</p>}
       {jobs.map((j: any) => {
         const report = j.operations.report;
-        const showReport = report?.approved && !report.approvalDismissed;
+        const showReport = report?.approved && (!report.approvalDismissed || j.operations.laborSheets?.some((sheet:any)=>sheet.status==="Submitted"));
         const labor = approvedLaborToClear(j);
         const matchingLabor = showReport && labor.some((sheet:any)=>laborMatchesReport(sheet,report));
         const standaloneLabor = labor.filter((sheet:any)=>!showReport || !laborMatchesReport(sheet,report));

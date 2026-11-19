@@ -81,6 +81,13 @@ export async function laborAction(m:Member,input:any){
     const crew=await tx.prepare('SELECT name,installer_code,profile_details FROM members WHERE id=?').bind(m.role==='installer'?m.id:j.installerId).first();
     const crewProfile=readProfileDetails(crew?.profile_details);
     Object.assign(sheet,{installerName:crew?.name||j.crew||m.name,contractorId:crewProfile.contractorNumber||crew?.installer_code||'',originalLines:original,lines:v.lines,status:'Submitted',submittedAt:at,submittedBy:m.name,installerSignature:v.signature,requestedTotal:laborTotal(v.lines)});message='Installer labor submitted for FS/Admin review';
+    const report=j.operations?.report;
+    if(report?.approved && report.certificate){
+     delete report.approvalDismissed;
+     delete report.approvalDismissedAt;
+     delete report.approvalDismissedBy;
+    }
+
    }else{
     fail(['admin','supervisor'].includes(m.role),'FS/Admin approval required.',403);fail(sheet.status==='Submitted','No labor submission is pending.',409);
     const v=z.object({approve:z.boolean(),approveWithoutCertificate:z.boolean().default(false),truckInspected:z.boolean().optional(),note:z.string().trim().max(2000),approvedUnits:z.array(laborUnits).max(100).optional(),chargeback:z.number().finite().min(0).max(100000).default(0),chargebackReason:z.string().trim().max(2000).default(''),chargebackTo:z.array(z.enum(['Sales Rep','Contractor','Factory','Warranty'])).max(4).default([]),authorization:z.enum(['complete','other']).optional(),truck:z.array(z.enum(['Yard Signs','Drop Cloth','Trim & Caulk','Parts','Vacuum','Spray Foam'])).max(6).optional(),receivedBy:z.string().trim().max(150).optional()}).parse(input);

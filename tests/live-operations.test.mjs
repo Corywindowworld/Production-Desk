@@ -1688,7 +1688,7 @@ test('service corrections can omit labor only after certificate review and retai
   assert.equal(j.operations.report.certificate.remainingBalance,0);
   assert.match(certificateEmailHtml(j.operations.report.certificate),/Paid In Full \(PIF\).*\$0.00/);
   assert.ok(laborReady(j).missing.length);
-  assert.equal((await batchData(pa)).jobs.filter(x=>x.jobId===j.id).length,0);
+  assert.ok((await batchData(pa)).jobs.find(x=>x.jobId===j.id).missing.length);
   await act(fs,'reviewReport',{approve:true});
   assert.deepEqual(laborReady(j).missing,[]);
   assert.equal(serviceLaborOmitted(j),true);
@@ -5070,4 +5070,16 @@ test('editing a service appointment changes its crew and date without replacing 
  assert.equal(job.operations.services[0].details,'Updated work');
  assert.equal(job.operations.services[1].id,'keep');
  assert.equal(job.stage,'SVC');
+});
+
+test('batching includes a selected job without labor or a certificate and retains its PDF',async()=>{
+ const {batchData,batchAction}=await vite.ssrLoadModule('/lib/completion-batches.ts');
+ const id=crypto.randomUUID(),at=new Date().toISOString();
+ await pg.query('INSERT INTO production.jobs(id,payload,version,updated) VALUES($1,$2,1,$3)',[id,JSON.stringify({id,number:'PARTIAL-BATCH',customer:'Partial paperwork',stage:'Incomplete',operations:{},history:[]}),at]);
+ const list=await batchData(pa);
+ assert.ok(list.jobs.find(job=>job.jobId===id));
+ const batch=await batchAction(pa,{action:'create',items:[{jobId:id,laborId:'',allowMissingPaperwork:true}]});
+ assert.ok((await batchData(pa,batch.id)).pdf_base64);
+ assert.ok((await batchData(pa,batch.id,true)).pdf_base64);
+ assert.ok((await batchData(pa)).jobs.some(job=>job.jobId===id&&job.batched));
 });

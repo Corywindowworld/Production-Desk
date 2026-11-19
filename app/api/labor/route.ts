@@ -2,7 +2,14 @@ import {actor,sameOrigin,apiError,ApiError,jobFor} from '@/lib/access';
 import {requireLocation} from '@/lib/location-store';
 import {laborAction} from '@/lib/labor-store';
 import {ZodError} from 'zod';
-export async function POST(r:Request){try{sameOrigin(r);const m=await actor(r);await requireLocation(r,m);return Response.json(await laborAction(m,await r.json()));}catch(e){if(e instanceof ZodError)return Response.json({error:e.issues[0].message},{status:400});return apiError(e)}}
+export async function POST(r:Request){try{sameOrigin(r);const m=await actor(r);await requireLocation(r,m);return Response.json(await laborAction(m,await r.json()));}catch(e){if(e instanceof ZodError){
+ const issue=e.issues[0],path=issue.path;
+ const row=path[0]==='lines' && typeof path[1]==='number' ? path[1]+1 : null;
+ const labels:Record<string,string>={description:'labor description',rate:'pay rate',actual:'actual units',contract:'contract units'};
+ const field=String(path[path.length-1]||'');
+ const detail=row ? `Labor row ${row} — ${labels[field]||field}: ${field==='description'?'Enter a description, or clear all quantities and pay to leave the row unused.':issue.message}` : `${field||'Labor sheet'}: ${issue.message}`;
+ return Response.json({error:detail},{status:400});
+}return apiError(e)}}
 
 import {database} from '@/db/raw';
 import {readProfileDetails} from '@/lib/account-profile';

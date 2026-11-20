@@ -19,7 +19,7 @@ import {
   hourLabel,
   installAppointments,
 } from "./install-calendar";
-import { storedObject } from "./stored-data";
+import { storedObject, storedSalesRep } from "./stored-data";
 import { database } from "@/db/raw";
 import type {Database} from "@/db/adapter";
 import {
@@ -293,7 +293,7 @@ export async function operationsData(
   // Older job snapshots must not restore a typo or an intentionally cleared email.
   const savedSalesReps = (
     await db.prepare("SELECT payload FROM production.operations_config WHERE id LIKE 'sales-rep:%'").all()
-  ).results.map((r:any)=>storedObject(r.payload)).filter(rep => typeof rep.name === "string" && rep.name.trim());
+  ).results.map((r:any)=>storedSalesRep(r.payload)).filter(rep => typeof rep.name === "string" && rep.name.trim());
   const salesRepContacts = new Map<string,any>(savedSalesReps.map((rep:any)=>[choiceKey(rep.name),rep]));
   for(const job of all){
     const contact=salesRepContacts.get(choiceKey(job.salesRep||''));
@@ -1206,7 +1206,7 @@ export async function operation(m: Member, input: any) {
       if(j.salesRep?.trim()){
         const contactRow=await tx.prepare("SELECT payload FROM production.operations_config WHERE id=?")
           .bind("sales-rep:"+choiceKey(j.salesRep)).first();
-        const contact=contactRow?storedObject(contactRow.payload):null;
+        const contact=contactRow?storedSalesRep(contactRow.payload):null;
         if(typeof contact?.email==='string')j.salesRepEmail=contact.email;
       }
       assert(
@@ -2505,11 +2505,15 @@ export async function operation(m: Member, input: any) {
         phone: j.salesRepPhone || "",
         email: j.salesRepEmail || "",
       };
+      const repId = "sales-rep:" + choiceKey(rep.name);
+      const existing = await tx.prepare("SELECT payload FROM production.operations_config WHERE id=? FOR UPDATE").bind(repId).first();
+      const saved = storedSalesRep(existing?.payload);
+      const contact = {...rep, inactive: !!saved.inactive, deleted: !!saved.deleted};
       await tx
         .prepare(
-          "INSERT INTO production.operations_config(id,payload,updated_by,updated) VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET payload=(production.operations_config.payload::jsonb || EXCLUDED.payload::jsonb),updated_by=EXCLUDED.updated_by,updated=EXCLUDED.updated",
+          "INSERT INTO production.operations_config(id,payload,updated_by,updated) VALUES(?,?::text::jsonb,?,?) ON CONFLICT(id) DO UPDATE SET payload=CASE WHEN jsonb_typeof(production.operations_config.payload)='object' THEN production.operations_config.payload || (EXCLUDED.payload - 'inactive' - 'deleted') ELSE EXCLUDED.payload END,updated_by=EXCLUDED.updated_by,updated=EXCLUDED.updated",
         )
-        .bind("sales-rep:" + choiceKey(rep.name), JSON.stringify(rep), m.id, at)
+        .bind(repId, JSON.stringify(contact), m.id, at)
         .run();
     }
     if (

@@ -5179,3 +5179,27 @@ test('dashboard loads older jobs with non-text sales reps and irregular history'
     await pg.query('DELETE FROM production.jobs WHERE id=$1', [id]);
   }
 });
+
+test('dashboard and sales directory recover legacy merged contact arrays', async () => {
+ const {salesRepData} = await vite.ssrLoadModule('/lib/sales-reps.ts');
+ const name = 'Legacy Merged Rep';
+ const key = 'sales-rep:legacy merged rep';
+ const original = {name, email:'old@example.com', inactive:true};
+ const current = {name, email:'new@example.com'};
+ await pg.query('INSERT INTO production.operations_config(id,payload,updated_by,updated) VALUES($1,$2,$3,$4)', [key, JSON.stringify([JSON.stringify(original), JSON.stringify(current)]), admin.id, new Date().toISOString()]);
+ try {
+  assert.ok(!(await operationsData(admin)).salesReps.some(rep => rep.name === name));
+  const directory = await salesRepData(admin);
+  const rep = directory.salesReps.find(rep => rep.name === name);
+  assert.equal(rep.email, current.email);
+  assert.equal(rep.inactive, true);
+  await operation(pa,{action:'create',data:{number:'LEGACY-REP-MERGE',customer:'Legacy rep test',address:'1 Test Street',amount:0,salesRep:name,salesRepEmail:current.email}});
+  const stored = (await pg.query('SELECT payload FROM production.operations_config WHERE id=$1',[key])).rows[0].payload;
+  assert.equal(stored.email,current.email);
+  assert.equal(stored.inactive,true);
+  assert.ok(!Array.isArray(stored));
+ } finally {
+  await pg.query("DELETE FROM production.jobs WHERE payload::jsonb->>'number'='LEGACY-REP-MERGE'");
+  await pg.query('DELETE FROM production.operations_config WHERE id=$1',[key]);
+ }
+});

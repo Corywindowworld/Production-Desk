@@ -5,7 +5,7 @@ import './operations-palette.css';
 import {Dialog, DialogContent, DialogHeader, DialogTitle} from './ui/dialog';
 import {LaborImport,LaborSheet} from './labor-paperwork';
 import {ApprovalPrintButtons} from './approval-print-buttons';
-import {approvedLaborToClear,laborMatchesReport} from '@/lib/approval-paperwork';
+import {approvedLaborToClear,laborMatchesReport,clearableJobApprovals} from '@/lib/approval-paperwork';
 import {ApprovedLaborSheets} from './approved-labor-sheets';
 import {CompletionBatches} from './completion-batches';
 import Warehouse from './warehouse';
@@ -1569,6 +1569,8 @@ function Approvals({ jobs, reorderJobs, me, review, saving, change, onOpen, relo
       )}
       {!approvalJobs.length && <p>No pending requests.</p>}
       {approvalJobs.map((j: any) => {
+        const clearItems = clearableJobApprovals(j);
+        const selectedItems = clearItems.filter(item=>selected[selectionKey(item)]).length;
         const report = j.operations.report;
         const showReport = report?.approved && (!report.approvalDismissed || j.operations.laborSheets?.some((sheet:any)=>sheet.status==="Submitted"));
         const labor = approvedLaborToClear(j);
@@ -1576,7 +1578,10 @@ function Approvals({ jobs, reorderJobs, me, review, saving, change, onOpen, relo
         const standaloneLabor = labor.filter((sheet:any)=>!showReport || !laborMatchesReport(sheet,report));
         return (
         <details className="live-approval-card op-disclosure" key={j.id}>
-          <summary>{j.customer} · #{j.number}</summary>
+          <summary>{review&&<input type="checkbox" aria-label={`Select job ${j.customer} #${j.number} to clear approvals`} title={clearItems.length?'Select reviewed paperwork to clear':'Approve paperwork before clearing'} style={{width:24,height:24,marginRight:12,verticalAlign:'middle'}} checked={clearItems.length>0&&selectedItems===clearItems.length} ref={node=>{if(node)node.indeterminate=selectedItems>0&&selectedItems<clearItems.length;}} disabled={!clearItems.length||saving||clearing} onClick={event=>event.stopPropagation()} onKeyDown={event=>event.stopPropagation()} onChange={event=>{
+            const checked=event.target.checked;setClearMessage('');
+            setSelected(current=>{const next={...current};for(const item of clearItems){const key=selectionKey(item);if(checked)next[key]=item;else delete next[key];}return next;});
+          }}/>}<span>{j.customer} · #{j.number}</span></summary>
           <button className="live-button" onClick={() => onOpen(j.id)}>
             View job
           </button>

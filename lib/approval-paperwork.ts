@@ -14,3 +14,14 @@ export function dismissApprovedReport(operations: any, by: string, at: string) {
     if (sheet.status === 'Approved' && laborMatchesReport(sheet, operations.report)) dismissApprovedLabor(sheet, by, at);
   }
 }
+
+// A collapsed job selects only reviewed paperwork that can be cleared together.
+export function clearableJobApprovals(job:any){
+ const items:{jobId:string;version:number;kind:'report'|'labor'|'reorder';recordId?:string}[]=[];
+ const report=job.operations?.report;
+ const includeReport=report?.approved&&!report.pending&&!report.approvalDismissed;
+ if(includeReport)items.push({jobId:job.id,version:job.version,kind:'report'});
+ for(const sheet of approvedLaborToClear(job))if(!includeReport||!laborMatchesReport(sheet,report))items.push({jobId:job.id,version:job.version,kind:'labor',recordId:sheet.id});
+ for(const reorder of job.operations?.reorders||[])if(!reorder.approvalDismissed&&reorder.status!=='Submitted')items.push({jobId:job.id,version:job.version,kind:'reorder',recordId:reorder.id});
+ return items;
+}

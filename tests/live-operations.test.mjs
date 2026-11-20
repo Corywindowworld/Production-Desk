@@ -5148,3 +5148,20 @@ test('INC batches include approved live reorders after frozen certificate paperw
  const photoPdf=await reorderFormPdf(live,{status:'Approved',reason:'Photo reorder',items:[{type:'Frame',window:'Kitchen',quantity:1,photos:[{key:'test-photo',name:'Frame photo'}]}]},async(job,photo)=>{assert.equal(job.id,live.id);assert.equal(photo.key,'test-photo');loaded++;return jpeg;});
  const {PDFDocument}=await import('pdf-lib');assert.equal(loaded,1);assert.ok((await PDFDocument.load(photoPdf)).getPageCount()>=2);
 });
+
+
+test('collapsed approval selection groups reviewed paperwork and excludes pending items',async()=>{
+ const {clearableJobApprovals}=await vite.ssrLoadModule('/lib/approval-paperwork.ts');
+ const job={id:'job-id',version:4,operations:{report:{certificate:{id:'cert-one'},approved:true},laborSheets:[
+  {id:'matched',status:'Approved',reportKey:'cert-one'},
+  {id:'standalone',status:'Approved',reportKey:'cert-other'},
+  {id:'pending',status:'Submitted'},
+  {id:'cleared',status:'Approved',approvalDismissed:true}
+ ],reorders:[{id:'reorder-reviewed',status:'Approved'},{id:'reorder-pending',status:'Submitted'},{id:'reorder-cleared',status:'Approved',approvalDismissed:true}]}};
+ const items=clearableJobApprovals(job);
+ assert.deepEqual(items.map(v=>[v.kind,v.recordId]),[['report',undefined],['labor','standalone'],['reorder','reorder-reviewed']]);
+ assert.ok(items.every(v=>v.jobId===job.id&&v.version===4));
+ job.operations.report.pending=true;
+ assert.deepEqual(clearableJobApprovals(job).map(v=>[v.kind,v.recordId]),[['labor','matched'],['labor','standalone'],['reorder','reorder-reviewed']]);
+ assert.deepEqual(clearableJobApprovals({id:'empty',version:1,operations:{report:{pending:true},laborSheets:[{id:'pending',status:'Submitted'}],reorders:[{id:'pending',status:'Submitted'}]}}),[]);
+});

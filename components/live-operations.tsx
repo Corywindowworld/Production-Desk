@@ -1543,6 +1543,7 @@ function Approvals({ jobs, reorderJobs, me, review, saving, change, onOpen, relo
   };
   const selectionCount = Object.keys(selected).length;
   const reorderApprovalJobs = review ? reorderJobs.filter((j:any)=>j.operations?.reorders?.some((r:any)=>!r.approvalDismissed)) : [];
+  const approvalJobs = Array.from(new Map<string,any>([...jobs,...reorderApprovalJobs].map((j:any)=>[j.id,j])).values());
   const clearLabor=async(j:any,sheet:any)=>{setError('');setClearing(true);try{const r=await fetch('/api/labor',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'dismiss',jobId:j.id,version:j.version,sheetId:sheet.id})}),d=await r.json();if(!r.ok)throw Error(d.error||'Labor could not clear.');await reload();}catch(e){setError((e as Error).message);}finally{setClearing(false);}};
   const act = async (j: any, action: string, data: any) => {
     setError("");
@@ -1566,12 +1567,8 @@ function Approvals({ jobs, reorderJobs, me, review, saving, change, onOpen, relo
           {error}
         </p>
       )}
-      {reorderApprovalJobs.map((j:any)=><section key={"reorder-"+j.id}>
-        <h3>Reorder approval · {j.customer} · #{j.number}</h3>
-        <ReorderRequests approvalsOnly j={j} me={me} save={(action:string,values:any)=>change(action,values,j)} renderClearSelection={(r:any)=>select(j,'reorder','reorder',r.id)}/>
-      </section>)}
-      {!jobs.length && !reorderApprovalJobs.length && <p>No pending requests.</p>}
-      {jobs.map((j: any) => {
+      {!approvalJobs.length && <p>No pending requests.</p>}
+      {approvalJobs.map((j: any) => {
         const report = j.operations.report;
         const showReport = report?.approved && (!report.approvalDismissed || j.operations.laborSheets?.some((sheet:any)=>sheet.status==="Submitted"));
         const labor = approvedLaborToClear(j);
@@ -1662,6 +1659,8 @@ function Approvals({ jobs, reorderJobs, me, review, saving, change, onOpen, relo
             <ApprovalPrintButtons j={j} report={sheet.packetJob?.operations?.report} sheet={sheet} onError={setError}/>
             {review && <button type="button" className="live-button" disabled={saving||clearing} onClick={()=>void clearLabor(j,sheet)}>Clear labor from list</button>}
           </div>)}
+          {review && j.operations?.reorders?.some((r:any)=>!r.approvalDismissed) &&
+            <ReorderRequests approvalsOnly j={j} me={me} save={(action:string,values:any)=>change(action,values,j)} renderClearSelection={(r:any)=>select(j,'reorder','reorder',r.id)}/>}
           {j.operations.pendingSchedule && (
             <section>
               <h4>Schedule request</h4>

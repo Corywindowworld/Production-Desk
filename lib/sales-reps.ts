@@ -7,9 +7,9 @@ import {formatPhone} from './phone';
 
 const clean=(name:string)=>name.trim().replace(/\s+/g,' ');
 const key=(name:string)=>clean(name).toLocaleLowerCase();
-const revision=(rep:any)=>createHash('sha256').update(JSON.stringify([rep.id,rep.name,rep.phone,rep.email])).digest('hex');
+const revision=(rep:any)=>createHash('sha256').update(JSON.stringify([rep.id,rep.name,rep.phone,rep.email,!!rep.inactive])).digest('hex');
 const authorize=(m:Member)=>{if(m.role!=='admin')throw new ApiError(403,'Administrator access required.');};
-const inputSchema=z.object({originalId:z.string().max(160).optional(),revision:z.string().length(64).optional(),name:z.string().trim().min(1).max(160),phone:z.string().trim().max(50).default(''),email:z.union([z.string().trim().email().max(254),z.literal('')]).default('')}).strict();
+const inputSchema=z.object({originalId:z.string().max(160).optional(),revision:z.string().length(64).optional(),name:z.string().trim().min(1).max(160),phone:z.string().trim().max(50).default(''),email:z.union([z.string().trim().email().max(254),z.literal('')]).default(''),inactive:z.boolean().default(false)}).strict();
 
 async function directory(db:any){
  const rows=(await db.prepare('SELECT j.id,j.payload,j.version,c.payload AS record FROM jobs j LEFT JOIN customer_records c ON c.job_id=j.id ORDER BY j.updated DESC,j.id').all()).results;
@@ -24,9 +24,9 @@ async function directory(db:any){
  for(const row of saved){
   const rep=storedObject(row.payload);if(!rep.name)continue;
   const name=clean(rep.name),id=key(name),old=byId.get(id);
-  byId.set(id,{id,name,phone:rep.phone??old?.phone??'',email:rep.email??old?.email??'',jobs:old?.jobs||0});
+  byId.set(id,{id,name,phone:rep.phone??old?.phone??'',email:rep.email??old?.email??'',inactive:!!rep.inactive,deleted:!!rep.deleted,jobs:old?.jobs||0});
  }
- return {rows,reps:[...byId.values()].map(rep=>({...rep,revision:revision(rep)})).sort((a,b)=>a.name.localeCompare(b.name))};
+ return {rows,reps:[...byId.values()].filter(rep=>!rep.deleted).map(rep=>({...rep,revision:revision(rep)})).sort((a,b)=>a.name.localeCompare(b.name))};
 }
 
 export async function salesRepData(m:Member){authorize(m);return {salesReps:(await directory(database())).reps};}
@@ -38,7 +38,7 @@ export async function saveSalesRep(m:Member,input:unknown){
   if(value.originalId&&!old)throw new ApiError(409,'This sales rep changed. Refresh the directory and try again.');
   if(old&&value.revision!==old.revision)throw new ApiError(409,'This sales rep changed. Refresh the directory before saving.');
   if(reps.some(rep=>rep.id===id&&rep.id!==old?.id))throw new ApiError(409,'A sales rep with this name already exists. Edit their existing entry.');
-  const contact={name,phone:formatPhone(value.phone),email:value.email};let updatedJobs=0;
+  const contact={name,phone:formatPhone(value.phone),email:value.email,inactive:value.inactive};let updatedJobs=0;
   if(old){
    for(const row of rows){
     const previous=storedObject(row.payload),record=row.record?storedObject(row.record):{};
@@ -60,5 +60,20 @@ export async function saveSalesRep(m:Member,input:unknown){
   await tx.prepare('INSERT INTO production.operations_config(id,payload,updated_by,updated) VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET payload=EXCLUDED.payload,updated_by=EXCLUDED.updated_by,updated=EXCLUDED.updated').bind('sales-rep:'+id,JSON.stringify(contact),m.id,at).run();
   if(old&&old.id!==id)await tx.prepare('DELETE FROM production.operations_config WHERE id=?').bind('sales-rep:'+old.id).run();
   return {ok:true,updatedJobs,salesRep:{id,...contact,jobs:updatedJobs,revision:revision({id,...contact})}};
+ });
+}
+
+
+export async function deleteSalesRep(m:Member,input:unknown){
+ authorize(m);
+ const value=z.object({id:z.string().min(1).max(160),revision:z.string().length(64)}).parse(input);
+ return database().transaction(async(tx:any)=>{
+  await tx.prepare('SELECT pg_advisory_xact_lock(820261029)').first();
+  const rep=(await directory(tx)).reps.find(rep=>rep.id===value.id);
+  if(!rep||rep.revision!==value.revision)throw new ApiError(409,'This sales rep changed. Refresh before deleting.');
+  const at=new Date().toISOString();
+  await tx.prepare('INSERT INTO production.operations_config(id,payload,updated_by,updated) VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET payload=EXCLUDED.payload,updated_by=EXCLUDED.updated_by,updated=EXCLUDED.updated')
+   .bind('sales-rep:'+rep.id,JSON.stringify({...rep,deleted:true,inactive:true}),m.id,at).run();
+  return {ok:true};
  });
 }

@@ -135,6 +135,30 @@ test('corrected sales rep email persists across jobs, unrelated saves and cleari
  assert.equal(data.salesReps.find(r=>r.name===name).email,'');
  for(const id of ids)assert.equal((await current(id)).salesRepEmail,'');
 });
+test('sales rep inactivity, reactivation and deletion persist through historical job edits', async()=>{
+ const {salesRepData,saveSalesRep,deleteSalesRep}=await vite.ssrLoadModule('/lib/sales-reps.ts');
+ const name='Lifecycle Test Rep';
+ await operation(pa,{action:'create',data:{number:'REP-LIFECYCLE',customer:'Lifecycle Customer',address:'1 Test Street',amount:0,salesRep:name,salesRepEmail:'rep@example.com'}});
+ const profile=async()=>(await salesRepData(admin)).salesReps.find(rep=>rep.name===name);
+ const job=async()=>(await operationsData(admin)).jobs.find(job=>job.number==='REP-LIFECYCLE');
+ const change=async inactive=>{const rep=await profile();await saveSalesRep(admin,{originalId:rep.id,revision:rep.revision,name:rep.name,phone:rep.phone,email:rep.email,inactive});};
+ const edit=async()=>{const current=await job();await operation(pa,{action:'edit',jobId:current.id,version:current.version,data:{notes:'Historical job edited'}});};
+ await change(true);
+ assert.equal((await profile()).inactive,true);
+ await edit();
+ assert.equal((await profile()).inactive,true);
+ assert.ok(!(await operationsData(admin)).salesReps.some(rep=>rep.name===name));
+ await change(false);
+ assert.ok((await operationsData(admin)).salesReps.some(rep=>rep.name===name));
+ const rep=await profile();
+ await assert.rejects(()=>deleteSalesRep(pa,{id:rep.id,revision:rep.revision}),/Administrator/);
+ await deleteSalesRep(admin,{id:rep.id,revision:rep.revision});
+ await edit();
+ assert.equal(await profile(),undefined);
+ assert.ok(!(await operationsData(admin)).salesReps.some(rep=>rep.name===name));
+ assert.equal((await job()).salesRep,name);
+ assert.equal((await job()).salesRepEmail,'rep@example.com');
+});
 const certificate = (type) => ({
   type,
   customerEmail: "customer@example.com",

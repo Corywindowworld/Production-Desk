@@ -494,7 +494,7 @@ export async function operationsData(
       }
     salesReps.push(
       ...Array.from(byName.values())
-        .filter((rep) => allowedSalesRep(rep.name))
+        .filter((rep) => allowedSalesRep(rep.name) && !saved.some((entry:any)=>choiceKey(entry.name||"")===choiceKey(rep.name)&&(entry.inactive||entry.deleted)))
         .sort((a, b) => a.name.localeCompare(b.name)),
     );
   }
@@ -2506,7 +2506,7 @@ export async function operation(m: Member, input: any) {
       };
       await tx
         .prepare(
-          "INSERT INTO production.operations_config(id,payload,updated_by,updated) VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET payload=EXCLUDED.payload,updated_by=EXCLUDED.updated_by,updated=EXCLUDED.updated",
+          "INSERT INTO production.operations_config(id,payload,updated_by,updated) VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET payload=(production.operations_config.payload::jsonb || EXCLUDED.payload::jsonb),updated_by=EXCLUDED.updated_by,updated=EXCLUDED.updated",
         )
         .bind("sales-rep:" + choiceKey(rep.name), JSON.stringify(rep), m.id, at)
         .run();

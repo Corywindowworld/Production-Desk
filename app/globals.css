@@ -359,3 +359,5 @@ button.tracking-outline:disabled{opacity:.55;cursor:wait}
 .clearable-search>.clear-search-button{position:absolute;right:4px;top:50%;transform:translateY(-50%);display:flex;align-items:center;justify-content:center;width:36px;height:36px;min-height:36px;padding:0;border:0;border-radius:6px;background:#edf2f7;color:#243c53;cursor:pointer}
 .clearable-search>.clear-search-button:hover{background:#dbe6f2}
 .clearable-search>.clear-search-button:focus-visible{outline:2px solid #0055ed;outline-offset:2px}
+
+.accounts-page .sales-rep-inactive{display:flex;align-items:center;gap:8px;margin:14px 0;font-size:14px}.accounts-page .sales-rep-inactive input[type=checkbox]{width:18px;height:18px;min-height:18px;padding:0;accent-color:#0757db}

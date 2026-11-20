@@ -5165,3 +5165,17 @@ test('collapsed approval selection groups reviewed paperwork and excludes pendin
  assert.deepEqual(clearableJobApprovals(job).map(v=>[v.kind,v.recordId]),[['labor','matched'],['labor','standalone'],['reorder','reorder-reviewed']]);
  assert.deepEqual(clearableJobApprovals({id:'empty',version:1,operations:{report:{pending:true},laborSheets:[{id:'pending',status:'Submitted'}],reorders:[{id:'pending',status:'Submitted'}]}}),[]);
 });
+
+test('dashboard loads older jobs with non-text sales reps and irregular history', async () => {
+  const id = crypto.randomUUID();
+  const job = {id, number:'LEGACY-DECODE', customer:'Legacy job', stage:'Incomplete', salesRep:123, history:[null]};
+  await pg.query('INSERT INTO production.jobs(id,payload,version,updated) VALUES($1,$2,1,$3)', [id, JSON.stringify(job), new Date().toISOString()]);
+  try {
+    const loaded = (await operationsData(admin)).jobs.find(job => job.id === id);
+    assert.ok(loaded);
+    assert.equal(loaded.salesRep, '');
+    assert.deepEqual(loaded.history, []);
+  } finally {
+    await pg.query('DELETE FROM production.jobs WHERE id=$1', [id]);
+  }
+});

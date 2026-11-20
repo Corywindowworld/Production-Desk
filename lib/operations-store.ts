@@ -85,8 +85,9 @@ function withCustomerRecord(j: any, r: any) {
       typeof j.amount === "number" && Number.isFinite(j.amount)
         ? j.amount
         : null,
+    history: Array.isArray(j.history) ? j.history.filter((entry: any) => typeof entry?.text === "string") : [],
     incompleteSince: j.incompleteSince || incompleteSince(j) || "",
-    salesRep: j.salesRep || record.salesRep || "",
+    salesRep: [j.salesRep, record.salesRep].find(value => typeof value === "string" && value.trim()) || "",
     salesRepPhone: j.salesRepPhone || record.salesRepPhone || "",
     bay: j.bay || record.warehouseBay || "",
     customerEmail: j.customerEmail || record.email || "",
@@ -292,8 +293,8 @@ export async function operationsData(
   // Older job snapshots must not restore a typo or an intentionally cleared email.
   const savedSalesReps = (
     await db.prepare("SELECT payload FROM production.operations_config WHERE id LIKE 'sales-rep:%'").all()
-  ).results.map((r:any)=>storedObject(r.payload));
-  const salesRepContacts = new Map<string,any>(savedSalesReps.filter((rep:any)=>rep.name).map((rep:any)=>[choiceKey(rep.name),rep]));
+  ).results.map((r:any)=>storedObject(r.payload)).filter(rep => typeof rep.name === "string" && rep.name.trim());
+  const salesRepContacts = new Map<string,any>(savedSalesReps.map((rep:any)=>[choiceKey(rep.name),rep]));
   for(const job of all){
     const contact=salesRepContacts.get(choiceKey(job.salesRep||''));
     if(typeof contact?.email==='string')job.salesRepEmail=contact.email;

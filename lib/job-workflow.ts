@@ -17,7 +17,8 @@ export function incompleteSince(job: AgingJob): string | null {
   if (job.stage !== 'Incomplete') return null;
   if (job.incompleteSince && Number.isFinite(Date.parse(job.incompleteSince))) return job.incompleteSince;
   // Older records retain their original transition in the newest-first audit history.
-  const entry = job.history?.find(h => /Stage: .* → (Incomplete|Punch work)(?: ·|$)/.test(h.text));
+  const history = Array.isArray(job.history) ? job.history : [];
+  const entry = history.find(h => typeof h?.text === "string" && /Stage: .* → (Incomplete|Punch work)(?: ·|$)/.test(h.text));
   return entry && Number.isFinite(Date.parse(entry.at)) ? entry.at : null;
 }
 export function incompleteAge(job: AgingJob, now = Date.now()) {

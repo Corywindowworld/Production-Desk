@@ -1,0 +1,127 @@
+PRODUCTION DESK — LIVE OPERATIONS RELEASE
+
+This is the live application source, not the sample preview.
+The signed-in dashboard is at /. /operations-preview and /installers redirect to it.
+Existing accounts, job files, customer records and stored attachments are retained.
+
+UPDATING YOUR EXISTING PRODUCTION DESK
+
+1. Download this ZIP. Right-click it in Windows and choose Extract All.
+   Open the extracted folder containing package.json, app, components and supabase.
+
+2. In Supabase, open your existing Production Desk project and its SQL Editor.
+   Open supabase/migrations/008_live_operations.sql from the extracted files.
+   Copy ALL of the SQL inside that file into a new query and click Run.
+   Paste the code, not the filename. A successful query may say no rows returned.
+   This update assumes migrations 001 through 007 were previously applied.
+   Do not rerun 001_initial.sql against your existing database.
+   This adds survey, bonus-configuration and email-queue tables; it does not reset jobs.
+
+3. In GitHub, open Production-Desk and create a branch named live-operations
+   from your latest working branch. Upload the extracted project files to the
+   repository root, retaining their folders. Replace matching files.
+   Include app, components, db, lib, public, scripts, supabase, tests and root
+   configuration files, including package.json and package-lock.json.
+   Upload folders in separate batches if GitHub's upload limit requires it.
+   Do not upload the ZIP, node_modules, .next, database exports or real .env files.
+   Commit the changes.
+
+4. Open the Vercel deployment created for that branch. Use Node.js 22.x,
+   framework Next.js, install command npm ci, build command npm run build.
+   Keep your working database, storage, Resend and push variables.
+   Required server variables are listed below. Their values must be present in
+   the deployment's environment; changes apply to a new deployment.
+
+5. Open the deployment's normal URL, WITHOUT /operations-preview.
+   Sign in with your existing administrator account.
+   In Settings, verify the users and editing permissions for FS and PA accounts.
+   In Settings > Photo storage, check your existing bucket connection.
+   Enter approved monthly bonus targets in Quality > Bonus pool and threshold
+   settings. No fictional sample thresholds or pool have been loaded.
+
+6. Verify with a designated test customer and test accounts:
+   - Admin: Connections appears; PA, FS and installer cannot open that API.
+   - PA: aging is visible; no bonus pool estimate or bonus weights.
+   - FS/PA: Add Customer; Schedule Work with AM/PM, installer and stop number.
+   - Week and month rows start Sunday. Future dates are available to office/FS.
+   - Installer: Today/Tomorrow, assigned jobs, sales notes and files only.
+   - Report Issue creates the assigned supervisor's alert.
+   - Start production, upload distinct exterior photos and required paperwork,
+     then submit Complete or Incomplete. FS approves; official status confirmation
+     then moves the job to COMP or INC. Until confirmation it remains in production.
+   - A schedule >30 days after receipt requires zero amount due, a payment reference,
+     and FS/Admin approval. FS may approve their own request in the job file.
+   - UTI/COLL and ACCRF require administrator approval. ACCRF changes contract price
+     and adjusts remaining amount due by the price difference, preserving payments.
+   - Service creates a separate appointment; it does not replace installation.
+   - Refresh and sign back in to confirm the changes persist.
+   A preview using the production DATABASE_URL writes to the real database.
+   Use a separate Supabase test project for isolated testing if available.
+
+7. Once your role checks succeed, deploy this branch to Vercel Production using
+   your existing production process. Verify productiondesk.app opens the new root
+   dashboard. Keep the last working deployment available for rollback.
+   Do not promote an old preview deployment containing the sample application.
+
+ENVIRONMENT VARIABLES — KEEP THESE SERVER-ONLY
+DATABASE_URL                 Existing working Supabase PostgreSQL connection
+DATABASE_CA_CERT             Existing Supabase CA certificate, if configured
+DATABASE_SSL                 Keep working verified TLS setting (do not disable in production)
+SUPABASE_URL                 Existing Supabase project URL
+SUPABASE_SERVICE_ROLE_KEY    Existing server key, never a NEXT_PUBLIC_ variable
+SUPABASE_STORAGE_BUCKET      job-files (or your existing bucket name)
+APP_URL                      https://productiondesk.app
+RESEND_API_KEY               Existing Resend key
+ACCOUNT_EMAIL_FROM          Existing verified sender email address
+VAPID_PUBLIC_KEY             Existing public web-push key
+VAPID_PRIVATE_KEY            Existing private web-push key
+VAPID_SUBJECT                Existing valid mailto: contact or HTTPS address
+
+Keep existing owner login/bootstrap settings. Do not change credentials or create
+another owner to upgrade an existing installation. Never paste keys into chat.
+
+FIRST INSTALLATION ONLY
+For an empty Supabase project, run migrations 001 through 008 in numeric order.
+The command-line migration runner can also apply them to a fresh database using
+npm run db:migrate with .env.local. Existing databases previously migrated by hand
+should use the SQL Editor for this incremental update rather than rerunning 001.
+
+WHAT IS LIVE
+- Authenticated role-based dashboard, persistent database jobs and event history.
+- Account/profile/theme/storage tools from your existing app.
+- Protected scheduling, payments, requests, reports, approvals, manual GQ surveys.
+- Existing signed Supabase upload pipeline and nine-check job-visit form.
+- Durable in-app alerts, existing phone push, Resend sales-rep status notifications.
+- Connections is administrator-only, including its server endpoint.
+
+INTEGRATIONS / LIMITS
+- Sales/Leads and Guild Quality APIs are not connected. Do not treat this as an
+  automatic import. Enter customers and original GQ survey ratings manually.
+- Existing single quality-score entries are preserved in members but are not
+  converted into invented four-category surveys. Enter source surveys to calculate
+  the period score. No bonus estimate is shown until the required data/targets exist.
+- Email provider acceptance is not proof of inbox delivery. Admin Connections
+  shows the sales-rep email queue and offers Retry for failed/unconfigured attempts.
+  A job without a sales-rep email cannot send a sales-rep email notification.
+- Phone notifications require valid VAPID settings, each user's browser permission
+  and device support. In-app alerts still work without push and disappear after
+  24 hours or when marked Read. Enable push under Settings > Notifications.
+- Customer-record historical financial fields are retained as reference; operational
+  balances are changed through Record payment or administrator reconciliation.
+- Service appointments are scheduled separately; installation approval/report rules
+  apply to the primary installation. A separate service completion workflow is not
+  part of this release.
+- No live production data, provider credentials or real emails were used in testing.
+
+ROLLBACK
+Restore the previous Vercel deployment if needed. The new SQL tables are additive
+and can stay in place. Jobs edited in this release may contain UTI/COLL/Ordered
+statuses and approval metadata older code does not understand. Stop edits before
+rollback and review those records; database backup/restore is a separate operation.
+
+DEVELOPER CHECKS
+npm ci
+npm test
+npm run build
+The PostgreSQL driver test additionally needs TEST_DATABASE_URL for a dedicated
+PostgreSQL test database; without it, that one test is explicitly skipped.

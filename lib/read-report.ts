@@ -1,0 +1,30 @@
+import {clearLaborRules} from './labor-scan-image';
+import {laborHeaderCid} from './labor-cid';
+import {joinPdfTextItems} from './pdf-text-lines';
+// All document recognition runs locally in the browser, with same-origin workers/models.
+export async function readReport(file:File,progress:(message:string)=>void,options:{forceOcr?:boolean;laborLayout?:boolean}={}){
+ if(file.size>20*1024*1024)throw Error('Choose a report smaller than 20 MB.');
+ let worker:import('tesseract.js').Worker|undefined;
+ const recognize=async(image:any)=>{if(!worker){const {createWorker}=await import('tesseract.js');worker=await createWorker('eng',1,{workerPath:'/report-reader/worker.min.js',corePath:'/report-reader',langPath:'/report-reader',logger:m=>progress(`Reading scan: ${Math.round((m.progress||0)*100)}%`)})}return (await worker.recognize(image)).data.text};
+ try{
+  if(file.type!=='application/pdf'&&!file.name.toLowerCase().endsWith('.pdf')){const bitmap=await createImageBitmap(file);try{const scale=Math.min(3,2400/Math.max(bitmap.width,bitmap.height));const canvas=document.createElement('canvas');canvas.width=Math.round(bitmap.width*Math.max(1,scale));canvas.height=Math.round(bitmap.height*Math.max(1,scale));const ctx=canvas.getContext('2d')!;ctx.fillStyle='#fff';ctx.fillRect(0,0,canvas.width,canvas.height);ctx.drawImage(bitmap,0,0,canvas.width,canvas.height);return await recognize(canvas);}finally{bitmap.close()}}
+  const pdfjs=await import('pdfjs-dist');pdfjs.GlobalWorkerOptions.workerSrc='/report-reader/pdf.worker.min.mjs';
+  const pdf=await pdfjs.getDocument({data:new Uint8Array(await file.arrayBuffer()),isEvalSupported:false}).promise;
+  try{if(pdf.numPages>25)throw Error('Import up to 25 pages at a time.');const pages:string[]=[];
+   for(let p=1;p<=pdf.numPages;p++){progress(`Reading page ${p} of ${pdf.numPages}`);const page=await pdf.getPage(p),content=await page.getTextContent();const lines=new Map<number,{x:number;text:string;width?:number;height?:number}[]>();
+    for(const item of content.items){if(!('str' in item)||!item.str.trim())continue;const y=Math.round(item.transform[5]/3)*3;lines.set(y,[...(lines.get(y)||[]),{x:item.transform[4],text:item.str,width:item.width,height:Math.abs(item.transform[3])}])}
+    let text=[...lines.entries()].sort((a,b)=>b[0]-a[0]).map(([,items])=>options.laborLayout?joinPdfTextItems(items):items.sort((a,b)=>a.x-b.x).map(i=>i.text).join(' ')).join('\n');
+    if(options.forceOcr||text.trim().length<80){const viewport=page.getViewport({scale:options.laborLayout?3:2}),canvas=document.createElement('canvas');canvas.width=viewport.width;canvas.height=viewport.height;await page.render({canvas,canvasContext:canvas.getContext('2d')!,viewport}).promise;text=await recognize(canvas);if(options.laborLayout){const crop=async(x:number,y:number,w:number,h:number,clean=false)=>{const c=document.createElement('canvas');c.width=Math.round(canvas.width*w);c.height=Math.round(canvas.height*h);c.getContext('2d')!.drawImage(canvas,canvas.width*x,canvas.height*y,c.width,c.height,0,0,c.width,c.height);if(clean){const ctx=c.getContext('2d')!,pixels=ctx.getImageData(0,0,c.width,c.height);clearLaborRules(pixels.data,c.width,c.height);ctx.putImageData(pixels,0,0);}
+const result=await recognize(c);c.width=0;c.height=0;return result;};const header=await crop(.02,.03,.96,.18);await worker!.setParameters({tessedit_pageseg_mode:'6' as any});const table=await crop(.02,.18,.67,.49,true);
+     // The boxed ID is at the top center. Table borders often make full-page OCR skip it.
+     await worker!.setParameters({tessedit_pageseg_mode:'6' as any});
+     const idField=await crop(.43,.045,.24,.105);
+     let cid=laborHeaderCid(idField)||laborHeaderCid(header);
+     if(!cid){await worker!.setParameters({tessedit_char_whitelist:'0123456789',tessedit_pageseg_mode:'6' as any});const digits=await crop(.50,.045,.15,.105);cid=laborHeaderCid(digits,true);}
+     await worker!.setParameters({tessedit_char_whitelist:'',tessedit_pageseg_mode:'3' as any});
+     text=(cid?'Customer ID: '+cid+'\n':'')+header+'\n'+table;}canvas.width=0;canvas.height=0}
+    pages.push(text);page.cleanup();
+   }return pages.join('\n');
+  }finally{await pdf.destroy()}
+ }finally{if(worker)await worker.terminate()}
+}

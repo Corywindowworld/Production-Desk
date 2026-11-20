@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import {AccountTheme} from "@/components/account-theme";
 export const viewport: Viewport = {themeColor: "#0055ed", width: "device-width", initialScale: 1};
 
 export const metadata: Metadata = {
@@ -20,7 +21,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className="antialiased">{children}</body>
+      <body className="antialiased"><AccountTheme>{children}</AccountTheme></body>
     </html>
   );
 }

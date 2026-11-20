@@ -2,7 +2,7 @@ import {database} from '@/db/raw';
 import {ApiError,isOffice,type Member} from '@/lib/access';
 
 export function canVisitJob(member:Member,job:any){
- return isOffice(member)||(member.role==='supervisor'&&(job.supervisorId===member.id||!!job.install));
+ return isOffice(member)||(member.role==='supervisor'&&(job.supervisorId===member.id||!!job.install))||(member.role==='installer'&&(job.installerId===member.id||job.operations?.services?.some((s:any)=>s.installerId===member.id)));
 }
 export async function visitJobFor(member:Member,id:string){
  const row:any=await database().prepare('SELECT payload,version FROM jobs WHERE id=?').bind(id).first();

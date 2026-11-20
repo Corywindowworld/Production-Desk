@@ -1,0 +1,12 @@
+'use client';
+import {useState} from 'react';
+import {visitQuestions,visitAnswers} from '@/lib/job-visits';
+export type VisitCheck={answer:string;notes:string};
+export type PreviewVisit={job:string;text:string;issue:boolean;resolved:boolean;date?:string;checks?:Record<string,VisitCheck>};
+const isIssue=(key:string,answer:string)=>(key==='damage'||key==='reorder')?answer==='yes':key!=='headerFlashing'&&answer==='no';
+export function SavedChecks({checks}:{checks?:Record<string,VisitCheck>}){return checks?<dl>{visitQuestions.map(([key,label])=><div className={isIssue(key,checks[key].answer)?'op-red':''} key={key}><dt>{isIssue(key,checks[key].answer)?'❗ ':''}{label}</dt><dd>{visitAnswers[checks[key].answer as keyof typeof visitAnswers]}{checks[key].notes&&<p>{checks[key].notes}</p>}</dd></div>)}</dl>:null}
+export function PreviewVisitForm({job,date,onSave}:{job:string;date:string;onSave:(v:PreviewVisit)=>void}){
+const fresh=()=>Object.fromEntries(visitQuestions.map(([key])=>[key,{answer:'',notes:''}]));
+const [checks,setChecks]=useState<Record<string,VisitCheck>>(fresh),[visitedOn,setDate]=useState(date),[notes,setNotes]=useState('');
+return <form className="op-visit-form" onSubmit={e=>{e.preventDefault();onSave({job,date:visitedOn,checks,text:notes,issue:Object.entries(checks).some(([key,c])=>isIssue(key,c.answer)),resolved:false});setChecks(fresh());setNotes('')}}><h3>Job Visit form</h3><label>Visit date<input required type="date" value={visitedOn} onChange={e=>setDate(e.target.value)}/></label><p>Answer every check. Use Not observed when you could not confirm an item.</p>{visitQuestions.map(([key,question])=><fieldset key={key}><legend>{question}</legend><div className="op-radio-options">{Object.entries(visitAnswers).map(([value,label])=><label key={value}><input required type="radio" name={key} value={value} checked={checks[key].answer===value} onChange={()=>setChecks({...checks,[key]:{...checks[key],answer:value}})}/>{label}</label>)}</div><label>Details (optional)<textarea maxLength={1000} rows={2} value={checks[key].notes} onChange={e=>setChecks({...checks,[key]:{...checks[key],notes:e.target.value}})}/></label></fieldset>)}<label>Additional notes / follow-up<textarea maxLength={4000} value={notes} onChange={e=>setNotes(e.target.value)}/></label><p>Add visit photos in the Visit Photos section below.</p><button className="op-primary">Save job visit</button></form>
+}

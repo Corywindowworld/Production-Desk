@@ -1,3 +1,5 @@
+import {completionPacketReorders} from './completion-batch-packet';
+import {reorderFormPdf} from './reorder-form-pdf';
 import {leadRenovationPdf} from './lead-renovation-pdf';
 import {laborFormPdf} from './labor-form-pdf';
 import {PDFDocument,StandardFonts,rgb} from 'pdf-lib';
@@ -14,6 +16,7 @@ export async function completionBatchPdf(id:string,items:any[],created?:string){
   const {job,labor}=items[i],sources=labor.approvedWithoutCertificate||labor.allowMissingPaperwork&&!job.operations?.report?.certificate?[]:[await jobCertificatePdf(job.operations.report.certificate)];
   if(!labor.omitLabor)sources.push(await paperworkPdf(job,labor,'labor'));
   if(job.leadRenovationJob||job.operations?.leadRenovation?.signatureDataUrl){if(!job.operations?.leadRenovation?.signatureDataUrl&&!labor.allowMissingPaperwork)throw Error(job.customer+': Lead Renovation sheet missing.');if(job.operations?.leadRenovation?.signatureDataUrl)sources.push(await paperworkPdf(job,job.operations.leadRenovation,'lead'));}
+  for(const reorder of completionPacketReorders(job))sources.push(await reorderFormPdf(job,reorder));
   for(const source of sources){const part=await PDFDocument.load(source);for(const page of await pdf.copyPages(part,part.getPageIndices()))pdf.addPage(page);}
   const cover=covers[Math.floor(i/20)],y=651-(i%20)*28;
   const cells=[{text:job.number,x:50,width:56},{text:job.customer,x:118,width:210},{text:job.operations?.report?.certificate?.paymentMethod||'None recorded',x:340,width:152},{text:batchSheetStatus(job,labor),x:504,width:58}];

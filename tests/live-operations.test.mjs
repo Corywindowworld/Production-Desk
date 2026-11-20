@@ -5121,3 +5121,30 @@ test('clearing batching hides selected paperwork but a new appointment appears',
  await pg.query('UPDATE production.jobs SET payload=$2 WHERE id=$1',[id,JSON.stringify(saved)]);
  assert.ok((await batchData(pa)).jobs.some(entry=>entry.jobId===id));
 });
+
+
+test('INC batches include approved live reorders after frozen certificate paperwork only for that job',async()=>{
+ const {completionPacketJob}=await vite.ssrLoadModule('/lib/completion-batch-packet.ts');
+ const {completionBatchPdf}=await vite.ssrLoadModule('/lib/completion-batch-pdf.ts');
+ const {certificateSnapshot}=await vite.ssrLoadModule('/lib/job-certificate.ts');
+ const pdfjs=await import('pdfjs-dist/legacy/build/pdf.mjs');
+ const make=(number,type)=>{const job={id:number,number,customer:'Batch '+number,address:'1 Main Street',amount:0,operations:{}};job.operations.report={approved:true,status:type,certificate:certificateSnapshot(job,installer,certificate(type),{},'2026-11-20T12:00:00Z')};return job;};
+ const frozen=make('INC-REORDER','Incomplete'),live={...frozen,operations:{...frozen.operations,reorders:[
+  {id:'approved-one',status:'Approved',reason:'Approved broken frame',items:[{type:'Frame',window:'Kitchen',quantity:2,serial:'SERIAL-123',photos:[]}]},
+  {id:'declined-one',status:'Declined',reason:'Declined reorder excluded',items:[]},
+  {id:'pending-one',status:'Submitted',reason:'Pending reorder excluded',items:[]}
+ ]}};
+ const before=JSON.stringify(frozen),packet=completionPacketJob(live,{packetJob:frozen});
+ assert.equal(packet.operations.report,frozen.operations.report);assert.equal(packet.operations.reorders.length,3);assert.equal(JSON.stringify(frozen),before);
+ const complete=make('COMP-REORDER','Complete');complete.operations.reorders=[{id:'complete-reorder',status:'Approved',reason:'Complete reorder excluded',items:[]}];
+ const bytes=await completionBatchPdf('reorder-batch',[{job:packet,labor:{omitLabor:true}},{job:complete,labor:{omitLabor:true}}]);
+ const doc=await pdfjs.getDocument({data:new Uint8Array(bytes),isEvalSupported:false}).promise;
+ try{const pages=[];for(let i=1;i<=doc.numPages;i++)pages.push((await (await doc.getPage(i)).getTextContent()).items.map(v=>v.str||'').join(' '));
+ assert.match(pages[1],/COMP-REORDER/);assert.match(pages[2],/INC-REORDER/);
+ const reorder=pages.slice(3).join(' ');assert.match(reorder,/Contractor Reorder Form/);assert.match(reorder,/INC-REORDER/);assert.match(reorder,/Approved broken frame/);assert.match(reorder,/SERIAL-123/);assert.doesNotMatch(reorder,/Declined reorder excluded|Pending reorder excluded|Complete reorder excluded/);
+ }finally{await doc.destroy();}
+ const {reorderFormPdf}=await vite.ssrLoadModule('/lib/reorder-form-pdf.ts');
+ const sharp=(await import('sharp')).default,jpeg=await sharp({create:{width:4,height:4,channels:3,background:'#fff'}}).jpeg().toBuffer();let loaded=0;
+ const photoPdf=await reorderFormPdf(live,{status:'Approved',reason:'Photo reorder',items:[{type:'Frame',window:'Kitchen',quantity:1,photos:[{key:'test-photo',name:'Frame photo'}]}]},async(job,photo)=>{assert.equal(job.id,live.id);assert.equal(photo.key,'test-photo');loaded++;return jpeg;});
+ const {PDFDocument}=await import('pdf-lib');assert.equal(loaded,1);assert.ok((await PDFDocument.load(photoPdf)).getPageCount()>=2);
+});

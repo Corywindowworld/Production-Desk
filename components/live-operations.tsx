@@ -727,6 +727,8 @@ export default function LiveOperations() {
                   : undefined
               }
               saveCrewColors={(colors: any) => change("crewColors", colors)}
+              saveInstructions={data.canEdit && !installer ? (job: any, instructions: string) =>
+                change("editScheduleInstructions", { instructions, serviceId: job.serviceId, installationDate: job.instructionInstallationDate }, job) : undefined}
               installer={installer}
               today={today}
               onOpen={setSelected}
@@ -1142,6 +1144,7 @@ function Calendar({
   team = [],
   crewColors = emptyCrewColors,
   saveCrewColors,
+  saveInstructions,
   installer,
   today,
   onOpen,
@@ -1164,12 +1167,14 @@ function Calendar({
       ...a,
       service: j.stage === "SVC",
       details: a.scheduleInstructions || j.instructions,
+      instructionInstallationDate: j.stage === "SVC" && a.scheduleInstructions ? a.install : undefined,
     })),
     ...(j.operations?.services || []).map((s: any) => ({
       ...j,
       ...s,
       routeEta:j.operations?.routing?.[s.date]?.[s.id]?.etaMinutes,
       id: j.id,
+      serviceId: s.id,
       service: true,
     })),
   ]);
@@ -1389,15 +1394,15 @@ function Calendar({
                   ) || (a.stop || 1) - (b.stop || 1),
               )
               .map((j: any, i: number) => (
-                <button
-                  key={j.id + i}
-                  className="crew-colored-job"
+                <article
+                  key={j.id + (j.serviceId || j.install || i)}
+                  className="crew-colored-job warehouse-calendar-card"
                   style={{
                     borderLeftColor: colors[j.installerId] || "#2879c8",
                     "--crew-color": colors[j.installerId] || "#2879c8",
                   } as React.CSSProperties}
-                  onClick={() => onOpen(j.id)}
                 >
+                  <button type="button" className="schedule-job-open" onClick={() => onOpen(j.id)}>
                   <b>
                     {j.time ? hourLabel(j.time) : j.period} ·{" "}
                     {j.service ? "Service" : `Stop ${j.stop || 1}`} · {j.crew}
@@ -1418,8 +1423,9 @@ function Calendar({
                       MULTI-DAY ({j.daysLeft})
                     </strong>
                   )}
-                  <small>{j.service ? j.details : j.instructions}</small>
-                </button>
+                  </button>
+                  <ScheduleInstructions key={j.serviceId || j.install} text={j.service ? j.details : j.instructions} customer={j.customer} save={saveInstructions ? (value: string) => saveInstructions(j, value) : undefined} />
+                </article>
               ))}
             {!appointments.some((j: any) => j.date === d) && (
               <small>No appointments.</small>
@@ -1429,6 +1435,33 @@ function Calendar({
       </div>
     </section>
   );
+}
+
+function ScheduleInstructions({text, customer, save}: {text?: string; customer: string; save?: (value: string) => Promise<void>}) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  if (!save) return <small>{text}</small>;
+  const start = () => { setError(""); setDraft(text || ""); };
+  if (draft === null) return <div className="schedule-instructions" onDoubleClick={start}>
+    <small>{text || "No instructions"}</small>
+    <button type="button" onClick={start} aria-label={`Edit instructions for ${customer}`}>Edit</button>
+  </div>;
+  return <form className="schedule-instructions-editor" onSubmit={async event => {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    try { await save(draft); setDraft(null); }
+    catch (e) { setError((e as Error).message); }
+    finally { setBusy(false); }
+  }}>
+    <textarea aria-label={`Instructions for ${customer}`} autoFocus rows={3} maxLength={4000} value={draft} disabled={busy} onChange={event => setDraft(event.target.value)} />
+    {error && <small role="alert" className="op-red">{error}</small>}
+    <div className="op-schedule-actions">
+      <button type="submit" disabled={busy}>{busy ? "Saving…" : "Save"}</button>
+      <button type="button" disabled={busy} onClick={() => setDraft(null)}>Cancel</button>
+    </div>
+  </form>;
 }
 
 function SalesRepresentative({ options = [], initial }: any) {

@@ -5096,6 +5096,28 @@ test('editing a service appointment changes its crew and date without replacing 
  assert.equal(job.stage,'SVC');
 });
 
+test('inline instructions update only the selected job or service visit', async()=>{
+ const id=crypto.randomUUID(),date=addDays(today,1);
+ const payload={id,number:'INLINE-INSTRUCTIONS',customer:'Instructions test',stage:'SVC',install:date,instructions:'Job notes',history:[],operations:{
+  services:[{id:'first',date,details:'First visit'},{id:'second',date,details:'Second visit'}],
+  requests:[{id:'first',details:'First visit'}],
+ }};
+ await pg.query('INSERT INTO production.jobs(id,payload,version,updated) VALUES($1,$2,1,$3)',[id,JSON.stringify(payload),today]);
+ const edit=(member,version,data)=>operation(member,{action:'editScheduleInstructions',jobId:id,version,data});
+ try {
+  await assert.rejects(()=>edit(installer,1,{instructions:'Not allowed'}), /permission|assigned/i);
+  await edit(pa,1,{serviceId:'first',instructions:'Revised visit'});
+  await edit(pa,2,{instructions:'Revised job'});
+  const job=JSON.parse((await pg.query('SELECT payload FROM production.jobs WHERE id=$1',[id])).rows[0].payload);
+  assert.equal(job.instructions,'Revised job');
+  assert.equal(job.install,date);
+  assert.deepEqual(job.operations.services.map(({date,details})=>[date,details]),[[date,'Revised visit'],[date,'Second visit']]);
+  assert.equal(job.operations.requests[0].details,'Revised visit');
+ } finally {
+  await pg.query('DELETE FROM production.jobs WHERE id=$1',[id]);
+ }
+});
+
 test('batching includes a selected job without labor or a certificate and retains its PDF',async()=>{
  const {batchData,batchAction}=await vite.ssrLoadModule('/lib/completion-batches.ts');
  const id=crypto.randomUUID(),at=new Date().toISOString();

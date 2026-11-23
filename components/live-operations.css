@@ -1193,3 +1193,23 @@ html:is(
   background: transparent;
   color: inherit;
 }
+
+.live-operations .op-calendar-day .schedule-job-open {
+  display: grid;
+  justify-items: start;
+  gap: 4px;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+}
+.schedule-instructions {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.schedule-instructions small { white-space: pre-wrap; overflow-wrap: anywhere; cursor: text; }
+.schedule-instructions-editor textarea { width: 100%; resize: vertical; }

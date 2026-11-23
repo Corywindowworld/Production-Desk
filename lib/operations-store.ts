@@ -1708,6 +1708,26 @@ export async function operation(m: Member, input: any) {
     } else if (action === "resetSchedule") {
       const r=parse(z.object({target:z.string().min(1).max(200),reason:z.string().trim().min(1,"Enter a reset reason.").max(2000)}),input.data);
       try {const result=resetJobSchedule(j,r.target,r.reason,m,at);history=result.text;await alert(result.removed.installerId,`Job #${j.number}: ${history}`);}catch(error){throw new ApiError(400,(error as Error).message);}
+    } else if (action === "editScheduleInstructions") {
+      edit();
+      const {instructions, serviceId, installationDate} = parse(z.object({
+        instructions: z.string().trim().max(4000),
+        serviceId: z.string().min(1).optional(),
+        installationDate: optionalDate,
+      }), input.data);
+      if (serviceId) {
+        const visit = (o.services || []).find((entry: any) => entry.id === serviceId);
+        assert(visit, "Service appointment no longer exists. Refresh and try again.", 409);
+        visit.details = instructions;
+        for (const request of o.requests || []) if (request.id === serviceId) request.details = instructions;
+      } else if (installationDate) {
+        const visit = j.install === installationDate ? j : (o.additionalInstallations || []).find((entry: any) => entry.install === installationDate);
+        assert(visit, "Appointment no longer exists. Refresh and try again.", 409);
+        visit.scheduleInstructions = instructions;
+      } else {
+        j.instructions = instructions;
+      }
+      history = serviceId ? "Service appointment instructions updated from schedule." : "Job instructions updated from schedule.";
     } else if (action === "editServiceSchedule") {
       edit();
       const v=parse(z.object({

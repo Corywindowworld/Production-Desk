@@ -5243,3 +5243,25 @@ test('installer call and text initiations record the saved number, installer and
   await pg.query('DELETE FROM production.jobs WHERE id=$1',[id]);
  }
 });
+
+test('labor alerts appear once per submission for each reviewer', async()=>{
+ const {unreadJobAlerts}=await vite.ssrLoadModule('/lib/job-alerts.ts');
+ const jobId=crypto.randomUUID(), message='Example job (#123): installer labor ready for review.';
+ const ids=[crypto.randomUUID(),crypto.randomUUID(),crypto.randomUUID(),crypto.randomUUID()];
+ const created=new Date().toISOString();
+ const insert=(id,recipient,body,at)=>pg.query('INSERT INTO production.notifications(id,recipient_id,job_id,message,created) VALUES($1,$2,$3,$4,$5)',[id,recipient,jobId,body,at]);
+ const alerts=async(member)=>(await unreadJobAlerts(member,'2020-01-01')).filter(alert=>alert.job_id===jobId).map(alert=>alert.id);
+ try {
+  await insert(ids[0],admin.id,message,created);
+  await insert(ids[1],fs.id,message,created);
+  await insert(ids[2],fs.id,'Another job alert.',created);
+  await insert(ids[3],admin.id,message,new Date(Date.now()+1000).toISOString());
+  assert.deepEqual(new Set(await alerts(admin)),new Set([ids[0],ids[2],ids[3]]));
+  assert.deepEqual(new Set(await alerts(fs)),new Set([ids[1],ids[2]]));
+  await pg.query('UPDATE production.notifications SET read_at=$1 WHERE id=$2',[created,ids[0]]);
+  assert.deepEqual(new Set(await alerts(admin)),new Set([ids[2],ids[3]]));
+  assert.ok((await alerts(fs)).includes(ids[1]));
+ } finally {
+  await pg.query('DELETE FROM production.notifications WHERE job_id=$1',[jobId]);
+ }
+});

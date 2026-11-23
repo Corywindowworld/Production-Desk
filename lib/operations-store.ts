@@ -2467,7 +2467,7 @@ export async function operation(m: Member, input: any) {
       r.reviewedAt = at;
       history = `${r.type} ${r.status.toLowerCase()}`;
     } else if (action === "contactStart") {
-      assert(reviewer(m) || m.role === "production_assistant", "Staff access required.");
+      assert(reviewer(m) || m.role === "production_assistant" || m.role === "installer", "Job contact access required.");
       const data=parse(z.object({id:z.string().uuid(),method:z.enum(["Call","Text"]),phoneField:z.enum(["phone","phone2","phone3"])}),input.data);
       const number=String(j[data.phoneField]||"");
       assert(number.replace(/\D/g,"").length>=10,"Select a valid saved customer phone number.",400);

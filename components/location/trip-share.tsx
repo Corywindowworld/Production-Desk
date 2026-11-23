@@ -2,11 +2,13 @@
 import {useState} from 'react';
 import {Dialog,DialogContent,DialogHeader,DialogTitle,DialogDescription} from '@/components/ui/dialog';
 
-export function TripShare({jobId,serviceVisitId,phone,phone2,phone3}:{jobId:string;serviceVisitId?:string;phone?:string;phone2?:string;phone3?:string}){
+export function TripShare({jobId,serviceVisitId,phone,phone2,phone3,logText}:{jobId:string;serviceVisitId?:string;phone?:string;phone2?:string;phone3?:string;logText?:(field:string)=>Promise<void>}){
  const [url,setUrl]=useState(''),[greeting,setGreeting]=useState(''),[eta,setEta]=useState(''),[message,setMessage]=useState(''),[busy,setBusy]=useState(false),[choosing,setChoosing]=useState(false),[recipient,setRecipient]=useState('');
- const numbers=[phone,phone2,phone3].map((value,index)=>({label:`Ph#${index+1}`,display:value||'',number:String(value||'').replace(/[^+\d]/g,'')})).filter((entry,index,all)=>entry.number.replace(/\D/g,'').length>=7&&all.findIndex(other=>other.number.replace(/^\+?1(?=\d{10}$)/,'')===entry.number.replace(/^\+?1(?=\d{10}$)/,''))===index);
+ const numbers=[phone,phone2,phone3].map((value,index)=>({label:`Ph#${index+1}`,field:index===0?"phone":"phone"+(index+1),display:value||'',number:String(value||'').replace(/[^+\d]/g,'')})).filter((entry,index,all)=>entry.number.replace(/\D/g,'').length>=7&&all.findIndex(other=>other.number.replace(/^\+?1(?=\d{10}$)/,'')===entry.number.replace(/^\+?1(?=\d{10}$)/,''))===index);
  const copyText=greeting+'\n\n'+url;
- function openText(number:string,text:string){
+ async function openText(number:string,text:string){
+  const selected=numbers.find(entry=>entry.number===number);
+  if(logText&&selected)await logText(selected.field);
   const apple=/iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
   window.location.href=`sms:${number}${apple?'&':'?'}body=${encodeURIComponent(text)}`;
  }
@@ -21,7 +23,7 @@ export function TripShare({jobId,serviceVisitId,phone,phone2,phone3}:{jobId:stri
    else {
     setRecipient(number);setChoosing(false);
     setMessage('Opening your text message. Review it and tap Send. If Messages did not open, tap Open text message below. Tracking expires in two hours.');
-    openText(number,d.greeting+'\n\n'+d.url);
+    await openText(number,d.greeting+'\n\n'+d.url);
    }
   }catch(e){setMessage((e as Error).message)}finally{setBusy(false)}
  }
@@ -40,7 +42,7 @@ export function TripShare({jobId,serviceVisitId,phone,phone2,phone3}:{jobId:stri
    {message&&<p role="status">{message}</p>}
   </DialogContent></Dialog>
   {url&&<><textarea aria-label="Customer text message" readOnly value={copyText} rows={5}/><p><a href={url} target="_blank" rel="noreferrer">Preview customer tracking</a></p>
-   {recipient&&<button type="button" className="tracking-outline" onClick={()=>openText(recipient,copyText)}>Open text message</button>}
+   {recipient&&<button type="button" className="tracking-outline" disabled={busy} onClick={async()=>{setBusy(true);try{await openText(recipient,copyText);}catch(e){setMessage((e as Error).message);}finally{setBusy(false);}}}>Open text message</button>}
    <button type="button" className="tracking-outline" onClick={async()=>{try{await navigator.clipboard.writeText(copyText);setMessage('Message and tracking link copied. Paste into your text message.')}catch{setMessage('Select and copy the message above.')}}}>Copy message & link</button></>}
   <p role="status">{message}</p>
  </details>

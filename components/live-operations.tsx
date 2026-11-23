@@ -3051,7 +3051,11 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
   );
   return (
     <>
-      {isInstaller && <TripShare key={j.id} jobId={j.id} phone={j.phone} phone2={j.phone2} phone3={j.phone3} />}
+      {isInstaller && <>
+        <CustomerContact key={"contact:"+j.id} j={j} save={save} logOnly />
+        <TripShare key={j.id} jobId={j.id} phone={j.phone} phone2={j.phone2} phone3={j.phone3}
+          logText={phoneField => save("contactStart", {id: crypto.randomUUID(), method: "Text", phoneField})} />
+      </>}
       <Dialog open={laborOpen} onOpenChange={setLaborOpen}>
         <DialogContent style={{width:'96vw',maxWidth:1150,maxHeight:'92dvh',overflowY:'auto'}}>
           <DialogHeader><DialogTitle>Complete Labor Sheet · {j.customer} · #{j.number}</DialogTitle></DialogHeader>
@@ -3093,16 +3097,16 @@ function JobFile({ j, data, change, clickAction, saving, onOpen, reload }: any) 
       <div className="op-detail-status">
         <div>
           <small>Customer phone</small>
-          <a href={"tel:" + j.phone}>
-            {formatPhone(j.phone || "") || "Not recorded"}
-          </a>
+          {isInstaller
+            ? <span>{formatPhone(j.phone || "") || "Not recorded"}</span>
+            : <a href={"tel:" + j.phone}>{formatPhone(j.phone || "") || "Not recorded"}</a>}
         </div>
         {["phone2", "phone3"].map(
           (key, i) =>
             j[key] && (
               <div key={key}>
                 <small>Ph#{i + 2}</small>
-                <a href={"tel:" + j[key]}>{formatPhone(j[key])}</a>
+                {isInstaller ? <span>{formatPhone(j[key])}</span> : <a href={"tel:" + j[key]}>{formatPhone(j[key])}</a>}
               </div>
             ),
         )}

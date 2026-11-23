@@ -5225,3 +5225,21 @@ test('dashboard and sales directory recover legacy merged contact arrays', async
   await pg.query('DELETE FROM production.operations_config WHERE id=$1',[key]);
  }
 });
+
+test('installer call and text initiations record the saved number, installer and time', async()=>{
+ const id=crypto.randomUUID();
+ const job={id,number:'INSTALLER-CONTACT',customer:'Contact Test',phone:'813-555-0100',phone2:'727-555-0101',installerId:installer.id,operations:{},history:[]};
+ await pg.query('INSERT INTO production.jobs(id,payload,version,updated) VALUES($1,$2,1,$3)',[id,JSON.stringify(job),today]);
+ try {
+  for(const [version,method,phoneField] of [[1,'Call','phone'],[2,'Text','phone2']]){
+   await operation(installer,{action:'contactStart',jobId:id,version,data:{id:crypto.randomUUID(),method,phoneField}});
+  }
+  const saved=JSON.parse((await pg.query('SELECT payload FROM production.jobs WHERE id=$1',[id])).rows[0].payload);
+  assert.deepEqual(saved.operations.contacts.map(c=>[c.method,c.number,c.byId]),[['Text',job.phone2,installer.id],['Call',job.phone,installer.id]]);
+  assert.ok(saved.operations.contacts.every(c=>c.at&&!c.outcome));
+  assert.match(saved.history[0].text,/Text initiated.*Outcome not yet confirmed/);
+  assert.equal(saved.history[0].by,installer.name);
+ } finally {
+  await pg.query('DELETE FROM production.jobs WHERE id=$1',[id]);
+ }
+});

@@ -1,5 +1,5 @@
 // Keep document previews inside the current Production Desk window (including iPad/PWA).
-export function openInAppDocument(options:{html?:string;url?:string;title?:string;waitForImages?:boolean}):Window {
+export function openInAppDocument(options:{html?:string;url?:string;title?:string;waitForImages?:boolean;onClose?:()=>void}):Window {
  const previous=document.activeElement as HTMLElement|null;
  const dialog=document.createElement('dialog');
  dialog.setAttribute('aria-label',options.title||'Print preview');
@@ -14,7 +14,7 @@ export function openInAppDocument(options:{html?:string;url?:string;title?:strin
  const close=document.createElement('button');close.type='button';close.textContent='Close preview';
  for(const b of [print,close])b.style.cssText='border:1px solid #173a66;border-radius:8px;padding:10px 16px;background:white;color:#173a66;font:600 15px Arial;cursor:pointer;';
  const frame=document.createElement('iframe');frame.title=options.title||'Document preview';frame.style.cssText='width:100%;flex:1;min-height:0;border:0;background:white;';
- const cleanup=()=>{dialog.remove();previous?.focus();};
+ const cleanup=()=>{dialog.remove();options.onClose?.();previous?.focus();};
  close.onclick=()=>dialog.close();
  dialog.addEventListener('close',cleanup,{once:true});
  // Escape closes the preview, not the underlying job drawer.

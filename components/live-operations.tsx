@@ -7,6 +7,7 @@ import {LaborImport,LaborSheet} from './labor-paperwork';
 import {ApprovalPrintButtons} from './approval-print-buttons';
 import {approvedLaborToClear,laborMatchesReport,clearableJobApprovals} from '@/lib/approval-paperwork';
 import {ApprovedLaborSheets} from './approved-labor-sheets';
+import {openInAppDocument} from '@/lib/in-app-print';
 import {CompletionBatches} from './completion-batches';
 import Warehouse from './warehouse';
 import { printJobCertificate } from "@/lib/print-job-certificate";
@@ -279,6 +280,7 @@ function QualityValue({ score }: any) {
 }
 
 export default function LiveOperations() {
+  const [batchRequest, setBatchRequest] = useState<ApprovalSelection[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshNotice, setRefreshNotice] = useState("");
   const [settingsSection, setSettingsSection] = useState("Accounts"),
@@ -761,6 +763,7 @@ export default function LiveOperations() {
           {tab === "Approvals" && (
             <Approvals
               jobs={approvals}
+              addToBatch={setBatchRequest}
               profile={data.leadProfile}
               reorderJobs={jobs}
               reload={load}
@@ -772,7 +775,7 @@ export default function LiveOperations() {
             />
           )}
 
-          {tab === "Approvals" && me.role !== "installer" && <><LaborImport jobs={jobs} reload={load}/><CompletionBatches onOpen={setSelected} key={jobs.map((j:any)=>j.version).join(",")}/></>}
+          {tab === "Approvals" && me.role !== "installer" && <><LaborImport jobs={jobs} reload={load}/><CompletionBatches onOpen={setSelected} approvalSelection={batchRequest} onApprovalSelectionHandled={()=>setBatchRequest([])} paperworkRevision={jobs.map((j:any)=>j.id+":"+j.version).join(",")}/></>}
 
           {tab === "Quality" && (
             <Quality
@@ -1546,7 +1549,7 @@ function SalesRepresentative({ options = [], initial }: any) {
   );
 }
 type ApprovalSelection = {jobId:string; version:number; kind:'report'|'labor'|'reorder'; recordId?:string};
-function Approvals({ jobs, reorderJobs, me, review, saving, change, onOpen, reload, profile }: any) {
+function Approvals({ jobs, reorderJobs, me, review, saving, change, onOpen, reload, profile, addToBatch }: any) {
   const [error, setError] = useState("");
   const [clearing,setClearing]=useState(false);
   const [selected,setSelected] = useState<Record<string,ApprovalSelection>>({});
@@ -1574,6 +1577,24 @@ function Approvals({ jobs, reorderJobs, me, review, saving, change, onOpen, relo
     } catch (e) {setError((e as Error).message);}
     finally {setClearing(false);}
   };
+  const [printing, setPrinting] = useState(false);
+  const selectedApprovals = Object.values(selected);
+  const jobIds = Array.from(new Set(selectedApprovals.map(item => item.jobId)));
+  const printDocuments = async () => {
+    setPrinting(true);
+    setError("");
+    try {
+      const response = await fetch('/api/approval-documents', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({jobIds}),
+      });
+      if (!response.ok) throw Error((await response.json()).error || 'Could not prepare the documents.');
+      const url = URL.createObjectURL(await response.blob());
+      openInAppDocument({url, title: 'Approval documents', onClose: () => URL.revokeObjectURL(url)});
+    } catch (error) { setError((error as Error).message); }
+    finally { setPrinting(false); }
+  };
   const selectionCount = Object.keys(selected).length;
   const reorderApprovalJobs = review ? reorderJobs.filter((j:any)=>j.operations?.reorders?.some((r:any)=>!r.approvalDismissed)) : [];
   const approvalJobs = Array.from(new Map<string,any>([...jobs,...reorderApprovalJobs].map((j:any)=>[j.id,j])).values());
@@ -1591,6 +1612,9 @@ function Approvals({ jobs, reorderJobs, me, review, saving, change, onOpen, relo
       <h2>Approvals</h2>
       {review && <div className="op-schedule-actions">
         <button type="button" className="live-button" disabled={!selectionCount||selectionCount>100||saving||clearing} onClick={()=>void clearSelected()}>Clear selected{selectionCount ? ` (${selectionCount})` : ''}</button>
+        <button type="button" className="live-button" disabled={!jobIds.length||saving||clearing||printing} onClick={()=>addToBatch(selectedApprovals)}>Add to batching</button>
+        <button type="button" className="live-button" disabled={!jobIds.length||jobIds.length>20||saving||clearing||printing} onClick={()=>void printDocuments()}>{printing ? 'Preparing documents…' : 'Print Documents'}</button>
+        {jobIds.length>20 && <span>Select up to 20 jobs to print.</span>}
         {selectionCount>0 && <button type="button" className="live-button" disabled={saving||clearing} onClick={()=>setSelected({})}>Deselect all</button>}
         {selectionCount>100 && <span>Select up to 100 items at a time.</span>}
         {clearMessage && <span role="status">{clearMessage}</span>}

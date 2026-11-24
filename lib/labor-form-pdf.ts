@@ -38,5 +38,28 @@ export async function laborFormPdf(job:any,sheet:any){
  p.drawLine({start:{x:right+7,y:ry+11},end:{x:right+rw-7,y:ry+11},thickness:.6});text('Reasons payment has been authorized',right+5,ry,7.8,true);ry-=12;text('(Field Supervisor Use Only)',right+20,ry,7);ry-=18;check('Job completed and fully paid',sheet.authorization==='complete',right+7,ry);ry-=18;check('Other (explain in detail below)',sheet.authorization==='other',right+7,ry);wrap(sheet.reviewNote||'',right+7,ry-16,rw-14,7,3);ry-=82;wrap(approval.label,right+7,ry+34,rw-14,9,2);text('Payment amount: '+(approval.paymentAmount==null?'Not recorded':'$'+money(approval.paymentAmount)),right+7,ry+12,8);if(approval.checkNumber){wrap('Check number: '+approval.checkNumber,right+7,ry,rw-14,8,1);ry-=18;}if(job.leadRenovationJob)check('Lead Renovation form',true,right+7,ry);ry-=18;text('Labor to Pay: $'+money(approvedLaborPay(sheet)),right+7,ry,10,true);wrap('FS/Admin Init: '+initials+'  Emp #: '+employee,right+7,ry-15,rw-14,9,2,true);
  if(sheet.reviewerSignature){const img=await pdf.embedPng(sheet.reviewerSignature),s=Math.min(135/img.width,22/img.height);p.drawImage(img,{x:right+7,y:43,width:img.width*s,height:img.height*s});}
  text('Form # LS-2500',36,26,6);text('Revised 1-20-2022',503,26,6);
+ const details=sheet.chargebackDetails;
+ if(details?.salesRep || details?.contractor || typeof details?.accrfCompleted==='boolean'){
+  let page=pdf.addPage([612,792]),y=742;
+  const write=(value:string,face=font,size=11)=>{
+   let line='';
+   for(const word of clean(value).split(/\s+/)){
+    if(line&&face.widthOfTextAtSize(line+' '+word,size)>540){
+     page.drawText(line,{x:36,y,size,font:face});y-=16;line='';
+    }
+    if(y<48){page=pdf.addPage([612,792]);y=742;}
+    line+=(line?' ':'')+word;
+   }
+   if(line){page.drawText(line,{x:36,y,size,font:face});y-=22;}
+  };
+  write('Accounting Chargeback Details',bold,16);
+  write(`${customerDisplayName(job.customer,job.firstName,job.lastName)} · ID# ${job.number}`);
+  write('Chargeback amount: $'+money(sheet.chargeback));
+  write('Chargeback parties: '+(sheet.chargebackTo||[]).join(', '));
+  if(details.salesRep)write('Sales rep to charge: '+details.salesRep);
+  if(details.contractor)write('Contractor to charge: '+details.contractor);
+  if(typeof details.accrfCompleted==='boolean')write('ACCRF completed: '+(details.accrfCompleted?'Yes':'No'));
+  write('Explanation: '+(sheet.chargebackReason||''));
+ }
  return pdf.save();
 }

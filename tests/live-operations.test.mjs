@@ -4592,12 +4592,17 @@ test('approved labor saves FS checkboxes and identifiers and prints approved qua
  const old=(await pg.query('SELECT profile_details FROM production.members WHERE id=$1',[fs.id])).rows[0].profile_details;
  await pg.query('UPDATE production.members SET profile_details=$1 WHERE id=$2',[JSON.stringify({savedDrawnSignature:signature,employeeNumber:'1728'}),fs.id]);
  try{
-  await laborAction(fs,{action:'review',jobId:id,version:1,sheetId,approve:true,truckInspected:true,approvedUnits:[2,0],note:'Approved work performed',chargeback:20,chargebackReason:'Correction',formFields:{truck:['Vacuum','Parts'],truckInitials:'CR',truckEmployeeNumber:'1728',receivedBy:fs.name,authorization:'other',chargebackTo:['Factory']}});
+  const review={action:'review',jobId:id,version:1,sheetId,approve:true,truckInspected:true,approvedUnits:[2,0],note:'Approved work performed',chargeback:20,chargebackReason:'Correction',formFields:{truck:['Vacuum','Parts'],truckInitials:'CR',truckEmployeeNumber:'1728',receivedBy:fs.name,authorization:'other',chargebackTo:['Factory']}};
+  await assert.rejects(()=>laborAction(fs,review),/ACCRF completion/);
+  await assert.rejects(()=>laborAction(fs,{...review,chargeback:0,chargebackReason:'',chargebackTo:['Warranty']}),/explanation/);
+  await assert.rejects(()=>laborAction(fs,{...review,chargebackTo:['Sales Rep']}),/sales rep to charge/);
+  await assert.rejects(()=>laborAction(fs,{...review,chargebackTo:['Contractor']}),/contractor to charge/);
+  await laborAction(fs,{...review,chargebackTo:['Sales Rep','Contractor','Factory','Warranty'],chargebackSalesRep:'Test Rep',chargebackContractor:'Crew C824',chargebackAccrfCompleted:false});
   const saved=JSON.parse((await pg.query('SELECT payload FROM production.jobs WHERE id=$1',[id])).rows[0].payload).operations.laborSheets[0];
-  assert.equal(saved.approvedTotal,172);assert.equal(saved.chargeback,20);assert.equal(saved.authorization,'other');assert.deepEqual(saved.chargebackTo,['Factory']);
+  assert.equal(saved.approvedTotal,172);assert.equal(saved.chargeback,20);assert.equal(saved.authorization,'other');assert.deepEqual(saved.chargebackTo,['Sales Rep','Contractor','Factory','Warranty']); assert.deepEqual(saved.chargebackDetails,{salesRep:'Test Rep',contractor:'Crew C824',accrfCompleted:false});
   assert.equal(saved.formFields.answer0,'Yes');assert.equal(saved.formFields.truckInitials,'CR');assert.deepEqual(saved.formFields.truck,['Vacuum','Parts']);assert.equal(saved.formFields.truckEmployeeNumber,'1728');
   const data=await laborFormPdf(saved.packetJob,{...saved,approvedTotal:152}),doc=await pdfjs.getDocument({data:new Uint8Array(data),isEvalSupported:false}).promise;
-  try{assert.equal(doc.numPages,1);const items=(await (await doc.getPage(1)).getTextContent()).items.filter(i=>i.str);
+  try{assert.equal(doc.numPages,2); const accounting=(await (await doc.getPage(2)).getTextContent()).items.map(i=>i.str).join(" "); assert.match(accounting,/Test Rep/); assert.match(accounting,/Crew C824/); assert.match(accounting,/ACCRF completed: No/);const items=(await (await doc.getPage(1)).getTextContent()).items.filter(i=>i.str);
    const actual=items.filter(i=>i.transform[4]>=252&&i.transform[4]<288&&i.transform[5]<616&&i.transform[5]>580).map(i=>i.str).filter(s=>s.trim());
    assert.deepEqual(actual,['2']);const text=items.map(i=>i.str).join(' ');assert.match(text,/\$172\b/);assert.match(text,/Amount: \$20\b/);assert.doesNotMatch(text,/\$152\b/);assert.match(text,/CR/);assert.match(text,/1728/);
   }finally{await doc.destroy();}

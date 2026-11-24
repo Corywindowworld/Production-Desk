@@ -3,7 +3,52 @@ export function usesMobilePrint() {
   (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 }
 
-function openMobilePrintPage(source: Window) {
+type PrintOptions = {
+ html?: string;
+ url?: string;
+ title?: string;
+ waitForImages?: boolean;
+ onClose?: () => void;
+ pdf?: () => Promise<Blob>;
+};
+
+function downloadControl(doc: Document, options: PrintOptions, status: HTMLElement) {
+ const name = (options.title || 'Production Desk').replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '');
+ const link = doc.createElement('a');
+ link.textContent = options.pdf || options.url ? 'Download PDF' : 'Download HTML';
+ const buttonStyle = 'display:inline-block;border:1px solid #173a66;border-radius:8px;padding:10px 16px;background:white;color:#173a66;font:600 15px Arial;cursor:pointer;';
+ link.style.cssText = buttonStyle;
+ if (options.url) {
+  link.href = options.url;
+  link.download = name + '.pdf';
+  return link;
+ }
+ const button = doc.createElement('button');
+ button.type = 'button';
+ button.style.cssText = buttonStyle;
+ button.textContent = link.textContent;
+ button.onclick = async () => {
+  button.disabled = true;
+  status.textContent = '';
+  try {
+   const blob = options.pdf ? await options.pdf() : new Blob([options.html || ''], {type:'text/html'});
+   const url = URL.createObjectURL(blob);
+   link.href = url;
+   link.download = name + (options.pdf ? '.pdf' : '.html');
+   doc.body.append(link);
+   link.click();
+   link.remove();
+   setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  } catch {
+   status.textContent = 'Could not download the document. Try again.';
+  } finally {
+   button.disabled = false;
+  }
+ };
+ return button;
+}
+
+function openMobilePrintPage(source: Window, options: PrintOptions, closePreview: () => void) {
  const page = window.open('', '_blank');
  if (!page) return false;
  page.opener = null;
@@ -17,7 +62,7 @@ function openMobilePrintPage(source: Window) {
  page.document.close();
 
  const controls = page.document.createElement('div');
- controls.style.cssText = 'padding:16px;background:#eef3f8;color:#18314f;font:16px system-ui;';
+ controls.style.cssText = 'position:sticky;top:0;z-index:10;padding:12px;background:#eef3f8;color:#18314f;font:16px system-ui;display:flex;gap:8px;align-items:center;flex-wrap:wrap;';
  const print = page.document.createElement('button');
  print.type = 'button';
  print.textContent = 'Print';
@@ -25,7 +70,15 @@ function openMobilePrintPage(source: Window) {
  print.onclick = () => page.print();
  const help = page.document.createElement('p');
  help.textContent = 'If Print does not open, use your browser’s Share menu and choose Print.';
- controls.append(print, help);
+ const close = page.document.createElement('button');
+ close.type = 'button';
+ close.textContent = 'Close print screen';
+ close.style.cssText = print.style.cssText;
+ close.onclick = () => { closePreview(); page.close(); };
+ const status = page.document.createElement('span');
+ status.setAttribute('role', 'status');
+ help.style.flexBasis = '100%';
+ controls.append(print, downloadControl(page.document, options, status), close, status, help);
  page.document.body.prepend(controls);
  const style = page.document.createElement('style');
  style.textContent = '@media print{#production-desk-mobile-print{display:none!important}}';
@@ -35,7 +88,7 @@ function openMobilePrintPage(source: Window) {
 }
 
 // Keep document previews inside the current Production Desk window (including iPad/PWA).
-export function openInAppDocument(options:{html?:string;url?:string;title?:string;waitForImages?:boolean;onClose?:()=>void}):Window {
+export function openInAppDocument(options:PrintOptions):Window {
  const mobile=usesMobilePrint();
  const previous=document.activeElement as HTMLElement|null;
  const dialog=document.createElement('dialog');
@@ -68,13 +121,13 @@ export function openInAppDocument(options:{html?:string;url?:string;title?:strin
   const preview=frame.contentWindow;
   if(!preview)return;
   if(mobile){
-   if(!openMobilePrintPage(preview))status.textContent='Allow pop-ups to open the printable page.';
+   if(!openMobilePrintPage(preview, options, () => dialog.close()))status.textContent='Allow pop-ups to open the printable page.';
    return;
   }
   preview.focus();
   preview.print();
  };
- toolbar.append(title,mobile&&options.url?openPdf:print,close,status);container.append(toolbar,frame);dialog.append(container);document.body.append(dialog);dialog.showModal();
+ toolbar.append(title,mobile&&options.url?openPdf:print,downloadControl(document, options, status),close,status);container.append(toolbar,frame);dialog.append(container);document.body.append(dialog);dialog.showModal();
  if(options.html!==undefined){
   const w=frame.contentWindow!;w.document.open();
   w.document.write(options.html.replace('</head>','<style>@media screen{.toolbar,.print-exit,body>button{display:none!important}}</style></head>'));w.document.close();
@@ -103,4 +156,7 @@ export function openInAppDocument(options:{html?:string;url?:string;title?:strin
  close.focus();
  return frame.contentWindow!;
 }
-export function openInAppPrint(html:string,title='Print preview'){return openInAppDocument({html,title});}
+export function openInAppPrint(html:string,title='Print preview',pdf?:PrintOptions['pdf']){return openInAppDocument({html,title,pdf});}
+export function pdfBlob(bytes: Uint8Array) {
+ return new Blob([Uint8Array.from(bytes)], {type:'application/pdf'});
+}

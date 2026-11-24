@@ -1,4 +1,4 @@
-import {openInAppPrint} from "./in-app-print";
+import {openInAppPrint, usesMobilePrint} from "./in-app-print";
 import {datesFor,type ScheduleViewMode} from '../app/operations-preview/schedule-view';
 import {installAppointments,hourLabel} from './install-calendar';
 import {displayedJobStatus} from './payment-status';
@@ -33,7 +33,8 @@ export function printWeeklySchedule(options:Parameters<typeof weeklyScheduleHtml
  const print=()=>{fit();preview.focus();preview.print();};
  preview.document.getElementById('print')!.addEventListener('click',print);
  preview.addEventListener('beforeprint',fit);
- preview.requestAnimationFrame(()=>preview.requestAnimationFrame(print));
+ if(!usesMobilePrint())
+  preview.requestAnimationFrame(()=>preview.requestAnimationFrame(print));
 }
 
 export function printDailySchedule(options:Parameters<typeof weeklyScheduleHtml>[0]){return printWeeklySchedule({...options,daily:true});}

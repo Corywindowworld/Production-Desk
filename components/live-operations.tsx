@@ -4185,7 +4185,7 @@ function InstallerReport({ j, save, reload, isInstaller }: any) {
   const busy = uploadCount > 0;
   const requirements = requiredReportKinds(status);
   const needsRating = isInstaller && j.stage !== "SVC";
-  const paidByCheck = certificate?.paymentMethod === "Check";
+  const paidByCheck = certificate?.paymentMethod === "Check" && Number(certificate.paymentAmount) > 0;
   const checkPhoto = attachments.find(a=>a.kind === "check");
   const photosReady = !busy && requirements.every(kind=>attachments.some(photo=>photo.kind===kind));
   const updateMeasurementSurvey = (rating:{stars:number;notes:string}) => {

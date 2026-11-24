@@ -39,7 +39,7 @@ export const certificateInputSchema = z
       .multipleOf(0.01)
       .default(0),
     paymentMethod: z
-      .enum(["", "Paid In Full", "Check", "Credit Card", "Finance", "Other"])
+      .enum(["", "Paid In Full", "Check", "Credit Card", "Finance", "Aqua Financing", "Purchase Order", "Other"])
       .default(""),
     paymentReference: z.string().trim().max(150).default(""),
     cardLastFour: z
@@ -89,11 +89,11 @@ export const certificateInputSchema = z
       ctx.addIssue({
         code: "custom",
         path: ["paymentMethod"],
-        message: "Choose the payment method.",
+        message: "Ask the office to save the payment method on the job before acknowledging payment.",
       });
     if (v.cardOnFile && v.paymentMethod !== "Credit Card")
       ctx.addIssue({code:"custom",path:["cardOnFile"],message:"On File applies only to credit card payments."});
-    if (v.paymentMethod === "Credit Card" && !v.cardLastFour && !v.cardOnFile)
+    if (v.paymentMethod === "Credit Card" && v.paymentAmount > 0 && !v.cardLastFour && !v.cardOnFile)
       ctx.addIssue({
         code: "custom",
         path: ["cardLastFour"],

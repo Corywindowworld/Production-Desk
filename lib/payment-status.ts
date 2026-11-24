@@ -4,6 +4,19 @@ export function resolvedPaymentMethod(job:any,record:any={}){
  const normalized=value.toUpperCase().replace(/[.\s_-]/g,'');
  return ['PO','PURCHASEORDER','PURCHASEORDER(PO)'].includes(normalized)?'PO':value;
 }
+export function certificatePaymentMethod(job: any, record: any = {}) {
+ const saved = resolvedPaymentMethod(job, record);
+ const method = saved.toUpperCase().replace(/[.\s_-]/g, '');
+ switch (method) {
+  case 'CHK': case 'CHECK': return 'Check';
+  case 'CC': case 'CREDITCARD': return 'Credit Card';
+  case 'FNC': case 'FINANCE': case 'FINANCING': return 'Finance';
+  case 'AQUA': case 'AQUAFINANCING': return 'Aqua Financing';
+  case 'PO': return 'Purchase Order';
+  case 'PAIDINFULL': return 'Paid In Full';
+  default: return saved ? 'Other' : '';
+ }
+}
 export function isPurchaseOrder(job:any){
  const raw=resolvedPaymentMethod(job).toUpperCase().replace(/[.\s_-]/g,'');
  return normalizedStatusValue(job.stage)==='PO'||normalizedStatusValue(job.status)==='PO'||raw==='PO'||raw==='PURCHASEORDER';

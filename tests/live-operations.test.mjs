@@ -179,7 +179,7 @@ const certificate = (type) => ({
 test("credit card On File is accepted without last four and retained in certificate outputs", async () => {
   const {certificateInputSchema,certificateEmailHtml,certificateSnapshot}=await vite.ssrLoadModule('/lib/job-certificate.ts');
   const {jobCertificatePrintHtml}=await vite.ssrLoadModule('/lib/print-job-certificate.ts');
-  const value={...certificate('Complete'),paymentMethod:'Credit Card',cardOnFile:true,cardLastFour:''};
+  const value={...certificate('Complete'),paymentAmount:20,paymentMethod:'Credit Card',cardOnFile:true,cardLastFour:''};
   const parsed=certificateInputSchema.parse(value);
   assert.equal(parsed.cardOnFile,true);
   assert.equal(certificateInputSchema.safeParse({...value,cardOnFile:false}).success,false);
@@ -288,7 +288,7 @@ test("live approvals, persistence, scopes and money", async () => {
     notes: "Done",
     installed: today,
     attachments,
-    certificate: certificate("Complete"),
+    certificate: {...certificate("Complete"),paymentMethod:"Check"},
   });
   assert.equal(j.stage, "Production");
   assert.equal(j.operations.report.pending, true);
@@ -840,7 +840,7 @@ test("FS and Admin submit and approve their own closeout evidence", async () => 
       notes: "Recorded by staff",
       installed: today,
       attachments,
-      certificate: certificate(result),
+      certificate: {...certificate(result),paymentMethod:"Aqua Financing"},
     };
     await assert.rejects(() => act(pa, "report", report), /Only the assigned/);
     await assert.rejects(
@@ -4100,7 +4100,7 @@ test('schedule resets require office role and reason and preserve job status and
 test('emailed certificates are private, single-use, save PDFs and do not change balances or status',async()=>{
  const {inviteCertificate,publicCertificate,signCertificate,linkKey,assertUsable}=await vite.ssrLoadModule('/lib/certificate-links.ts');
  const {certificatesForJob}=await vite.ssrLoadModule('/lib/digital-documents.ts');
- await act(admin,'create',{number:'REMOTE-SIGN',customer:'Remote Customer',address:'1 Main St',amount:100});
+ await act(admin,'create',{number:'REMOTE-SIGN',customer:'Remote Customer',address:'1 Main St',amount:100,paymentMethod:'CHK'});
  const jobId=j.id,stage=j.stage;
  await assert.rejects(()=>inviteCertificate(installer,{jobId,type:'Complete',email:'remote@example.com',installerSignatureDataUrl:signature},'https://example.com'),/access required/);
  await inviteCertificate(fs,{jobId,type:'Incomplete',email:'remote@example.com',completedWindows:'Windows 1, 2',installerSignatureDataUrl:signature},'https://example.com');
@@ -4111,6 +4111,8 @@ test('emailed certificates are private, single-use, save PDFs and do not change 
  currentJob.amount=80;
  await pg.query('UPDATE production.jobs SET payload=$2 WHERE id=$1',[jobId,JSON.stringify(currentJob)]);
  const publicData=await publicCertificate(token);
+ assert.equal(publicData.paymentMethod,'Check');
+ await assert.rejects(()=>signCertificate(token,{...certificate('Incomplete'),paymentAmount:20,paymentMethod:'Finance'}),/payment method/);
  assert.equal(publicData.amount,80);assert.equal(publicData.type,'Incomplete');assert.equal(publicData.completedWindows,'Windows 1, 2');
  assert.equal(publicData.installerSignatureDataUrl,undefined);assert.equal(publicData.operations,undefined);
  const stored=(await pg.query('SELECT id,payload FROM production.operations_config WHERE id=$1',[linkKey(token)])).rows[0];
@@ -4955,7 +4957,7 @@ test('installer check payments require a verified job photo and keep it out of c
   const {fileType}=await vite.ssrLoadModule('/lib/upload-validation.ts');
   const {uploadedDocumentsForJob}=await vite.ssrLoadModule('/lib/digital-documents.ts');
   const id=crypto.randomUUID(), at=new Date().toISOString();
-  const job={id,number:'CHECK-PHOTO',customer:'Check Photo Test',stage:'Production',amount:100,
+  const job={id,number:'CHECK-PHOTO',customer:'Check Photo Test',stage:'Production',amount:100,paymentMethod:'CHK',
     installerId:installer.id,supervisorId:fs.id,history:[],operations:{}};
   await pg.query('INSERT INTO production.jobs(id,payload,version,updated) VALUES($1,$2,1,$3)',[id,JSON.stringify(job),at]);
   const attachments=['front','rear','left','right'].map(kind=>({kind,key:`jobs/${id}/${kind}/${crypto.randomUUID()}`,name:`${kind}.jpg`}));
@@ -4968,6 +4970,7 @@ test('installer check payments require a verified job photo and keep it out of c
     measurementSurvey:{stars:5},certificate:{...certificate('Complete'),paymentMethod:'Check',paymentAmount:100,paymentReference:'001234'}};
   const submit=data=>operation(installer,{action:'report',jobId:id,version:1,data});
   assert.equal(fileType(Buffer.from('%PDF-test'),'check'),null);
+  await assert.rejects(()=>submit({...report,certificate:{...report.certificate,paymentMethod:"Finance"}}),/payment method must match/);
   await assert.rejects(()=>submit(report),/Upload a photo of the check/);
   const withPhoto={...report,attachments:[...attachments,check]};
   await assert.rejects(()=>submit(withPhoto),/Upload the check as a photo/);

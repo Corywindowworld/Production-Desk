@@ -1,4 +1,5 @@
 "use client";
+import {certificatePaymentMethod} from "@/lib/payment-status";
 import { useEffect, useState } from "react";
 import { SignaturePad } from "./signature-pad";
 import { certificateQuestionsForType } from "@/lib/job-certificate";
@@ -142,9 +143,9 @@ export function JobCertificateForm({ j, type, profile, initialValue, onChange, o
     [installerSignature, setInstallerSignature] = useState(
       initial?.installerSignatureDataUrl || profile?.savedDrawnSignature || "",
     );
+  const paymentMethod = service ? "" : certificatePaymentMethod(j);
   const defaultPayment = !service && balance !== null && balance >= 0 ? String(balance) : "";
   const [paymentInput, setPaymentAmount] = useState(String(initial?.paymentAmount ?? defaultPayment)),
-    [paymentMethod, setPaymentMethod] = useState(initial?.paymentMethod || ""),
     [email, setEmail] = useState(initial?.customerEmail || j.customerEmail || ""),
     [homeownerName, setHomeownerName] = useState(initial?.homeownerName || j.customer || "");
   const [completedWindows, setCompletedWindows] = useState(initial?.completedWindows || ""),
@@ -181,10 +182,10 @@ export function JobCertificateForm({ j, type, profile, initialValue, onChange, o
     const saved = initialValue?.type === type ? initialValue : null;
     setAnswers(saved?.answers?.length === questions.length ? saved.answers : Array(questions.length).fill(null));
     setPaymentAmount(String(saved?.paymentAmount ?? defaultPayment));
-    setPaymentMethod(saved?.paymentMethod || "");
     setCompletedWindows(saved?.completedWindows || "");
     setExplanation(saved?.explanation || "");
-    setCustomerSignature(saved?.customerSignatureDataUrl || "");
+    const methodMatches = service || saved?.paymentMethod === paymentMethod;
+    setCustomerSignature(methodMatches ? saved?.customerSignatureDataUrl || "" : "");
     setInstallerSignature(saved?.installerSignatureDataUrl || profile?.savedDrawnSignature || "");
     setEmail(saved?.customerEmail || j.customerEmail || "");
     setHomeownerName(saved?.homeownerName || j.customer || "");
@@ -193,11 +194,11 @@ export function JobCertificateForm({ j, type, profile, initialValue, onChange, o
     setCardLastFour(saved?.cardLastFour || "");
     setCardOnFile(!!saved?.cardOnFile);
     setPaymentDifferenceReason(saved?.paymentDifferenceReason || "");
-    setConfirmed(!!saved?.confirmed);
+    setConfirmed(methodMatches && !!saved?.confirmed);
     setComplete(false);
     setOpen(false);
     onChange?.(null);
-  }, [type]);
+  }, [type, paymentMethod]);
   useEffect(() => {
     onChange?.(snapshot());
   }, [
@@ -217,12 +218,6 @@ export function JobCertificateForm({ j, type, profile, initialValue, onChange, o
     paymentDifferenceReason,
     confirmed,
   ]);
-  const choosePayment = (value: string) => {
-    setPaymentMethod(value);
-    if(value !== "Credit Card")setCardOnFile(false);
-    if(value !== "Check")setPaymentReference("");
-    if (value === "Paid In Full") setPaymentAmount(String(balance ?? 0));
-  };
   const accept = async () => {
     setError("");
     if (!email.trim() || !/^\S+@\S+\.\S+$/.test(email.trim()))
@@ -238,8 +233,8 @@ export function JobCertificateForm({ j, type, profile, initialValue, onChange, o
     if (answers.includes(false) && !explanation.trim())
       return setError("Please explain each No answer.");
     if (paymentAmount > 0 && !paymentMethod)
-      return setError("Choose a payment method.");
-    if (paymentMethod === "Credit Card" && !cardOnFile && !/^\d{4}$/.test(cardLastFour))
+      return setError("Ask the office to save the payment method on the job before acknowledging payment.");
+    if (paymentAmount > 0 && paymentMethod === "Credit Card" && !cardOnFile && !/^\d{4}$/.test(cardLastFour))
       return setError("Enter only the last four digits of the card.");
     if (!customerSignature)
       return setError("The customer must draw their signature.");
@@ -499,21 +494,7 @@ export function JobCertificateForm({ j, type, profile, initialValue, onChange, o
                     </label>
                     <label>
                       Payment method
-                      <select
-                        value={paymentMethod}
-                        onChange={(e) => choosePayment(e.target.value)}
-                      >
-                        <option value="">None recorded</option>
-                        {[
-                          "Paid In Full",
-                          "Check",
-                          "Credit Card",
-                          "Finance",
-                          "Other",
-                        ].map((v) => (
-                          <option key={v}>{v}</option>
-                        ))}
-                      </select>
+                      <input readOnly value={paymentMethod || "Not recorded"} />
                     </label>
                   </div>
                   {paymentMethod === "Check" && <label>Check number<input value={paymentReference} maxLength={150} onChange={e=>setPaymentReference(e.target.value)} /></label>}

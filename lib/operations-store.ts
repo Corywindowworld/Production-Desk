@@ -13,7 +13,7 @@ import { jobCertificatePdfBase64 } from "./job-certificate-pdf";
 import { reorderOperation } from "@/lib/reorder-requests";
 import { canAddJobPhotos, jobPhotoKinds } from "./job-photo-access";
 import { linkedAccountValues, linkedPermitFields, linkedPermitValues, preferredLinkedPermit } from "./linked-account";
-import { isPurchaseOrder, resolvedPaymentMethod } from "./payment-status";
+import { certificatePaymentMethod, isPurchaseOrder, resolvedPaymentMethod } from "./payment-status";
 import {
   remainingWorkdays,
   hourLabel,
@@ -2156,7 +2156,11 @@ export async function operation(m: Member, input: any) {
         "Payment acknowledged cannot exceed the current balance.",
         400,
       );
-      const paidByCheck = r.certificate.paymentMethod === "Check";
+      if (expectedCertificateType !== "Service") {
+        assert(r.certificate.paymentMethod === certificatePaymentMethod(j),
+          "The certificate payment method must match the job. Reopen the certificate to refresh it.", 409);
+      }
+      const paidByCheck = r.certificate.paymentMethod === "Check" && (r.certificate.paymentAmount ?? 0) > 0;
       if (!paidByCheck) r.attachments = r.attachments.filter(a=>a.kind !== "check");
       if (m.role === "installer" && paidByCheck) {
         assert(r.attachments.some(a=>a.kind === "check"), "Upload a photo of the check before submitting.", 400);

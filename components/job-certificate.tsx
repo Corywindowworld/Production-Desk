@@ -2,7 +2,7 @@
 import {certificatePaymentMethod} from "@/lib/payment-status";
 import { useEffect, useState } from "react";
 import { SignaturePad } from "./signature-pad";
-import { certificateQuestionsForType } from "@/lib/job-certificate";
+import { certificateQuestionsForType, incompletePaymentTerms } from "@/lib/job-certificate";
 import { printJobCertificate } from "@/lib/print-job-certificate";
 
 const money = (v: any) =>
@@ -96,6 +96,7 @@ export function SignedJobCertificate({ record, defaultOpen = false }: any) {
           {record.paymentMethod === "Credit Card" && <span> · {record.cardOnFile ? "On File" : record.cardLastFour ? "Card ending: " + record.cardLastFour : ""}</span>}
         </p>
       )}
+      {record.type === "Incomplete" && <p>{incompletePaymentTerms}</p>}
       <div className="certificate-signature-preview">
         <div>
           <img alt="Customer signature" src={record.customerSignatureDataUrl} />
@@ -453,11 +454,7 @@ export function JobCertificateForm({ j, type, profile, initialValue, onChange, o
                   </div>
                   {type === "Incomplete" && (
                     <p className="certificate-retainage-note">
-                      For incomplete installations, you may retain up to 10%
-                      until the remaining work is completed. The balance for
-                      completed work remains due; a pending inspection alone
-                      does not defer payment. Please discuss any questions with
-                      your Window World representative.
+                      {incompletePaymentTerms}
                     </p>
                   )}
                   <p className="certificate-retainage-note">A 3% processing fee applies to credit card payments.</p>

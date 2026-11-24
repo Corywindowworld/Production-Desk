@@ -4,6 +4,15 @@ export const laborUnits = z.number().finite().min(0).max(10000).multipleOf(0.01,
 export const laborLine=z.object({description:z.string().trim().min(1).max(250),contract:laborUnits,rate:z.number().finite().min(0).max(100000),actual:laborUnits.nullable().default(null),reason:z.string().trim().max(1500).default(''),extra:z.boolean().default(false)});
 export const laborLines=z.array(laborLine).min(1).max(100);
 export const laborTotal=(lines:any[])=>Math.round(lines.reduce((total,l)=>total+Math.round((l.actual??0)*l.rate*100),0))/100;
+// Older approvals stored a net total. Reconstruct full pay from the approved lines when available.
+export function approvedLaborPay(sheet: any): number | undefined {
+ const lines = sheet.approvedLines;
+ if (sheet.chargeback > 0 && Array.isArray(lines) && lines.length &&
+     lines.every(line => Number.isFinite(line?.actual) && Number.isFinite(line?.rate))) {
+  return laborTotal(lines);
+ }
+ return sheet.approvedTotal;
+}
 export const laborCustomerId=(value:unknown)=>{const s=String(value??'').trim();return s.match(/^(?:\d{3}[-–]\s*)?(\d+)$/)?.[1]||'';};
 export function parseLaborText(text:string){
  text=text.replace(/\u00a0/g,' ');

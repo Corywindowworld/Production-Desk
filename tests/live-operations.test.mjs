@@ -4282,7 +4282,7 @@ test('labor requests protect contract rates, require FS approval and freeze one 
  saved.operations.leadRenovation={answers:Array(13).fill(true),signatureDataUrl:signature,renovatorName:'Test Installer',renovatorId:'C123',epaCertification:'EPA-TEST',signedAt:at};
  await pg.query('UPDATE production.jobs SET payload=$1 WHERE id=$2',[JSON.stringify(saved),id]);
  await laborAction(fs,{action:'review',jobId:id,version:saved.version,sheetId:sheet.id,approve:true,truckInspected:false,approvedUnits:approved,note:'Verified work',chargeback:10,chargebackReason:'Test adjustment'});
- saved=await current();assert.equal(saved.operations.laborSheets[0].approvedTotal,162);
+ saved=await current();assert.equal(saved.operations.laborSheets[0].approvedTotal,172);
  await assert.rejects(()=>batchAction(installer,{items:[{jobId:id,laborId:sheet.id}]}),/Office access/);
  saved=await current();saved.operations.report={approved:false,status:'Incomplete',certificate:{id:'new-visit'}};await pg.query('UPDATE production.jobs SET payload=$1 WHERE id=$2',[JSON.stringify(saved),id]);
  const listed=await batchData(pa);assert.ok(listed.jobs.some(row=>row.laborId===sheet.id&&!row.batched));
@@ -4569,13 +4569,13 @@ test('backordered INC certificates stay ORD, skip reorders and require full rece
  const invalid=await fixture();await assert.rejects(()=>operation(installer,{action:'report',jobId:invalid.id,version:1,data:{...invalid.result,status:'Complete',certificate:certificate('Complete')}}),/only to incomplete/);
 });
 
-test('submitted labor payment boxes recalculate from approved units and chargeback',async()=>{
+test('submitted labor payment uses approved units without subtracting chargebacks',async()=>{
  const React=await import('react'),{renderToStaticMarkup}=await import('react-dom/server');
  const previous=globalThis.React;globalThis.React=React;
  try{
   const {LaborSheetForm}=await vite.ssrLoadModule('/components/labor-sheet-form.tsx');
   const lines=[{description:'Installation - Standard',contract:4,actual:4,rate:86}],props={job:{customer:'Test Customer',number:'123456'},sheet:{status:'Submitted',source:'manual',lines,requestedTotal:344},lines,onLines:()=>{},fields:{},onFields:()=>{},submitted:true,review:true,setUnits:()=>{},signoff:null};
-  for(const [units,chargeback,total] of [[[4],0,'344'],[[2],0,'172'],[[2],20,'152'],[[2.25],20,'173.5'],[[0],0,'0']]){
+  for(const [units,chargeback,total] of [[[4],0,'344'],[[2],0,'172'],[[2],20,'172'],[[2.25],20,'193.5'],[[0],0,'0']]){
    const html=renderToStaticMarkup(React.createElement(LaborSheetForm,{...props,units,chargeback}));
    assert.ok(html.includes('Amount to Pay: $'+total),html);
    assert.ok(html.includes('<output>$'+(units[0]*86)+'</output>'),html);
@@ -4594,12 +4594,12 @@ test('approved labor saves FS checkboxes and identifiers and prints approved qua
  try{
   await laborAction(fs,{action:'review',jobId:id,version:1,sheetId,approve:true,truckInspected:true,approvedUnits:[2,0],note:'Approved work performed',chargeback:20,chargebackReason:'Correction',formFields:{truck:['Vacuum','Parts'],truckInitials:'CR',truckEmployeeNumber:'1728',receivedBy:fs.name,authorization:'other',chargebackTo:['Factory']}});
   const saved=JSON.parse((await pg.query('SELECT payload FROM production.jobs WHERE id=$1',[id])).rows[0].payload).operations.laborSheets[0];
-  assert.equal(saved.approvedTotal,152);assert.equal(saved.authorization,'other');assert.deepEqual(saved.chargebackTo,['Factory']);
+  assert.equal(saved.approvedTotal,172);assert.equal(saved.chargeback,20);assert.equal(saved.authorization,'other');assert.deepEqual(saved.chargebackTo,['Factory']);
   assert.equal(saved.formFields.answer0,'Yes');assert.equal(saved.formFields.truckInitials,'CR');assert.deepEqual(saved.formFields.truck,['Vacuum','Parts']);assert.equal(saved.formFields.truckEmployeeNumber,'1728');
-  const data=await laborFormPdf(saved.packetJob,saved),doc=await pdfjs.getDocument({data:new Uint8Array(data),isEvalSupported:false}).promise;
+  const data=await laborFormPdf(saved.packetJob,{...saved,approvedTotal:152}),doc=await pdfjs.getDocument({data:new Uint8Array(data),isEvalSupported:false}).promise;
   try{assert.equal(doc.numPages,1);const items=(await (await doc.getPage(1)).getTextContent()).items.filter(i=>i.str);
    const actual=items.filter(i=>i.transform[4]>=252&&i.transform[4]<288&&i.transform[5]<616&&i.transform[5]>580).map(i=>i.str).filter(s=>s.trim());
-   assert.deepEqual(actual,['2']);const text=items.map(i=>i.str).join(' ');assert.match(text,/\$152\b/);assert.doesNotMatch(text,/152\.00/);assert.match(text,/CR/);assert.match(text,/1728/);
+   assert.deepEqual(actual,['2']);const text=items.map(i=>i.str).join(' ');assert.match(text,/\$172\b/);assert.match(text,/Amount: \$20\b/);assert.doesNotMatch(text,/\$152\b/);assert.match(text,/CR/);assert.match(text,/1728/);
   }finally{await doc.destroy();}
  }finally{await pg.query('UPDATE production.members SET profile_details=$1 WHERE id=$2',[old,fs.id]);}
 });

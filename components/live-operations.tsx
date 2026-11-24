@@ -637,7 +637,6 @@ export default function LiveOperations() {
                       </div>
                     </button>
                   )}
-                  {review && <button className="live-button" type="button" onClick={()=>setPlannerOpen(true)}>Bonus Planner</button>}
                   <div className="op-metrics">
                     <button
                       onClick={() => {
@@ -741,14 +740,18 @@ export default function LiveOperations() {
           )}
           {tab === "Jobs" && (
             <>
-              {data.canEdit && (
+              {(data.canEdit || review) && (
                 <div className="live-pipeline-action">
-                  <button
-                    className="op-primary"
-                    onClick={() => setAdding(true)}
-                  >
-                    <Plus size={16} /> Add Customer
-                  </button>
+                  {review && (
+                    <button className="live-button" type="button" onClick={() => setPlannerOpen(true)}>
+                      Bonus Planner
+                    </button>
+                  )}
+                  {data.canEdit && (
+                    <button className="op-primary" type="button" onClick={() => setAdding(true)}>
+                      <Plus size={16} /> Add Customer
+                    </button>
+                  )}
                 </div>
               )}
               <JobList

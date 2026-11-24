@@ -1,7 +1,7 @@
 import {customerDisplayName} from './customer-display-name';
 import { certificateLogoPng } from "./certificate-logo";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
-import { certificateQuestionsForType, incompletePaymentTerms } from "./job-certificate";
+import { certificateQuestionsForType, incompleteInstallationApology, incompletePaymentTerms } from "./job-certificate";
 
 const money = (v: unknown) =>
   typeof v === "number"
@@ -223,7 +223,10 @@ export async function jobCertificatePdf(c: any) {
     field("Account status:", "Paid In Full (PIF)");
     field("Balance:", "$0.00");
   } else {
-    if (c.type === "Incomplete") text(incompletePaymentTerms, 10, {gap: 4});
+    if (c.type === "Incomplete") {
+      text(incompleteInstallationApology, 11, {bold: true, gap: 4});
+      text(incompletePaymentTerms, 10, {gap: 4});
+    }
     text("A 3% processing fee applies to credit card payments.", 11, {bold:true,gap:4});
     rule();
     center(

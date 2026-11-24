@@ -2,7 +2,7 @@
 import {certificatePaymentMethod} from "@/lib/payment-status";
 import { useEffect, useState } from "react";
 import { SignaturePad } from "./signature-pad";
-import { certificateQuestionsForType, incompletePaymentTerms } from "@/lib/job-certificate";
+import { certificateQuestionsForType, incompleteInstallationApology, incompletePaymentTerms } from "@/lib/job-certificate";
 import { printJobCertificate } from "@/lib/print-job-certificate";
 
 const money = (v: any) =>
@@ -96,7 +96,7 @@ export function SignedJobCertificate({ record, defaultOpen = false }: any) {
           {record.paymentMethod === "Credit Card" && <span> · {record.cardOnFile ? "On File" : record.cardLastFour ? "Card ending: " + record.cardLastFour : ""}</span>}
         </p>
       )}
-      {record.type === "Incomplete" && <p>{incompletePaymentTerms}</p>}
+      {record.type === "Incomplete" && <><p>{incompleteInstallationApology}</p><p>{incompletePaymentTerms}</p></>}
       <div className="certificate-signature-preview">
         <div>
           <img alt="Customer signature" src={record.customerSignatureDataUrl} />
@@ -453,9 +453,10 @@ export function JobCertificateForm({ j, type, profile, initialValue, onChange, o
                     </div>
                   </div>
                   {type === "Incomplete" && (
-                    <p className="certificate-retainage-note">
-                      {incompletePaymentTerms}
-                    </p>
+                    <>
+                      <p><strong>{incompleteInstallationApology}</strong></p>
+                      <p className="certificate-retainage-note">{incompletePaymentTerms}</p>
+                    </>
                   )}
                   <p className="certificate-retainage-note">A 3% processing fee applies to credit card payments.</p>
                   <div className="certificate-balance">

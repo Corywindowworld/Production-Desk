@@ -8,6 +8,7 @@ import {ApprovalPrintButtons} from './approval-print-buttons';
 import {approvedLaborToClear,laborMatchesReport,clearableJobApprovals} from '@/lib/approval-paperwork';
 import {ApprovedLaborSheets} from './approved-labor-sheets';
 import {openInAppDocument} from '@/lib/in-app-print';
+import {BonusPlanner} from "./bonus-planner";
 import {CompletionBatches} from './completion-batches';
 import Warehouse from './warehouse';
 import { printJobCertificate } from "@/lib/print-job-certificate";
@@ -281,6 +282,7 @@ function QualityValue({ score }: any) {
 
 export default function LiveOperations() {
   const [batchRequest, setBatchRequest] = useState<ApprovalSelection[]>([]);
+  const [plannerOpen, setPlannerOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshNotice, setRefreshNotice] = useState("");
   const [settingsSection, setSettingsSection] = useState("Accounts"),
@@ -635,6 +637,7 @@ export default function LiveOperations() {
                       </div>
                     </button>
                   )}
+                  {review && <button className="live-button" type="button" onClick={()=>setPlannerOpen(true)}>Bonus Planner</button>}
                   <div className="op-metrics">
                     <button
                       onClick={() => {
@@ -867,6 +870,11 @@ export default function LiveOperations() {
             saving={saving}
             onOpen={setSelected}
           />
+        </Drawer>
+      )}
+      {review && plannerOpen && (
+        <Drawer fullPage title="Bonus Planner" onClose={()=>setPlannerOpen(false)}>
+          <BonusPlanner jobs={jobs} surveys={data.surveys} config={data.config} today={today} metrics={metrics} />
         </Drawer>
       )}
       {bonusOpen && (

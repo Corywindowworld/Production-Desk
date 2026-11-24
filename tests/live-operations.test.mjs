@@ -5265,3 +5265,32 @@ test('labor alerts appear once per submission for each reviewer', async()=>{
   await pg.query('DELETE FROM production.notifications WHERE job_id=$1',[jobId]);
  }
 });
+
+test('bonus planner lists month-end aging separately and simulates closures without mutating jobs', async()=>{
+ const {bonusPlannerJobs,monthEnd,projectBonus}=await vite.ssrLoadModule('/lib/bonus-planner.ts');
+ const today='2026-11-20', cutoff='2026-11-24';
+ const jobs=[
+  {id:'aged',stage:'Production',installed:'2026-11-10',amount:500},
+  {id:'cutoff',stage:'Incomplete',incompleteSince:'2026-10-10',amount:700},
+  {id:'month-end',stage:'Received',received:'2026-10-30',amount:900},
+  {id:'excluded',stage:'PO',received:'2026-10-10',amount:800},
+ ];
+ const surveys=[{completed_on:'2026-11-19',ratings:[5,5,5,5]}];
+ const config={period:cutoff,pool:1000,dollars:[500,1000,1500,2000],jobs:[1,2,3,4],quality:[4,3.9,3.8,3.7,3.6]};
+ assert.equal(monthEnd(today),'2026-11-30');
+ assert.deepEqual(bonusPlannerJobs(jobs,today,monthEnd(today)).map(({id,ageDate,aged})=>[id,ageDate,aged]),[
+  ['aged','2026-11-18',true],['cutoff',cutoff,false],['month-end','2026-11-30',false],
+ ]);
+ const base=projectBonus(jobs,surveys,config,today,cutoff,new Set());
+ const plan=projectBonus(jobs,surveys,config,today,cutoff,new Set(['aged']));
+ assert.equal(base.amount,1200);
+ assert.equal(plan.amount,700);
+ assert.equal(plan.count,1);
+ assert.ok(plan.estimate>base.estimate);
+ assert.equal(plan.score,base.score);
+ const monthPlan=projectBonus(jobs,surveys,config,today,monthEnd(today),new Set(['aged']));
+ assert.equal(monthPlan.amount,1600);
+ assert.equal(monthPlan.period.end,cutoff);
+ assert.notEqual(monthPlan.estimate,null);
+ assert.equal(jobs[0].stage,'Production');
+});

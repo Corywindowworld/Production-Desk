@@ -11,8 +11,9 @@ export function aging(j:any,today=localDay()){
  const stage=normalizedJobStatus(j),kind=stage==='Received'?'Received':['Production','InProgress'].includes(stage)?'Production':stage==='Incomplete'?'Incomplete':null;
  const since=kind==='Received'?j.received:kind==='Production'?j.installed:j.incompleteSince?.slice(0,10);
  const days=kind&&since?dayDifference(since,today):null,limit=kind==='Incomplete'?45:kind==='Production'?7:30;
- const aged=days!==null&&(kind==='Incomplete'?days>=limit:days>limit);
- return {kind,days,aged,missing:!!kind&&days===null,remaining:days===null?null:Math.max(0,(kind==='Incomplete'?limit:limit+1)-days)};
+ const threshold=kind==='Incomplete'?limit:limit+1;
+ const aged=days!==null&&days>=threshold;
+ return {kind,days,aged,missing:!!kind&&days===null,remaining:days===null?null:Math.max(0,threshold-days),ageDate:days===null?null:addDays(since.slice(0,10),threshold)};
 }
 export function bonusPeriod(day:string){
  const d=new Date(day+'T12:00:00Z'),y=d.getUTCFullYear(),m=d.getUTCMonth();
@@ -53,8 +54,8 @@ export const receiveItemsSchema=z.object({received:date,materials:z.array(materi
 export const requestSchema=z.object({type:z.enum(['UTI','COLL','Service','ACCRF']),details:z.string().trim().min(1).max(4000),paymentReference:z.string().trim().max(300).default(''),refused:z.boolean().default(false),serviceDate:optionalDate,period:z.enum(['AM','PM']).default('AM'),installerId:z.string().default(''),amount:money.optional()});
 export const surveySchema=z.object({externalId:z.string().trim().min(1).max(150),customerId:z.string().trim().min(1).max(80),installerId:z.string().uuid(),completedOn:date,ratings:z.array(z.number().int().min(1).max(5).nullable()).length(4)}).refine(s=>s.ratings.some(r=>r!==null),'Enter at least one rating.');
 export const configSchema=z.object({period:date,pool:money,payouts:z.object({dollars:z.array(money).length(6),jobs:z.array(money).length(6),quality:z.array(money).length(6)}).optional(),dollars:z.array(money).length(4),jobs:z.array(z.number().int().min(0)).length(4),quality:z.array(z.number().min(0).max(4)).length(5)}).refine(c=>c.dollars.every((v,i)=>!i||v>=c.dollars[i-1])&&c.jobs.every((v,i)=>!i||v>=c.jobs[i-1])&&c.quality.every((v,i)=>!i||v<=c.quality[i-1]),'Thresholds must be ordered.').refine(c=>date.safeParse(c.period).success&&bonusPeriod(c.period).end===c.period,'Choose the last Tuesday of the bonus month.');
-export function bonusMetrics(jobs:any[],surveys:any[],config:any,today=localDay()){
- const period=bonusPeriod(today),aged=jobs.filter(j=>aging(j,today).aged),missing=aged.filter(j=>j.amount==null).length,unknownDates=jobs.filter(j=>aging(j,today).missing).length;
+export function bonusMetrics(jobs:any[],surveys:any[],config:any,today=localDay(),period=bonusPeriod(today)){
+ const aged=jobs.filter(j=>aging(j,today).aged),missing=aged.filter(j=>j.amount==null).length,unknownDates=jobs.filter(j=>aging(j,today).missing).length;
  const amount=Math.round(aged.reduce((s,j)=>s+(j.amount??0),0)*100)/100;
  const included=surveys.filter(s=>s.completed_on>=period.start&&s.completed_on<=period.end&&s.completed_on<=today);
  const categories=[0,1,2,3].map(i=>{const ratings=included.map(s=>s.ratings[i]).filter(v=>v!==null);return ratings.length?ratings.reduce((s,v)=>s+v-1,0)/ratings.length:null});

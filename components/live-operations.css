@@ -1213,3 +1213,10 @@ html:is(
 }
 .schedule-instructions small { white-space: pre-wrap; overflow-wrap: anywhere; cursor: text; }
 .schedule-instructions-editor textarea { width: 100%; resize: vertical; }
+
+.bonus-planner-table { overflow-x: auto; margin: 12px 0 20px; }
+.bonus-planner table { width: 100%; border-collapse: collapse; text-align: left; }
+.bonus-planner th, .bonus-planner td { padding: 9px; border-bottom: 1px solid #aab9c34d; }
+.bonus-planner td small { display: block; }
+.bonus-planner-controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; }
+.bonus-planner input[type=checkbox] { width: 20px; height: 20px; }
